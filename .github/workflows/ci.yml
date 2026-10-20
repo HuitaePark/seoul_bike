@@ -32,9 +32,9 @@ jobs:
           cache: gradle
       # 테스트가 Testcontainers로 PostGIS·Redpanda를 띄운다 (러너의 Docker 사용).
       - run: ./gradlew test --no-daemon
-        working-directory: services/backend
+        working-directory: backend
 
-  web:
+  frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,15 +42,15 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-        working-directory: apps/web
+        working-directory: frontend
       # 계약(openapi.yaml)을 바꾸고 타입을 다시 생성하지 않았으면 실패한다.
       - name: API 타입이 계약과 같은지
-        working-directory: apps/web
+        working-directory: frontend
         run: npm run gen:api && git diff --exit-code src/shared/api/schema.d.ts
       - run: npm run build
-        working-directory: apps/web
+        working-directory: frontend
 
   contracts:
     runs-on: ubuntu-latest

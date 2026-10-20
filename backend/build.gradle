@@ -58,7 +58,7 @@ tasks.named('bootJar') {
 
 // 계약 원본은 docs/specs에 둔다. 빌드할 때 복사해서 /specs/*.yaml로 서빙하고 /swagger/에서 보여준다.
 // Docker 빌드는 compose additional_contexts로 넘긴 경로(-PspecsDir=/specs)를 쓴다.
-def specsDir = providers.gradleProperty('specsDir').orElse('../../docs/specs')
+def specsDir = providers.gradleProperty('specsDir').orElse('../docs/specs')
 tasks.named('processResources', ProcessResources) {
 	from(specsDir.map { file(it) }) {
 		include '*.yaml'

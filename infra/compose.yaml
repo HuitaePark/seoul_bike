@@ -6,7 +6,7 @@ name: seoul-bike
 services:
   frontend:
     build:
-      context: ../apps/web
+      context: ../frontend
     ports:
       # 공개 포트. Tailscale Funnel(443)이 여기로 보낸다. 화면과 /api를 같은 출처로 묶는다.
       - "3000:80"
@@ -22,7 +22,7 @@ services:
 
   backend:
     build:
-      context: ../services/backend
+      context: ../backend
       additional_contexts:
         specs: ../docs/specs
       args:

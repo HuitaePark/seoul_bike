@@ -62,7 +62,7 @@ Tailscale funnel --https=443 off                                 # 공개 중단
 
 ## 배포하기
 
-- **자동:** `infra/`, `services/`, `packages/`, `apps/`, `deploy.yml`이 바뀐 커밋이 main에 들어오면 실행된다.
+- **자동:** `infra/`, `backend/`, `frontend/`, `packages/`, `deploy.yml`이 바뀐 커밋이 main에 들어오면 실행된다.
 - **수동:** Actions → deploy → Run workflow.
 
 서비스를 추가하면 `infra/compose.yaml`에 `build:`와 `healthcheck`를 넣는다. `--wait`가 헬스체크 통과까지 기다리므로, 헬스체크가 없으면 배포 성공 여부를 알 수 없다.

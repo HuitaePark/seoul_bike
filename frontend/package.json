@@ -8,7 +8,7 @@
     "build": "vue-tsc -b && vite build",
     "typecheck": "vue-tsc -b",
     "preview": "vite preview",
-    "gen:api": "npx -y openapi-typescript@7.13.0 ../../docs/specs/openapi.yaml -o src/shared/api/schema.d.ts"
+    "gen:api": "npx -y openapi-typescript@7.13.0 ../docs/specs/openapi.yaml -o src/shared/api/schema.d.ts"
   },
   "dependencies": {
     "openapi-fetch": "^0.17.0",
