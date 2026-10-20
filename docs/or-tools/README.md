@@ -6,6 +6,9 @@ Purpose: Entry point of the OR-Tools guide; maps common points of confusion to t
 
 # OR-Tools 재배치 파이프라인 이해 가이드
 
+> 현재 실행 방법과 기본값은 [최적화 코어 개발 안내](../optimizer/README.md)를 따른다.
+> 아래 가이드의 거리·트럭 수와 기본값은 초기 mock 버전의 예시이며, 현재 성능으로 인용하지 않는다.
+
 > 이 폴더는 "코드는 돌아가는데 **왜 그렇게 돌아가는지**, **OR-Tools가 어디서 뭘 하는지**, **발표에서 뭐라고 말해야 하는지** 모르겠다"는 상황을 해결하려고 만들었다.
 > 그림은 GitHub에서 바로 렌더링되는 Mermaid로 그렸다. VS Code에서는 Markdown Preview Mermaid Support 확장이 필요할 수 있다.
 
@@ -27,10 +30,10 @@ flowchart LR
 
 | 이런 게 헷갈린다면 | 읽을 곳 |
 |---|---|
-| 전체 구조가 어떻게 생겼고 파일이 각각 뭘 하는지 | [01-architecture.md](01-architecture.md) |
-| 데이터가 단계마다 어떻게 변하는지 (실제 숫자로 보고 싶다) | [02-pipeline-walkthrough.md](02-pipeline-walkthrough.md) |
-| OR-Tools가 코드 어디에서 어떻게 쓰이는지, 솔버 안에서 뭐가 일어나는지 | [03-ortools-explained.md](03-ortools-explained.md) |
-| mock이 뭘 보여준 건지, 발표에서 어떻게 말할지, 예상 질문 | [04-explain-and-faq.md](04-explain-and-faq.md) |
+| 전체 구조가 어떻게 생겼고 파일이 각각 뭘 하는지 | [01-architecture.md](architecture/01-architecture.md) |
+| 데이터가 단계마다 어떻게 변하는지 (실제 숫자로 보고 싶다) | [02-pipeline-walkthrough.md](architecture/02-pipeline-walkthrough.md) |
+| OR-Tools가 코드 어디에서 어떻게 쓰이는지, 솔버 안에서 뭐가 일어나는지 | [03-ortools-explained.md](architecture/03-ortools-explained.md) |
+| mock이 뭘 보여준 건지, 발표에서 어떻게 말할지, 예상 질문 | [04-explain-and-faq.md](architecture/04-explain-and-faq.md) |
 
 ## 추천 읽는 순서
 

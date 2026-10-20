@@ -36,3 +36,5 @@ Docker Compose로 운영하며, 공개 포트는 frontend(:80)와 backend(:8080)
 - [PRD](docs/PRD.md): 문제 정의, 요구사항, 에이전트 설계
 - [아키텍처](docs/ARCHITECTURE.md): 스택, 모듈 구조, 메시징, 컨테이너 구성
 - [OR-Tools 파이프라인 가이드](docs/or-tools/README.md)
+- [최적화 코어 개발 안내](docs/optimizer/README.md): 현재 실행법, 운영 제약, 단독 검증·성능 측정
+- [solve 명세 초안](docs/optimizer/solve-contract.md): 백엔드·데이터 연동 검토용
