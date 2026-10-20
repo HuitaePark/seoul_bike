@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.3.0-draft
+  version: 0.4.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
-    **초안 v0.3.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
+    **초안 v0.4.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.4: `TaskEvent.code`(FAILED 실패 종류). SSE는 계약 필드만 보낸다.
     - v0.3: 경로 변경 승인 카드에 `candidateId`·`requiredApprovers`. 큰 변경(MAJOR)은 관리자 → 기사 카드 두 장.
     - v0.2: 회원가입(`/api/auth/signup`, 승인 대기)과 관리자 계정 관리(`/api/admin/users`) 추가.
 
@@ -477,7 +478,7 @@ components:
       name: shiftId
       in: path
       required: true
-      description: "{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. LangGraph thread_id로도 쓴다"
+      description: "{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. Kafka 메시지 키로도 쓴다"
       schema: { type: string, examples: ['gwangjin-seongdong:2026-11-03:AM'] }
     Page:
       name: page
@@ -681,7 +682,8 @@ components:
 
     TaskEvent:
       type: object
-      description: SSE data. Kafka ai.events 메시지와 같은 형식 (asyncapi.yaml)
+      description: |
+        SSE data. Kafka ai.events 메시지와 같은 형식 (asyncapi.yaml). backend는 아래 계약 필드만 보낸다.
       required: [taskId, seq, type, occurredAt]
       properties:
         taskId: { type: string, format: uuid }
@@ -709,6 +711,9 @@ components:
         error:
           type: string
           description: FAILED
+        code:
+          type: [string, 'null']
+          description: FAILED만. 실패 종류 (예 LOOP_TIMEOUT, OUTPUT_INVALID). 화면 분기용이고 값 목록은 agent가 정한다
 
     ApprovalRequest:
       type: object

@@ -440,7 +440,7 @@ export interface components {
         };
         /** @enum {string} */
         TaskEventType: "TOKEN" | "TOOL_START" | "TOOL_END" | "APPROVAL_REQUIRED" | "DONE" | "FAILED";
-        /** @description SSE data. Kafka ai.events 메시지와 같은 형식 (asyncapi.yaml) */
+        /** @description SSE data. Kafka ai.events 메시지와 같은 형식 (asyncapi.yaml). backend는 아래 계약 필드만 보낸다. */
         TaskEvent: {
             /** Format: uuid */
             taskId: string;
@@ -466,6 +466,8 @@ export interface components {
             sources?: components["schemas"]["Source"][];
             /** @description FAILED */
             error?: string;
+            /** @description FAILED만. 실패 종류 (예 LOOP_TIMEOUT, OUTPUT_INVALID). 화면 분기용이고 값 목록은 agent가 정한다 */
+            code?: string | null;
         };
         /**
          * @description 변경 도구 앞에서 에이전트가 멈췄을 때의 승인 카드. 승인하면 그 변경을 받아들인 것이다.
@@ -684,7 +686,7 @@ export interface components {
     parameters: {
         TaskId: string;
         UserId: string;
-        /** @description {regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. LangGraph thread_id로도 쓴다 */
+        /** @description {regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. Kafka 메시지 키로도 쓴다 */
         ShiftId: string;
         Page: number;
         Size: number;
@@ -1085,7 +1087,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description {regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. LangGraph thread_id로도 쓴다 */
+                /** @description {regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. Kafka 메시지 키로도 쓴다 */
                 shiftId: components["parameters"]["ShiftId"];
             };
             cookie?: never;
