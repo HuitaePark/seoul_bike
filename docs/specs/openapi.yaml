@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.1.0-draft
+  version: 0.2.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
     **초안 v0.1.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
@@ -565,6 +565,16 @@ components:
           type: [string, 'null']
           description: "DOC이면 doc://{docId} (rag-mcp Resource)"
         excerpt: { type: [string, 'null'] }
+        citation:
+          type: [string, 'null']
+          description: 사람이 읽는 출처 (예 PRD 7.1, 김유신 2023). TOOL이면 호출한 내부 API
+        basis:
+          type: [string, 'null']
+          enum: [PRIMARY, SUPPLEMENTARY, null]
+          description: DOC 근거 등급. PRIMARY 팀 저장소 자료, SUPPLEMENTARY 저장소 밖 자료(논문, 보도자료)
+        section:
+          type: [string, 'null']
+          description: 문서 안 절 이름
 
     StationRole:
       type: string
@@ -635,7 +645,9 @@ components:
       type: object
       required: [planId, shiftId, version, status, routes, unserved]
       properties:
-        planId: { type: string }
+        planId:
+          type: string
+          description: 계획 버전마다 고유하다. 활성화(activate)는 이 값으로 버전을 지정한다
         shiftId: { type: string }
         version: { type: integer }
         status:

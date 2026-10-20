@@ -37,7 +37,8 @@
 
 | 질문 | 누구 |
 | --- | --- |
-| MCP 도구 10개 이름·인자가 이 대응표와 맞는가 | MCP |
+| MCP 도구 11개(`get_audit` 추가) 대응표, 승인 전달(`X-Approval-Id`·`X-Task-Id` 헤더), 같은 승인 재호출 규칙. v0.2에서 MCP 확인 완료, 백엔드 확인 필요 | 백엔드 |
+| 에이전트가 승인 뒤 MCP 호출에 `X-Approval-Id`·`X-Task-Id` 헤더를 붙일 수 있는가 | 에이전트 · Harness |
 | `TaskCommand`·`TaskEvent` 필드로 LangGraph 시작·재개·이벤트 발행이 충분한가 | 에이전트 |
 | `SolveRequest`·`SolveResult`가 OR-Tools 입력·출력과 맞는가 (`neededBikes` = 기존 `Imbalance.delta`) | 최적화 |
 | 화면에 필요한 필드가 빠지지 않았는가 (승인 카드, 근거 패널, 지도) | 화면 담당 전원 |
