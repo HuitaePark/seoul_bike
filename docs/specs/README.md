@@ -25,6 +25,18 @@
 2. `info.version`을 올리고 PR 설명에 무엇이 바뀌었는지 적는다.
 3. 계약 PR은 쓰는 쪽과 받는 쪽 담당이 함께 승인한다.
 
+## 구현 상태
+
+| 계약 | 상태 |
+| --- | --- |
+| 로그인 · `/api/me` · JWT · 역할 3개 | 구현 |
+| 회원가입(승인 대기) · 관리자 계정 관리 (`/api/admin/users`) | 구현 (v0.2) |
+| 작업 API 5개 (202 · SSE · `Last-Event-ID` 재전송 · 승인) | 구현 |
+| `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. **재시도·DLQ(`*.retry` · `*.dlq`)는 아직 없다 (M4)** |
+| `/api/system/status` | 구현 |
+| 대여소 · 계획 · 현장 보고 · 성과 API | 계약만 |
+| `/internal/**` · `solve.*` | 계약만 (backend는 `/internal/**`를 아직 막아 둔다) |
+
 ## 이 초안이 정한 것
 
 - 작업 API 경로와 이름은 과제 레퍼런스(표 5-8)를 그대로 따른다.

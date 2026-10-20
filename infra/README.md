@@ -14,7 +14,7 @@ flowchart LR
 
 | 파일 | 역할 |
 | --- | --- |
-| `infra/compose.yaml` | 서비스 정의. 지금은 backend(Spring Boot, :8080 공개), postgres(PostGIS), vectordb(pgvector), redpanda |
+| `infra/compose.yaml` | 서비스 정의: frontend(nginx + Vue, :3000 공개), backend(Spring Boot, :8080), postgres(PostGIS), vectordb(pgvector), redpanda |
 | `infra/.env.example` | 서버 `.env` 양식 |
 | `infra/runner/install-macos.sh` | 서버에 러너 설치 + launchd 서비스 등록 |
 | `.github/workflows/ci.yml` | PR·main 검사 (GitHub 호스팅 러너) |
@@ -47,8 +47,8 @@ flowchart LR
 
 | 주소 | 범위 | 비고 |
 | --- | --- | --- |
-| `https://baki-macbookpro.tail3286a4.ts.net` | **인터넷 공개** (Tailscale Funnel 443 → backend :8080) | 팀원·발표 데모용 기본 주소. 인증을 붙이기 전까지 아무나 볼 수 있다 |
-| `https://baki-macbookpro.tail3286a4.ts.net:8443` | 인터넷 공개 (같은 backend) | 예전 링크 호환용. 학교·회사 유선망은 8443을 막을 수 있으니 443 주소를 쓴다 |
+| `https://baki-macbookpro.tail3286a4.ts.net` | **인터넷 공개** (Tailscale Funnel 443 → frontend :3000) | 팀원·발표 데모용 기본 주소. 화면과 `/api`, `/swagger`, `/status`가 모두 여기로 열린다 |
+| `https://baki-macbookpro.tail3286a4.ts.net:8443` | 인터넷 공개 (같은 frontend) | 예전 링크 호환용. 학교·회사 유선망은 8443을 막을 수 있으니 443 주소를 쓴다 |
 | `http://baki-macbookpro.tail3286a4.ts.net:8080` | Tailscale 네트워크, 서버가 연결된 공유기 내부망 | Colima가 모든 인터페이스에 포트를 연다 |
 | `https://baki-macbookpro.tail3286a4.ts.net:10443` | Tailscale 네트워크만 | Ollama(11434) |
 
@@ -56,13 +56,13 @@ Funnel 관리 (서버에서, CLI는 `/Applications/Tailscale.app/Contents/MacOS/
 
 ```bash
 Tailscale funnel status                                          # 현재 설정
-Tailscale funnel --bg --https=443 http://127.0.0.1:8080          # 공개
+Tailscale funnel --bg --https=443 http://127.0.0.1:3000          # 공개 (frontend)
 Tailscale funnel --https=443 off                                 # 공개 중단 (8443도 같은 방식)
 ```
 
 ## 배포하기
 
-- **자동:** `infra/`, `services/`, `packages/`, `apps/`, `deploy.yml`이 바뀐 커밋이 main에 들어오면 실행된다.
+- **자동:** `infra/`, `backend/`, `frontend/`, `packages/`, `deploy.yml`이 바뀐 커밋이 main에 들어오면 실행된다.
 - **수동:** Actions → deploy → Run workflow.
 
 서비스를 추가하면 `infra/compose.yaml`에 `build:`와 `healthcheck`를 넣는다. `--wait`가 헬스체크 통과까지 기다리므로, 헬스체크가 없으면 배포 성공 여부를 알 수 없다.

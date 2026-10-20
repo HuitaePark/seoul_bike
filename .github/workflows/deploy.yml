@@ -7,10 +7,10 @@ on:
     branches: [main]
     paths:
       - "infra/**"
-      - "services/**"
+      - "backend/**"
       - "packages/**"
       - "docs/specs/**"
-      - "apps/**"
+      - "frontend/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
