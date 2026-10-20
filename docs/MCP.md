@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 상태 | 초안 v0.2 |
+| 문서 상태 | 초안 v0.3 (specs internal-api v0.2·openapi v0.3, HARNESS v0.5에 맞춤) |
 | 작성일 | 2026-10-20 |
 | 담당 | 3 MCP · RAG |
 | 사용 | 1 에이전트 그래프 (MCP Client), 2 Harness (도구 허용 목록, 승인, 마스킹), 4 백엔드 (`/internal/**`) |
@@ -30,14 +30,16 @@
 
 | 대상 | 규칙 | 예 |
 | --- | --- | --- |
-| 도구 인자 | snake_case | `station_id`, `horizon_h` |
-| 도구 결과 필드 | **snake_case** (백엔드 camelCase를 MCP가 바꿈). enum 값은 specs 그대로 대문자 | `truck_id`, `forecast_bikes`, `PICKUP` |
-| 근무조 ID | `{regionId}:{yyyy-MM-dd}:{AM\|PM\|EVE}` = LangGraph `thread_id` | `gwangjin-seongdong:2026-10-21:AM` |
+| 도구 인자 | 내부 API 필드의 snake_case (HARNESS 3.6 인자 검증과 같음) | `station_id`, `exclude_station_ids` |
+| 도구 결과 필드 | **specs 그대로 camelCase**, enum은 대문자 | `truckId`, `forecastBikes`, `candidateId`, `PICKUP` |
+| 권역 ID | 영문·숫자·하이픈 (대문자 허용) | `S05`, `gwangjin-seongdong` |
+| 근무조 ID | `{regionId}:{yyyy-MM-dd}:{AM\|PM\|EVE}` | `S05:2026-10-21:AM` |
 | 대여소 ID | `ST-숫자` | `ST-1023` |
 | 시각 | ISO 8601, KST 오프셋 필수 | `2026-10-21T07:00:00+09:00` |
 | 자전거 수 | 정수, 단위 대 | |
 
-결과를 snake_case로 바꾸는 이유: Harness의 기사 범위 제한(다른 트럭의 `truck_id` 항목 제거, NFR-06)과 숫자 출처 검사가 snake_case 키를 쓴다.
+결과를 camelCase 그대로 두는 이유: Harness의 기사 범위 제한(다른 트럭의 `truckId` 항목 제거, NFR-06)과 인자 검증(`candidateId`, `stationId`, `docks`, `actualBikes`)이 계약 필드 이름을 읽는다.
+권역 ID는 6번 데이터 담당이 `N01`~`S09` 형식을 제안했다 (합의 전). MCP는 두 형식을 모두 받는다.
 
 ### 2.2 결과 공통
 
@@ -61,20 +63,23 @@
 | 403 `APPROVAL_REQUIRED` | `APPROVAL_REQUIRED` | false (사람 승인을 기다려야 함) | |
 | 5xx, 타임아웃 | `UPSTREAM_UNAVAILABLE` | true | `retry_after_s` |
 | MCP 인자 검사 실패 | `INVALID_ARGUMENT` (시각 형식, 기간 순서, 필수 `value`) | true | 예시 |
-| 승인 헤더 없음 | `APPROVAL_REQUIRED` | false | |
+| 승인 인자(`approval_id`, `task_id`) 없음 | `APPROVAL_REQUIRED` | false | |
 | 스키마 위반 (범위, enum, 패턴) | FastMCP가 Pydantic 메시지로 돌려줌 | | 메시지에 허용 범위 포함 |
 
 ### 2.4 승인 전달
 
-모델이 승인 번호를 만들 수 없도록 **변경 도구 인자에는 approvalId가 없다.**
+변경 도구 3개는 `approval_id`, `task_id` 인자를 갖지만 **모델은 보지도 넣지도 못한다.** Harness가 모델에게 주는 스키마에서
+이 두 인자를 지우고(`hide_injected_args`), 승인된 호출을 실행할 때 채운다 (harness.yaml `guardrails.injected_args`).
 
-1. 모델이 변경 도구를 고르면 Harness가 실행 전에 멈춘다 (`interrupt`, `APPROVAL_REQUIRED` 이벤트).
-2. 사람이 승인하면 backend가 승인을 기록하고 `ai.tasks`에 `RESUME`(approvalId)을 보낸다.
-3. 에이전트가 같은 도구를 다시 실행하면서 MCP 요청에 `X-Approval-Id`, `X-Task-Id` 헤더를 붙인다 (`X-Trace-Id`와 같은 interceptor).
-4. business-mcp가 헤더 값을 요청 본문의 `approvalId`, `taskId`로 옮긴다. 헤더가 없으면 `APPROVAL_REQUIRED`.
-5. backend가 approvalId가 `APPROVED`인지 한 번 더 확인한다 (아니면 403).
+1. 모델이 변경 도구를 고르면 Harness가 실행 전에 멈추고 승인 카드(`APPROVAL_REQUIRED`)를 보낸다.
+2. 카드 수와 승인자
+   - `submit_plan`, `add_constraint`: 관리자 카드 한 장.
+   - `propose_route_change`: `request_route_plan` 결과의 `requiredApprovers` 순서. MINOR는 `[DRIVER]` 한 장, MAJOR는 `[MANAGER, DRIVER]` 두 장. **기사 카드 승인이 곧 기사 수락**이라 따로 수락 단계가 없다 (specs openapi v0.3, HARNESS 10절 (나)). 앞 카드가 거절되면 뒤 카드는 보내지 않고 기존 경로를 유지한다.
+3. 사람이 승인하면 backend가 기록하고 `ai.tasks` `RESUME`(approvalId)을 보낸다.
+4. Harness가 마지막 카드의 approvalId와 taskId를 채워 도구를 실행한다. business-mcp는 값을 요청 본문의 `approvalId`, `taskId`로 옮긴다. 값이 없으면 `APPROVAL_REQUIRED`.
+5. backend가 필요한 승인이 순서대로 모두 `APPROVED`인지 한 번 더 확인한다 (아니면 403). 경로 변경의 기사 승인은 그 트럭 기사의 것이어야 한다.
 
-같은 approvalId로 같은 변경을 다시 부르면 backend가 처음 결과를 준다 (LangGraph 재실행 대비, internal-api 설명).
+grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부르지 않는다.
 
 ---
 
@@ -88,7 +93,7 @@
 | 4 | `get_current_plan` | 조회 | `GET /internal/shifts/{shiftId}/plan` | 전체 |
 | 5 | `get_truck_status` | 조회 | `GET /internal/shifts/{shiftId}/trucks` | 전체 |
 | 6 | `get_field_reports` | 조회 | `GET /internal/shifts/{shiftId}/reports` | 전체 |
-| 7 | `get_audit` | 조회 | `GET /internal/shifts/{shiftId}/audit` | qa |
+| 7 | `get_audit` | 조회 | `GET /internal/shifts/{shiftId}/audit` (**계약 미반영**, ISSUES ISS-06) | qa (harness.yaml에서 결정 전까지 빠짐) |
 | 8 | `request_route_plan` | 계산 | `POST /internal/plans/solve` | plan_draft, field_report, manager_request |
 | 9 | `add_constraint` | 변경 | `POST /internal/constraints` | manager_request |
 | 10 | `submit_plan` | 변경 | `POST /internal/plans/{planId}/activate` | plan_draft |
@@ -98,22 +103,24 @@
 
 | 도구 | 인자 | 결과 |
 | --- | --- | --- |
-| `get_risk_stations` | `region_id`, `horizon_h`=3 (1~5), `risk`=ALL (EMPTY, OVERFLOW, ALL), `limit`=20 | `stations[]`: station_id, name, bikes, forecast_bikes, docks, risk, role, needed_bikes(양수 회수, 음수 배치), priority, empty_at, reasons |
-| `get_station_detail` | `station_id` | 대여소 상태 + district, recent_reports |
-| `get_forecast` | `station_ids` (20곳 이하), `start`, `horizon_h`=3 | `forecasts[]`: station_id, start, horizon_h, rentals, returns, model_version |
-| `get_current_plan` | `shift_id` | plan_id, version, status, provisional, routes[stops], unserved, explanation |
-| `get_truck_status` | `shift_id`, `truck_id`(선택) | `trucks[]`: truck_id, capacity, load, lat, lon, shift_end, remaining_stops |
-| `get_field_reports` | `shift_id`, `since`(선택), `limit`=20 | `reports[]` (최신순): report_id, truck_id, driver, station_id, actual_bikes, issue, memo, reported_at |
-| `get_audit` | `shift_id`, `since`(선택), `limit`=20 | `events[]` (최신순): audit_id, occurred_at, type, actor, target_id, detail |
-| `request_route_plan` | `shift_id`, `kind`=PLAN (PLAN, REPLAN), `truck_ids`(선택), `exclude_station_ids`(선택) | candidate_id, status(OK, TIMEOUT_PROVISIONAL), plan, grade(NONE, MINOR, MAJOR), diffs |
-| `add_constraint` | `shift_id`, `type`, `station_ids`, `valid_from`, `valid_to`, `reason`, `value`(선택) | constraint_id와 저장된 제약 |
+| `get_risk_stations` | `region_id`, `horizon_h`=3 (1~5), `risk`=ALL (EMPTY, OVERFLOW, ALL), `limit`=20 | `stations[]`: stationId, name, bikes, forecastBikes, docks, risk, role, neededBikes(양수 회수, 음수 배치), priority, emptyAt, reasons |
+| `get_station_detail` | `station_id` | 대여소 상태 + district, recentReports |
+| `get_forecast` | `station_ids` (20곳 이하), `start`, `horizon_h`=3 | `forecasts[]`: stationId, start, horizonH, rentals, returns, modelVersion |
+| `get_current_plan` | `shift_id` | planId, version, status, provisional, routes[stops], unserved, explanation |
+| `get_truck_status` | `shift_id`, `truck_id`(선택) | `trucks[]`: truckId, capacity, load, lat, lon, shiftEnd, remainingStops |
+| `get_field_reports` | `shift_id`, `since`(선택), `limit`=20 | `reports[]` (최신순): reportId, truckId, driver, stationId, actualBikes, issue, memo, reportedAt |
+| `get_audit` | `shift_id`, `since`(선택), `limit`=20 | `events[]` (최신순): auditId, occurredAt, type, actor, targetId, detail |
+| `request_route_plan` | `shift_id`, `kind`=PLAN (PLAN, REPLAN), `truck_ids`(선택), `exclude_station_ids`(선택) | candidateId, status(OK, TIMEOUT_PROVISIONAL), plan, grade(NONE, MINOR, MAJOR), requiredApprovers, diffs |
+| `add_constraint` | `shift_id`, `type`, `station_ids`, `valid_from`, `valid_to`, `reason`, `value`(선택) | constraintId와 저장된 제약 |
 | `submit_plan` | `plan_id` | 활성화된 계획 |
 | `propose_route_change` | `truck_id`, `candidate_id` | 적용된 트럭 경로 |
+
+변경 도구와 `request_route_plan`에는 위 인자 말고 Harness가 채우는 `approval_id`, `task_id`가 더 있다 (2.4).
 
 - `horizon_h` 최대 5: 근거 문서 [ref-forecast-kim-2023](rag/ref-forecast-kim-2023.md) 7절 (논문 본문 3~5시간). specs는 6까지 받으므로 MCP가 더 좁게 받는다.
 - `add_constraint.type`: `TARGET_ADJUST`, `STATION_SUSPENDED`(대여·반납 중지), `STATION_BLOCKED`(트럭 진입 불가), `INVENTORY_OVERRIDE`, `PRIORITY_BOOST`. `TARGET_ADJUST`, `INVENTORY_OVERRIDE`는 `value` 필수.
 - `request_route_plan`: 현장 실제 재고는 기사 보고로 백엔드에 이미 들어가 있으므로 따로 넘기지 않는다. 이번 계산에서 뺄 대여소만 `exclude_station_ids`로 넘긴다.
-- `propose_route_change`: 경로를 직접 받지 않고 `request_route_plan(kind=REPLAN)`이 만든 `candidate_id`를 적용한다. 승인 카드는 등급에 따라 기사(MINOR) 또는 관리자(MAJOR)에게 간다.
+- `propose_route_change`: 경로를 직접 받지 않고 `request_route_plan(kind=REPLAN)`이 만든 `candidateId`를 적용한다. 승인 카드는 후보의 `requiredApprovers` 순서를 따른다 (2.4).
 
 ---
 
@@ -195,9 +202,10 @@ cd rag-mcp && pip install -e ".[test]" && python -m pytest -q
 
 | 항목 | 상대 | 내용 |
 | --- | --- | --- |
-| Harness 인자 검증 | 2 Harness | `validation.py`의 제약 형식(`blocked`, `suspended`, `excluded`, `actual_bikes`, `period`)을 3절 인자로 맞춤 |
-| 승인 헤더 | 1 에이전트, 2 Harness | 승인 뒤 MCP 호출에 `X-Approval-Id`, `X-Task-Id` 붙이기 (2.4) |
-| `propose_route_change` 의미 | 1, 2, 4 | HARNESS.md 10절. 이 문서는 specs 방식(승인 카드를 기사·관리자에게 보내고 승인 뒤 적용)을 따른다 |
+| `get_audit` 계약 | 4 백엔드 | 내부 API `GET /internal/shifts/{shiftId}/audit`와 `AuditEvent` 추가 여부 (ISSUES ISS-06). 결정되면 harness.yaml `qa`에 다시 넣음 |
+| 권역 ID 형식 | 6 데이터, 4 백엔드 | `N01`~`S09` 제안 (6번 agreements 2번). MCP는 대문자도 받음 |
+| 근거 문서 위치·머리말 | 6 데이터 | 6번 제안은 `docs/evidence/`와 `title`·`doc_id`·`version`·`updated`·`source`·`status` 머리말 (agreements 21번). 지금은 `docs/rag/`와 4.3절 머리말. 합의 후 한쪽으로 맞춤. `rebal-summary`와 `analysis-reverse-estimation`이 겹침 |
+| `Forecast` 시간별 값 | 6 데이터, 4 백엔드 | `rentalsH`·`returnsH` 추가 제안 (agreements 15번). 백엔드가 주면 MCP는 그대로 전달 |
 | `horizonH` 최대값 | 4 백엔드, 6 데이터 | specs 6, MCP 5 (근거 문서 7절) |
 | 임베딩 모델 | 1, 2 | 모델 이름·차원 기록 |
 | compose 등록 | 5 인프라 | `business-mcp`, `rag-mcp` 컨테이너와 `docs/rag` 마운트 |

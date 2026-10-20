@@ -119,7 +119,9 @@ def _problem(status: int, code: str, detail: str, suggestions: list[str] | None 
 class FakeInternalApi:
     """InternalApi 계약을 메모리 상태로 흉내 낸다.
 
-    승인: 변경 API는 approve(approval_id)로 승인해 둔 approvalId만 통과시킨다 (그 밖은 403).
+    승인: 변경 API는 approve()로 승인해 둔 approvalId만 통과시킨다 (그 밖은 403).
+    제약·계획은 관리자(MANAGER) 승인 한 장, 경로 변경은 후보의 requiredApprovers 순서가 모두 승인돼야 한다
+    (MINOR [DRIVER], MAJOR [MANAGER, DRIVER]). 경로 변경에 넘기는 approvalId는 마지막 카드인 기사 수락이다.
     """
 
     def __init__(self, *, now: datetime = FIXED_NOW) -> None:
@@ -131,13 +133,15 @@ class FakeInternalApi:
         self._constraints: list[Json] = []
         self._candidates: dict[str, Json] = {}
         self._latest_candidate: str | None = None
-        self._approved: set[str] = set()
+        self._approved: dict[str, Json] = {}  # approvalId -> {role, taskId, candidateId}
         self._used_approvals: dict[str, Json] = {}
         self._seq = {"constraint": 300, "candidate": 0}
 
     # ── 시험 도우미 (백엔드의 승인 API 대역) ─────────────────
-    def approve(self, approval_id: str) -> None:
-        self._approved.add(approval_id)
+    def approve(self, approval_id: str, *, role: str = "MANAGER", task_id: str | None = None,
+                candidate_id: str | None = None) -> None:
+        """사람이 카드를 승인한 기록. task_id가 None이면 어느 작업에서든 통한다 (시험 편의)."""
+        self._approved[approval_id] = {"role": role, "taskId": task_id, "candidateId": candidate_id}
 
     # ── 공통 ─────────────────────────────────────────────
     def _next(self, key: str) -> int:
@@ -165,21 +169,32 @@ class FakeInternalApi:
                 "bikes": s["bikes"], "observedAt": _iso(self._now - timedelta(minutes=5)),
                 "forecastBikes": forecast, "risk": risk, "role": s["role"], "elevationM": s["elevationM"]}
 
-    def _check_approval(self, approval_id: str, op: Json) -> Json | None:
+    def _approval(self, approval_id: str, task_id: str, role: str) -> Json | None:
+        """승인 기록을 찾는다. 없거나, 다른 작업이거나, 승인 주체가 다르면 None."""
+        rec = self._approved.get(approval_id)
+        if rec is None or rec["role"] != role or rec["taskId"] not in (None, task_id):
+            return None
+        return rec
+
+    def _check_approval(self, request: Json, op: Json, role: str) -> Json | None:
         """승인되지 않았으면 403. 같은 approvalId로 같은 작업을 다시 부르면 이전 결과를 준다."""
+        approval_id = request["approvalId"]
         if approval_id in self._used_approvals:
             used = self._used_approvals[approval_id]
             if used["op"] == op:
                 return copy.deepcopy(used["result"])
             raise _problem(409, "APPROVAL_ALREADY_USED", f"approvalId {approval_id}는 다른 변경에 이미 쓰였습니다.")
-        if approval_id not in self._approved:
-            raise _problem(403, "APPROVAL_REQUIRED", f"approvalId {approval_id}는 승인되지 않았습니다. 승인 후 다시 호출합니다.")
+        if self._approval(approval_id, request["taskId"], role) is None:
+            raise _problem(403, "APPROVAL_REQUIRED",
+                           f"approvalId {approval_id}는 이 작업의 {role} 승인이 아닙니다. 승인 후 다시 호출합니다.")
         return None
 
     def _use_approval(self, approval_id: str, op: Json, result: Json, audit_type: str, target: str, detail: str) -> Json:
         self._used_approvals[approval_id] = {"op": op, "result": copy.deepcopy(result)}
+        role = self._approved[approval_id]["role"]
         self._audit.append({"auditId": f"AU-{5502 + len(self._audit)}", "occurredAt": _iso(self._now),
-                            "type": audit_type, "actor": {"role": "MANAGER", "display": "관리자 A"},
+                            "type": audit_type,
+                            "actor": {"role": role, "display": "관리자 A" if role == "MANAGER" else "기사 A"},
                             "targetId": target, "detail": detail})
         return result
 
@@ -298,7 +313,10 @@ class FakeInternalApi:
         self._plans[plan["version"]] = plan
         self._latest = plan["version"]
         candidate_id = f"CAND-{self._next('candidate'):04d}"
-        candidate = {"candidateId": candidate_id, "status": "OK", "plan": plan, "grade": grade, "diffs": diffs}
+        # 승인 순서도 백엔드가 등급으로 정한다 (specs internal-api v0.2 PlanCandidate.requiredApprovers).
+        required = {"MINOR": ["DRIVER"], "MAJOR": ["MANAGER", "DRIVER"]}.get(grade or "", [])
+        candidate = {"candidateId": candidate_id, "status": "OK", "plan": plan, "grade": grade,
+                     "requiredApprovers": required, "diffs": diffs}
         self._candidates[candidate_id] = candidate
         self._latest_candidate = candidate_id
         return copy.deepcopy(candidate)
@@ -306,7 +324,7 @@ class FakeInternalApi:
     # ── 변경 (approvalId 필요) ───────────────────────────
     async def add_constraint(self, request):
         op = {"kind": "constraint", **{k: v for k, v in request.items() if k != "approvalId"}}
-        if (replay := self._check_approval(request["approvalId"], op)) is not None:
+        if (replay := self._check_approval(request, op, "MANAGER")) is not None:
             return replay
         self._shift(request["shiftId"])
         for sid in request["stationIds"]:
@@ -320,7 +338,7 @@ class FakeInternalApi:
 
     async def activate_plan(self, plan_id, approval):
         op = {"kind": "activate", "planId": plan_id}
-        if (replay := self._check_approval(approval["approvalId"], op)) is not None:
+        if (replay := self._check_approval(approval, op, "MANAGER")) is not None:
             return replay
         plan = next((p for p in self._plans.values() if p["planId"] == plan_id), None)
         if plan is None:
@@ -337,16 +355,25 @@ class FakeInternalApi:
                                   f"계획 v{plan['version']} 활성화")
 
     async def apply_route(self, truck_id, request):
-        op = {"kind": "apply", "truckId": truck_id, "candidateId": request["candidateId"]}
-        if (replay := self._check_approval(request["approvalId"], op)) is not None:
+        cid = request["candidateId"]
+        op = {"kind": "apply", "truckId": truck_id, "candidateId": cid}
+        # approvalId는 마지막 카드(기사 수락)다.
+        if (replay := self._check_approval(request, op, "DRIVER")) is not None:
             return replay
-        candidate = self._candidates.get(request["candidateId"])
+        candidate = self._candidates.get(cid)
         if candidate is None:
-            raise _problem(404, "CANDIDATE_NOT_FOUND", f"'{request['candidateId']}' 후보가 없습니다. "
-                           "request_route_plan으로 후보를 먼저 만듭니다.")
-        if request["candidateId"] != self._latest_candidate:
-            raise _problem(409, "CANDIDATE_SUPERSEDED", f"'{request['candidateId']}'보다 새로운 후보가 있습니다. "
+            raise _problem(404, "CANDIDATE_NOT_FOUND", f"'{cid}' 후보가 없습니다. request_route_plan으로 후보를 먼저 만듭니다.")
+        if cid != self._latest_candidate:
+            raise _problem(409, "CANDIDATE_SUPERSEDED", f"'{cid}'보다 새로운 후보가 있습니다. "
                            f"최신 후보: {self._latest_candidate}", [self._latest_candidate])
+        if not candidate["requiredApprovers"]:
+            raise _problem(409, "CANDIDATE_NO_CHANGE", f"'{cid}'는 변경 등급이 NONE이라 적용할 것이 없습니다.")
+        # 앞선 카드(MAJOR의 관리자 승인)도 같은 작업·같은 후보에서 승인됐는지 확인한다.
+        for role in candidate["requiredApprovers"][:-1]:
+            if not any(r["role"] == role and r["taskId"] in (None, request["taskId"]) and r["candidateId"] in (None, cid)
+                       for r in self._approved.values()):
+                raise _problem(403, "APPROVAL_REQUIRED",
+                               f"후보 {cid}의 승인 순서 {candidate['requiredApprovers']} 중 {role} 승인이 없습니다.")
         route = next((r for r in candidate["plan"]["routes"] if r["truckId"] == truck_id), None)
         if route is None:
             trucks = [r["truckId"] for r in candidate["plan"]["routes"]]

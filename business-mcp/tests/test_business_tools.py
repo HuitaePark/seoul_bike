@@ -13,23 +13,13 @@ from fastmcp import Client
 
 from business_mcp.fake_internal import REGION_ID, SHIFT_ID, FakeInternalApi
 from business_mcp.internal import HttpInternalApi
-from business_mcp.server import build_server, to_snake
+from business_mcp.server import build_server
 
 READ_TOOLS = {"get_risk_stations", "get_station_detail", "get_forecast", "get_current_plan",
               "get_truck_status", "get_field_reports", "get_audit"}
 WRITE_TOOLS = {"add_constraint", "submit_plan", "propose_route_change"}
+INJECTED = {"approval_id", "task_id"}
 TASK_ID = str(uuid.UUID(int=1))
-
-
-class Approval:
-    """Harness가 붙이는 X-Approval-Id·X-Task-Id 헤더의 대역."""
-
-    def __init__(self) -> None:
-        self.approval_id: str | None = None
-        self.task_id: str | None = TASK_ID
-
-    def __call__(self) -> tuple[str | None, str | None]:
-        return self.approval_id, self.task_id
 
 
 @pytest.fixture
@@ -38,20 +28,15 @@ def fake() -> FakeInternalApi:
 
 
 @pytest.fixture
-def approval() -> Approval:
-    return Approval()
+def client(fake) -> Client:
+    return Client(build_server(fake))
 
 
-@pytest.fixture
-def client(fake, approval) -> Client:
-    return Client(build_server(fake, approval=approval))
-
-
-def approve(fake: FakeInternalApi, approval: Approval) -> str:
-    """사람이 승인한 상태를 만든다: 백엔드에 승인 기록 + 에이전트가 헤더에 approvalId를 붙임."""
-    approval.approval_id = str(uuid.uuid4())
-    fake.approve(approval.approval_id)
-    return approval.approval_id
+def card(fake: FakeInternalApi, role: str = "MANAGER", candidate_id: str | None = None) -> dict:
+    """사람이 카드를 승인한 상태를 만들고, Harness가 채우는 인자를 돌려준다."""
+    approval_id = str(uuid.uuid4())
+    fake.approve(approval_id, role=role, task_id=TASK_ID, candidate_id=candidate_id)
+    return {"approval_id": approval_id, "task_id": TASK_ID}
 
 
 async def call(client: Client, name: str, args: dict) -> dict:
@@ -76,39 +61,65 @@ async def test_lists_eleven_tools_with_hints(client):
     for name in WRITE_TOOLS:
         assert tools[name].annotations.destructive_hint is True
         assert "[승인 필요]" in tools[name].description
-        assert not {"approval_id", "task_id"} & set(tools[name].input_schema["properties"])
     assert tools["request_route_plan"].annotations.destructive_hint is False
+
+
+async def test_injected_args_are_in_schema_but_optional(client):
+    """Harness hide_injected_args는 스키마에 있는 approval_id·task_id를 모델 시야에서 지우고, 승인된 호출에 채운다."""
+    async with client:
+        tools = {t.name: t for t in await client.list_tools()}
+    for name in WRITE_TOOLS:
+        schema = tools[name].input_schema
+        assert INJECTED <= set(schema["properties"])
+        assert not INJECTED & set(schema.get("required", []))
+    assert "task_id" in tools["request_route_plan"].input_schema["properties"]
+
+
+async def test_tool_args_match_harness_validation(client):
+    """agent/harness/validation.py SCHEMAS의 인자 이름과 같다."""
+    expected = {
+        "request_route_plan": {"shift_id", "kind", "truck_ids", "exclude_station_ids"},
+        "add_constraint": {"shift_id", "type", "station_ids", "valid_from", "valid_to", "reason", "value"},
+        "submit_plan": {"plan_id"},
+        "propose_route_change": {"truck_id", "candidate_id"},
+    }
+    async with client:
+        tools = {t.name: t for t in await client.list_tools()}
+    for name, args in expected.items():
+        assert set(tools[name].input_schema["properties"]) - INJECTED == args
 
 
 async def test_docstrings_state_units(client):
     async with client:
         tools = {t.name: t for t in await client.list_tools()}
     assert "(대" in tools["get_forecast"].description
-    assert "added_minutes(분)" in tools["request_route_plan"].description
-
-
-def test_to_snake_converts_keys_only():
-    assert to_snake({"truckId": "TR-01", "remainingStops": [{"stationId": "ST-1", "action": "PICKUP"}]}) == {
-        "truck_id": "TR-01", "remaining_stops": [{"station_id": "ST-1", "action": "PICKUP"}]}
+    assert "addedMinutes(분)" in tools["request_route_plan"].description
 
 
 # ── 조회 ─────────────────────────────────────────────────
 
-async def test_risk_stations_sorted_filtered_snake_case(client):
+async def test_risk_stations_sorted_filtered_camel_case(client):
     async with client:
         all_rows = await call(client, "get_risk_stations", {"region_id": REGION_ID})
         empty = await call(client, "get_risk_stations", {"region_id": REGION_ID, "risk": "EMPTY"})
     priorities = [s["priority"] for s in all_rows["stations"]]
     assert priorities == sorted(priorities, reverse=True)
     assert {s["risk"] for s in empty["stations"]} == {"EMPTY"}
-    assert all(s["needed_bikes"] < 0 and "forecast_bikes" in s for s in empty["stations"])
-    assert all_rows["source"] == "GET /internal/stations/risk"
+    assert all(s["neededBikes"] < 0 and "forecastBikes" in s and "stationId" in s for s in empty["stations"])
+    assert all_rows["source"] == "GET /internal/stations/risk" and all_rows["horizonH"] == 3
 
 
 async def test_unknown_region_gives_candidates(client):
     async with client:
-        err = await call_error(client, "get_risk_stations", {"region_id": "gangnam"})
+        err = await call_error(client, "get_risk_stations", {"region_id": "S05"})
     assert err["code"] == "REGION_NOT_FOUND" and err["hint"]["candidates"] == [REGION_ID]
+
+
+async def test_uppercase_region_and_shift_ids_pass_schema(client):
+    """6번 제안 구역 ID(N01~S09) 형식도 스키마를 통과해 백엔드 오류(후보 포함)까지 간다."""
+    async with client:
+        err = await call_error(client, "get_current_plan", {"shift_id": "S05:2026-10-21:AM"})
+    assert err["code"] == "SHIFT_NOT_FOUND" and err["hint"]["candidates"] == [SHIFT_ID]
 
 
 async def test_station_not_found_then_retry_with_candidate(client):
@@ -117,15 +128,14 @@ async def test_station_not_found_then_retry_with_candidate(client):
         err = await call_error(client, "get_station_detail", {"station_id": "ST-9999"})
         assert err["code"] == "STATION_NOT_FOUND" and err["retryable"] is True
         retry = await call(client, "get_station_detail", {"station_id": err["hint"]["candidates"][0]})
-    assert retry["station_id"] == err["hint"]["candidates"][0]
-    assert "recent_reports" in retry
+    assert retry["stationId"] == err["hint"]["candidates"][0]
+    assert "recentReports" in retry
 
 
 async def test_schema_rejects_bad_ids(client):
     async with client:
         bad_station = await client.call_tool("get_station_detail", {"station_id": "1023"}, raise_on_error=False)
-        bad_shift = await client.call_tool("get_current_plan", {"shift_id": "gwangjin:2026-10-21:am"},
-                                           raise_on_error=False)
+        bad_shift = await client.call_tool("get_current_plan", {"shift_id": "S05:2026-10-21:am"}, raise_on_error=False)
     assert bad_station.is_error and bad_shift.is_error
 
 
@@ -133,7 +143,7 @@ async def test_forecast(client):
     async with client:
         res = await call(client, "get_forecast", {"station_ids": ["ST-1023"], "start": "2026-10-21T07:30:00+09:00"})
     row = res["forecasts"][0]
-    assert row["start"] == "2026-10-21T07:00:00+09:00" and row["horizon_h"] == 3
+    assert row["start"] == "2026-10-21T07:00:00+09:00" and row["horizonH"] == 3
     assert row["rentals"] > row["returns"]
 
 
@@ -150,22 +160,20 @@ async def test_forecast_requires_timezone(client):
     assert err["code"] == "INVALID_ARGUMENT" and "example" in err["hint"]
 
 
-async def test_current_plan_and_unknown_shift(client):
+async def test_current_plan(client):
     async with client:
         plan = await call(client, "get_current_plan", {"shift_id": SHIFT_ID})
-        err = await call_error(client, "get_current_plan", {"shift_id": f"{REGION_ID}:2026-10-21:PM"})
-    assert plan["status"] == "ACTIVE" and plan["unserved"][0]["station_id"] == "ST-1188"
-    assert plan["routes"][0]["truck_id"] == "TR-01"
-    assert err["code"] == "SHIFT_NOT_FOUND" and err["hint"]["candidates"] == [SHIFT_ID]
+    assert plan["status"] == "ACTIVE" and plan["unserved"][0]["stationId"] == "ST-1188"
+    assert plan["routes"][0]["truckId"] == "TR-01"
 
 
 async def test_truck_status_uses_truck_id_key_and_unknown_truck(client):
-    """Harness 기사 범위 제한은 `truck_id` 키로 다른 트럭 항목을 지운다."""
+    """Harness 기사 범위 제한(scope_to_truck)은 `truckId` 키로 다른 트럭 항목을 지운다."""
     async with client:
         one = await call(client, "get_truck_status", {"shift_id": SHIFT_ID, "truck_id": "TR-01"})
         err = await call_error(client, "get_truck_status", {"shift_id": SHIFT_ID, "truck_id": "TR-09"})
-    assert one["trucks"][0]["truck_id"] == "TR-01"
-    assert [s["station_id"] for s in one["trucks"][0]["remaining_stops"]] == ["ST-2240", "ST-1077"]
+    assert one["trucks"][0]["truckId"] == "TR-01"
+    assert [s["stationId"] for s in one["trucks"][0]["remainingStops"]] == ["ST-2240", "ST-1077"]
     assert err["code"] == "TRUCK_NOT_FOUND" and "TR-01" in err["hint"]["candidates"]
 
 
@@ -173,22 +181,20 @@ async def test_field_reports_latest_first_with_limit(client):
     async with client:
         res = await call(client, "get_field_reports", {"shift_id": SHIFT_ID, "limit": 2})
         since = await call(client, "get_field_reports", {"shift_id": SHIFT_ID, "since": "2026-10-21T07:40:00+09:00"})
-    assert [r["report_id"] for r in res["reports"]] == ["FR-883", "FR-881"]
+    assert [r["reportId"] for r in res["reports"]] == ["FR-883", "FR-881"]
     assert res["truncated"] is True and res["total"] == 3
-    assert {r["report_id"] for r in since["reports"]} == {"FR-883", "FR-881"}
-    assert all(r["driver"].startswith("기사") and "actual_bikes" in r for r in res["reports"])
+    assert {r["reportId"] for r in since["reports"]} == {"FR-883", "FR-881"}
+    assert all(r["driver"].startswith("기사") and "actualBikes" in r for r in res["reports"])
 
 
-async def test_audit_records_changes(client, fake, approval):
+async def test_audit_records_changes(client, fake):
     async with client:
         before = await call(client, "get_audit", {"shift_id": SHIFT_ID})
         cand = await call(client, "request_route_plan", {"shift_id": SHIFT_ID})
-        approve(fake, approval)
-        await call(client, "submit_plan", {"plan_id": cand["plan"]["plan_id"]})
+        await call(client, "submit_plan", {"plan_id": cand["plan"]["planId"], **card(fake)})
         after = await call(client, "get_audit", {"shift_id": SHIFT_ID})
     assert before["total"] == 2
-    assert after["events"][0]["type"] == "PLAN_ACTIVATED" and after["events"][0]["target_id"] == cand["plan"]["plan_id"]
-    assert after["source"] == f"GET /internal/shifts/{SHIFT_ID}/audit"
+    assert after["events"][0]["type"] == "PLAN_ACTIVATED" and after["events"][0]["targetId"] == cand["plan"]["planId"]
 
 
 async def test_long_results_are_truncated_to_budget(fake):
@@ -200,93 +206,121 @@ async def test_long_results_are_truncated_to_budget(fake):
 
 # ── 계산 ─────────────────────────────────────────────────
 
-async def test_replan_excludes_station_and_grades(client):
+async def test_replan_minor_requires_driver_only(client):
     async with client:
         cand = await call(client, "request_route_plan", {
             "shift_id": SHIFT_ID, "kind": "REPLAN", "truck_ids": ["TR-01"], "exclude_station_ids": ["ST-2240"],
         })
-    tr01 = next(r for r in cand["plan"]["routes"] if r["truck_id"] == "TR-01")
-    assert "ST-2240" not in [s["station_id"] for s in tr01["stops"]]
-    assert cand["status"] == "OK" and cand["grade"] == "MINOR" and cand["plan"]["status"] == "DRAFT"
-    assert cand["diffs"][0]["truck_id"] == "TR-01"
-    assert any(u["station_id"] == "ST-2240" and u["reason"] == "EXCLUDED" for u in cand["plan"]["unserved"])
+    tr01 = next(r for r in cand["plan"]["routes"] if r["truckId"] == "TR-01")
+    assert "ST-2240" not in [s["stationId"] for s in tr01["stops"]]
+    assert cand["status"] == "OK" and cand["plan"]["status"] == "DRAFT"
+    assert (cand["grade"], cand["requiredApprovers"]) == ("MINOR", ["DRIVER"])
+    assert cand["diffs"][0]["truckId"] == "TR-01"
+    assert any(u["stationId"] == "ST-2240" and u["reason"] == "EXCLUDED" for u in cand["plan"]["unserved"])
+
+
+async def test_replan_major_requires_manager_then_driver(client):
+    async with client:
+        cand = await call(client, "request_route_plan", {
+            "shift_id": SHIFT_ID, "kind": "REPLAN", "exclude_station_ids": ["ST-2240", "ST-1050"],
+        })
+    assert (cand["grade"], cand["requiredApprovers"]) == ("MAJOR", ["MANAGER", "DRIVER"])
 
 
 async def test_plan_kind_has_no_grade(client):
     async with client:
         cand = await call(client, "request_route_plan", {"shift_id": SHIFT_ID})
-    assert cand["grade"] is None and cand["candidate_id"].startswith("CAND-")
+    assert cand["grade"] is None and cand["requiredApprovers"] == [] and cand["candidateId"].startswith("CAND-")
 
 
-# ── 변경 (승인 헤더) ─────────────────────────────────────
+# ── 변경 (Harness가 채우는 승인 인자) ────────────────────
 
 CONSTRAINT = {"shift_id": SHIFT_ID, "type": "STATION_SUSPENDED", "station_ids": ["ST-1023"],
               "valid_from": "2026-10-21T09:00:00+09:00", "valid_to": "2026-10-21T22:00:00+09:00",
               "reason": "행사로 대여·반납 중지"}
 
 
-async def test_write_without_approval_header_is_rejected(client, approval):
-    approval.task_id = None
+async def test_write_without_injected_approval_is_rejected(client):
     async with client:
         err = await call_error(client, "add_constraint", CONSTRAINT)
     assert err["code"] == "APPROVAL_REQUIRED" and err["retryable"] is False
 
 
-async def test_write_with_unapproved_id_is_rejected_by_backend(client, approval):
-    approval.approval_id = str(uuid.uuid4())  # 헤더는 있지만 백엔드에 승인 기록이 없음
+async def test_write_with_unapproved_or_wrong_role_is_rejected_by_backend(client, fake):
     async with client:
-        err = await call_error(client, "add_constraint", CONSTRAINT)
-    assert err["code"] == "APPROVAL_REQUIRED" and err["retryable"] is False
+        unapproved = await call_error(client, "add_constraint", {**CONSTRAINT, "approval_id": str(uuid.uuid4()),
+                                                                 "task_id": TASK_ID})
+        driver_card = await call_error(client, "add_constraint", {**CONSTRAINT, **card(fake, role="DRIVER")})
+    assert unapproved["code"] == driver_card["code"] == "APPROVAL_REQUIRED"
+    assert unapproved["retryable"] is False
 
 
-async def test_add_constraint_with_approval_and_replay(client, fake, approval):
-    approve(fake, approval)
+async def test_add_constraint_with_approval_and_replay(client, fake):
+    approval = card(fake)
     async with client:
-        saved = await call(client, "add_constraint", CONSTRAINT)
-        again = await call(client, "add_constraint", CONSTRAINT)
-        reused = await call_error(client, "add_constraint", {**CONSTRAINT, "station_ids": ["ST-1031"]})
-    assert saved["constraint_id"] == again["constraint_id"]
+        saved = await call(client, "add_constraint", {**CONSTRAINT, **approval})
+        again = await call(client, "add_constraint", {**CONSTRAINT, **approval})
+        reused = await call_error(client, "add_constraint", {**CONSTRAINT, **approval, "station_ids": ["ST-1031"]})
+    assert saved["constraintId"] == again["constraintId"]
     assert reused["code"] == "APPROVAL_ALREADY_USED"
 
 
-async def test_add_constraint_argument_checks(client, fake, approval):
-    approve(fake, approval)
+async def test_add_constraint_argument_checks(client, fake):
     async with client:
         bad_period = await call_error(client, "add_constraint", {
-            **CONSTRAINT, "valid_from": "2026-10-21T22:00:00+09:00", "valid_to": "2026-10-21T09:00:00+09:00"})
-        missing_value = await call_error(client, "add_constraint", {**CONSTRAINT, "type": "TARGET_ADJUST"})
+            **CONSTRAINT, **card(fake), "valid_from": "2026-10-21T22:00:00+09:00", "valid_to": "2026-10-21T09:00:00+09:00"})
+        missing_value = await call_error(client, "add_constraint", {**CONSTRAINT, **card(fake), "type": "TARGET_ADJUST"})
     assert bad_period["code"] == missing_value["code"] == "INVALID_ARGUMENT"
 
 
-async def test_submit_plan_superseded_then_latest(client, fake, approval):
+async def test_submit_plan_superseded_then_latest(client, fake):
     async with client:
         current = await call(client, "get_current_plan", {"shift_id": SHIFT_ID})
         cand = await call(client, "request_route_plan", {"shift_id": SHIFT_ID})
-        approve(fake, approval)
-        err = await call_error(client, "submit_plan", {"plan_id": current["plan_id"]})
-        assert err["code"] == "PLAN_SUPERSEDED" and err["hint"]["candidates"] == [cand["plan"]["plan_id"]]
-        approve(fake, approval)
-        ok = await call(client, "submit_plan", {"plan_id": err["hint"]["candidates"][0]})
+        err = await call_error(client, "submit_plan", {"plan_id": current["planId"], **card(fake)})
+        assert err["code"] == "PLAN_SUPERSEDED" and err["hint"]["candidates"] == [cand["plan"]["planId"]]
+        ok = await call(client, "submit_plan", {"plan_id": err["hint"]["candidates"][0], **card(fake)})
     assert ok["status"] == "ACTIVE"
 
 
-async def test_propose_route_change_applies_latest_candidate_only(client, fake, approval):
+async def test_route_change_minor_with_driver_card(client, fake):
     async with client:
-        old = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN",
+        cand = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN", "truck_ids": ["TR-01"],
+                                                         "exclude_station_ids": ["ST-2240"]})
+        manager_only = await call_error(client, "propose_route_change", {
+            "truck_id": "TR-01", "candidate_id": cand["candidateId"], **card(fake, role="MANAGER")})
+        route = await call(client, "propose_route_change", {
+            "truck_id": "TR-01", "candidate_id": cand["candidateId"], **card(fake, role="DRIVER")})
+    assert manager_only["code"] == "APPROVAL_REQUIRED"
+    assert route["truckId"] == "TR-01"
+
+
+async def test_route_change_major_needs_both_cards_in_same_task(client, fake):
+    async with client:
+        cand = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN",
+                                                         "exclude_station_ids": ["ST-2240", "ST-1050"]})
+        args = {"truck_id": "TR-01", "candidate_id": cand["candidateId"]}
+        driver_only = await call_error(client, "propose_route_change", {**args, **card(fake, role="DRIVER")})
+        card(fake, role="MANAGER", candidate_id=cand["candidateId"])  # 관리자 카드 승인
+        route = await call(client, "propose_route_change", {**args, **card(fake, role="DRIVER")})
+    assert driver_only["code"] == "APPROVAL_REQUIRED" and "MANAGER" in driver_only["message"]
+    assert route["truckId"] == "TR-01"
+
+
+async def test_route_change_applies_latest_candidate_only(client, fake):
+    async with client:
+        old = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN", "truck_ids": ["TR-01"],
                                                         "exclude_station_ids": ["ST-2240"]})
-        new = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN",
+        new = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN", "truck_ids": ["TR-01"],
                                                         "exclude_station_ids": ["ST-1077"]})
-        approve(fake, approval)
-        stale = await call_error(client, "propose_route_change", {"truck_id": "TR-01", "candidate_id": old["candidate_id"]})
-        approve(fake, approval)
-        route = await call(client, "propose_route_change", {"truck_id": "TR-01", "candidate_id": new["candidate_id"]})
-    assert stale["code"] == "CANDIDATE_SUPERSEDED" and stale["hint"]["candidates"] == [new["candidate_id"]]
-    assert route["truck_id"] == "TR-01"
+        stale = await call_error(client, "propose_route_change", {
+            "truck_id": "TR-01", "candidate_id": old["candidateId"], **card(fake, role="DRIVER")})
+    assert stale["code"] == "CANDIDATE_SUPERSEDED" and stale["hint"]["candidates"] == [new["candidateId"]]
 
 
 # ── HTTP 어댑터 (백엔드 대역) ────────────────────────────
 
-async def test_http_adapter_paths_token_body_and_problem_mapping(approval):
+async def test_http_adapter_paths_token_body_and_problem_mapping():
     seen = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -305,19 +339,20 @@ async def test_http_adapter_paths_token_body_and_problem_mapping(approval):
         return httpx.Response(200, json={"stationId": "ST-1023"})
 
     api = HttpInternalApi("http://backend:8080", token="t0k", transport=httpx.MockTransport(handler))
-    approval.approval_id = str(uuid.uuid4())
-    async with Client(build_server(api, approval=approval)) as c:
+    approval_id = str(uuid.uuid4())
+    async with Client(build_server(api)) as c:
         ok = await call(c, "get_station_detail", {"station_id": "ST-1023"})
         await call(c, "get_risk_stations", {"region_id": REGION_ID, "horizon_h": 4})
         nf = await call_error(c, "get_station_detail", {"station_id": "ST-9999"})
-        denied = await call_error(c, "add_constraint", CONSTRAINT)
-        down = await call_error(c, "request_route_plan", {"shift_id": SHIFT_ID})
+        denied = await call_error(c, "add_constraint", {**CONSTRAINT, "approval_id": approval_id, "task_id": TASK_ID})
+        down = await call_error(c, "request_route_plan", {"shift_id": SHIFT_ID, "task_id": TASK_ID})
     await api.aclose()
-    assert ok["station_id"] == "ST-1023"
+    assert ok["stationId"] == "ST-1023"
     assert nf["code"] == "STATION_NOT_FOUND" and nf["hint"]["candidates"] == ["ST-1023"] and nf["retryable"]
     assert denied["code"] == "APPROVAL_REQUIRED" and denied["retryable"] is False
     assert down["code"] == "UPSTREAM_UNAVAILABLE" and down["hint"]["retry_after_s"] == 7
     assert ("GET", "/internal/stations/risk", {"regionId": REGION_ID, "horizonH": "4", "limit": "20"}, "t0k", None) in seen
     constraint_body = next(s[4] for s in seen if s[1] == "/internal/constraints")
-    assert constraint_body["approvalId"] == approval.approval_id and constraint_body["taskId"] == TASK_ID
-    assert constraint_body["stationIds"] == ["ST-1023"]
+    assert constraint_body["approvalId"] == approval_id and constraint_body["taskId"] == TASK_ID
+    solve_body = next(s[4] for s in seen if s[1] == "/internal/plans/solve")
+    assert solve_body["requestedBy"] == {"taskId": TASK_ID}
