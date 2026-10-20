@@ -467,19 +467,31 @@ export interface components {
             /** @description FAILED */
             error?: string;
         };
-        /** @description 변경 도구 앞에서 에이전트가 멈췄을 때의 승인 카드 */
+        /**
+         * @description 변경 도구 앞에서 에이전트가 멈췄을 때의 승인 카드. 승인하면 그 변경을 받아들인 것이다.
+         *     경로 변경은 **이 카드의 승인이 곧 기사 수락**이다. 따로 수락 단계를 두지 않는다 (FR-13).
+         */
         ApprovalRequest: {
             /** Format: uuid */
             approvalId: string;
             /** @enum {string} */
             kind: "SUBMIT_PLAN" | "ADD_CONSTRAINT" | "ROUTE_CHANGE";
-            /** @enum {string} */
+            /**
+             * @description 이 카드를 결정할 사람. SUBMIT_PLAN·ADD_CONSTRAINT는 MANAGER.
+             *     ROUTE_CHANGE는 후보의 `requiredApprovers` 순서를 따른다. MINOR는 그 트럭 기사(DRIVER) 카드 한 장,
+             *     MAJOR는 관리자(MANAGER) 카드가 승인된 뒤 같은 작업에서 기사 카드를 한 장 더 보낸다.
+             * @enum {string}
+             */
             approver: "MANAGER" | "DRIVER";
             /**
-             * @description ROUTE_CHANGE만
+             * @description ROUTE_CHANGE만. backend가 계산한 변경 등급 (PRD 6.6)
              * @enum {string|null}
              */
             grade?: "MINOR" | "MAJOR" | null;
+            /** @description ROUTE_CHANGE만. 어떤 후보 경로에 대한 카드인지. MAJOR의 두 카드는 같은 값을 쓴다 */
+            candidateId?: string | null;
+            /** @description ROUTE_CHANGE만. 이 후보에 필요한 승인 순서. 화면이 "관리자 승인 → 기사 수락" 진행을 보여 줄 때 쓴다 */
+            requiredApprovers?: ("MANAGER" | "DRIVER")[];
             truckId?: string | null;
             /** @description 승인 카드 제목 */
             summary: string;
