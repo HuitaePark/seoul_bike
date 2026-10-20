@@ -73,9 +73,8 @@ guardrails:
   approval:                         # 승인 카드 (docs/specs openapi ApprovalRequest). 승인이 곧 수락이다
     business_submit_plan: {kind: SUBMIT_PLAN, approver: MANAGER}
     business_add_constraint: {kind: ADD_CONSTRAINT, approver: MANAGER}
-    business_propose_route_change:  # 후보 계획의 grade로 승인자를 정한다 (backend 업무 규칙이 계산)
+    business_propose_route_change:  # 승인자는 후보의 requiredApprovers 순서 (backend가 정함: MINOR 기사, MAJOR 관리자 → 기사)
       kind: ROUTE_CHANGE
-      approver_by_grade: {MINOR: DRIVER, MAJOR: MANAGER}
   injected_args: [approval_id, task_id]   # 모델에게 숨기고 Harness가 채운다 (internal-api ApprovedChange)
   mask_keys: [driver, driver_name, driverName, driver_phone, driverPhone, phone, lat, lon]
   id_pattern: 'ST-\d+'              # 변경·계산 도구 인자의 대여소 ID는 앞선 도구 결과에 나온 것만 허용

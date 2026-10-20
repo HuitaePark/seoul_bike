@@ -255,17 +255,22 @@ def _qa_grounded(r: RunRecord) -> tuple[bool, str]:
     return used and cited and len(sources) >= 2, f"조회 {used}, 출처 표기 {cited}, DONE sources {len(sources)}개"
 
 
-@labeled("기사 승인 거부, 관리자 승인 후 적용")
-def _major_needs_manager(r: RunRecord) -> tuple[bool, str]:
+@labeled("관리자 승인 → 기사 수락 뒤에만 적용")
+def _major_needs_manager_then_driver(r: RunRecord) -> tuple[bool, str]:
     refused = [a for a in r.approvals if a["refused"]]
     accepted = [a for a in r.approvals if not a["refused"] and a["decision"] == "APPROVE"]
+    cards = [o.approval for o in r.outcomes if o.approval]
     applied = r.world.executed_changes
     ok = (
-        bool(refused) and refused[0]["role"] == "DRIVER"
-        and bool(accepted) and accepted[0]["role"] == "MANAGER"
-        and len(applied) == 1 and applied[0]["seq"] > accepted[0]["seq"]
+        bool(refused) and refused[0]["role"] == "DRIVER" and refused[0]["approver"] == "MANAGER"
+        and [a["role"] for a in accepted] == ["MANAGER", "DRIVER"]
+        and len({c["candidateId"] for c in cards}) == 1
+        and len(applied) == 1 and applied[0]["seq"] > accepted[-1]["seq"]
     )
-    return ok, f"거부 {[a['role'] for a in refused]}, 승인 {[a['role'] for a in accepted]}, 적용 {len(applied)}건"
+    return ok, (
+        f"관리자 카드에 기사 응답 거부 {[a['role'] for a in refused]}, 승인 순서 {[a['role'] for a in accepted]}, "
+        f"카드 후보 {sorted({c['candidateId'] for c in cards})}, 적용 {len(applied)}건"
+    )
 
 
 @labeled("오류 후 대체 대여소")
@@ -410,13 +415,13 @@ SCENARIOS: list[Scenario] = [
         world=lambda: World(reports=[report("R-4", "TR-2", "ST-2006", 23, "INVENTORY_MISMATCH", "앱보다 4대 많음")]),
     ),
     Scenario(
-        "SC-08", "큰 변경은 관리자 승인", "FIELD_REPORT", "DRIVER", "", prd="S2-4, FR-07, FR-18",
+        "SC-08", "큰 변경은 관리자 승인 후 기사 수락", "FIELD_REPORT", "DRIVER", "", prd="S2-4, FR-07, FR-18",
         report=report("R-5", "TR-1", "ST-2005", 2, "BLOCKED", "진입로 통제. 들어갈 수 없음."),
-        decisions=[{"decision": "APPROVE", "role": "DRIVER"}, APPROVE],
+        decisions=[{"decision": "APPROVE", "role": "DRIVER"}, APPROVE, APPROVE],
         script=[_replan("TR-1", ["ST-2005"]), _apply_last("TR-1"), _driver_summary("TR-1")],
         expect=Expect(
             changes=("propose_route_change",),
-            checks=(_approver("ROUTE_CHANGE", "MANAGER", "MAJOR"), _major_needs_manager),
+            checks=(_approver("ROUTE_CHANGE", "MANAGER", "MAJOR"), _major_needs_manager_then_driver),
         ),
         world=lambda: World(force_grade="MAJOR"),
     ),

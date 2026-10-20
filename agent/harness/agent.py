@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import itertools
 import logging
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -26,7 +25,7 @@ from langsmith.utils import tracing_is_enabled
 
 from .config import HarnessConfig
 from .context import StateBriefMiddleware, summarization
-from .contract import ApprovalMismatch, approval_card, decision_from_resume, sources
+from .contract import ApprovalMismatch, approval_card, approvers, decision_from_resume, sources
 from .errors import FailureCode, HarnessFailure
 from .events import EventSink
 from .guardrails import Masker, approval_middleware, destructive_tools
@@ -78,7 +77,7 @@ class HarnessAgent:
         self.clock = clock
         self.sleep = sleep
         self._built: dict[str, tuple[Any, Prompt]] = {}
-        self._seq: dict[str, itertools.count] = {}
+        self._steps: dict[str, int] = {}  # task_id -> card step in the approval order (in memory, docs/ISSUES.md ISS-19)
         # One masker per process (aliases are name hashes); also the LangSmith anonymizer (tracing.langsmith_client).
         self.masker = Masker(config.guardrails.mask_keys)
         self.trace_client = langsmith_client(self.masker) if tracing_is_enabled() else None
@@ -103,7 +102,7 @@ class HarnessAgent:
                 UsageMiddleware(),
                 StateBriefMiddleware(),
                 RecoveryMiddleware(cfg.recovery, self.fallback_model, self.sleep),
-                ToolResultMiddleware(cfg.tools, cfg.observability.tool_labels, gated, cfg.guardrails.injected_args),
+                ToolResultMiddleware(cfg.tools, cfg.observability.tool_labels, cfg.guardrails.approval, cfg.guardrails.injected_args),
                 summarization(self.model, cfg.context),
                 approval_middleware(gated, cfg.guardrails.approval),
             ]
@@ -123,10 +122,6 @@ class HarnessAgent:
         self.masker.add_names(task.driver_names)
         return self.masker
 
-    def _next_seq(self, task: Task) -> Callable[[], int]:
-        counter = self._seq.setdefault(task.task_id, itertools.count(1))
-        return lambda: next(counter)
-
     async def _state(self, task: Task) -> Any:
         graph, _ = self._agent(task.task_type)
         return await graph.aget_state({"configurable": {"thread_id": task.thread_id}})
@@ -135,15 +130,23 @@ class HarnessAgent:
         """Masked message history of the task's thread (what the model saw), for evaluation and debugging."""
         return list((await self._state(task)).values.get("messages", []))
 
-    async def pending_approval(self, task: Task) -> dict[str, Any] | None:
-        """The approval card (contract `ApprovalRequest`) the task is waiting on, rebuilt from the checkpoint."""
+    async def _pending_call(self, task: Task) -> tuple[dict[str, Any], list[BaseMessage]] | None:
         state = await self._state(task)
         if not state.interrupts:
             return None
         messages = state.values["messages"]
         ai = next(m for m in reversed(messages) if isinstance(m, AIMessage))
-        call = next(tc for tc in ai.tool_calls if tc["name"] in self.config.guardrails.approval)
-        return approval_card(task, call, messages, self.config.guardrails.approval)
+        return next(tc for tc in ai.tool_calls if tc["name"] in self.config.guardrails.approval), messages
+
+    async def pending_approval(self, task: Task) -> dict[str, Any] | None:
+        """The approval card (contract `ApprovalRequest`) the task is waiting on, rebuilt from the checkpoint and
+        the card step (0 = first approver; a major route change has a second card for the driver)."""
+        pending = await self._pending_call(task)
+        if pending is None:
+            return None
+        call, messages = pending
+        rules = self.config.guardrails.approval
+        return approval_card(task, call, messages, rules, self._steps.get(task.task_id, 0))
 
     async def start(self, task: Task) -> Outcome:
         """New task: requester and report values are written by code; free text is masked and wrapped as
@@ -153,12 +156,27 @@ class HarnessAgent:
         return await self._run(task, payload, masker, rejected=False)
 
     async def resume_command(self, task: Task, resume: Mapping[str, Any]) -> Outcome:
-        """Contract RESUME (`TaskCommand.resume`): checks it answers the pending card and comes from that card's
-        approver, then resumes. Raises ApprovalMismatch without running anything otherwise."""
-        card = await self.pending_approval(task)
-        if card is None:
+        """Contract RESUME (`TaskCommand.resume`). Checks it answers the pending card and comes from that card's
+        approver; raises ApprovalMismatch without running anything otherwise.
+
+        An approval that leaves approvers in the order (a major route change approved by the manager) does not run
+        the change: the next card (driver acceptance) is sent instead. Rejection at any card ends the sequence."""
+        pending = await self._pending_call(task)
+        if pending is None:
             raise ApprovalMismatch(f"task {task.task_id} is not waiting for approval")
-        return await self.resume(task, [decision_from_resume(resume, card)])
+        call, messages = pending
+        rules = self.config.guardrails.approval
+        step = self._steps.get(task.task_id, 0)
+        card = approval_card(task, call, messages, rules, step)
+        decision = decision_from_resume(resume, card)
+        if decision["type"] == "approve" and step + 1 < len(approvers(call, messages, rules)):
+            self._steps[task.task_id] = step + 1
+            following = approval_card(task, call, messages, rules, step + 1)
+            ctx = HarnessContext(task=task, sink=self.sink, masker=self._masker(task), clock=self.clock)
+            ctx.emit("APPROVAL_REQUIRED", {"approval": following})
+            return Outcome("APPROVAL_REQUIRED", task.task_id, task.trace_id, "", approval=following, stats=ctx.stats)
+        self._steps.pop(task.task_id, None)
+        return await self.resume(task, [decision])
 
     async def resume(self, task: Task, decisions: Sequence[dict[str, Any]]) -> Outcome:
         """Low-level resume with Harness decisions: `{"type": "approve"}`, `{"type": "reject", "message": ...}`,
@@ -168,7 +186,7 @@ class HarnessAgent:
 
     async def _run(self, task: Task, payload: Any, masker: Masker, rejected: bool) -> Outcome:
         graph, prompt = self._agent(task.task_type)
-        ctx = HarnessContext(task=task, sink=self.sink, masker=masker, next_seq=self._next_seq(task), clock=self.clock)
+        ctx = HarnessContext(task=task, sink=self.sink, masker=masker, clock=self.clock)
         config = run_config(
             task,
             prompt_version=prompt.version,

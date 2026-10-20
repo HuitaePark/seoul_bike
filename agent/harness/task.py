@@ -108,7 +108,6 @@ class HarnessContext:
     task: Task
     sink: EventSink
     masker: Masker
-    next_seq: Callable[[], int]  # per-task event sequence, continues across segments (SSE id)
     clock: Callable[[], float] = time.monotonic
     stats: SegmentStats = field(init=False)
 
@@ -122,7 +121,7 @@ class HarnessContext:
         """`body` holds contract fields (docs/specs TaskEvent); `harness` holds extensions not in the contract."""
         t = self.task
         self.sink.emit(
-            ProgressEvent(type_, t.task_id, t.trace_id, t.shift_id, self.next_seq(), body or {}, harness or {})
+            ProgressEvent(type_, t.task_id, t.trace_id, t.shift_id, body or {}, harness or {})
         )
 
 

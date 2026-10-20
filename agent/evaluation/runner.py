@@ -106,7 +106,7 @@ async def run_scenario(sc: Scenario, base: HarnessConfig, model_name: str | None
             }
             # Plays the backend: only the right approver's plain APPROVE marks the approval APPROVED.
             if resume["decision"] == "APPROVE" and role == card["approver"] and not resume["excludeStationIds"]:
-                world.approved.add(card["approvalId"])
+                world.approve(card)
             entry = {
                 "seq": world.next_seq(), "approvalId": card["approvalId"], "kind": card["kind"], "approver": card["approver"],
                 "grade": card.get("grade"), "decision": resume["decision"], "role": role, "refused": False,

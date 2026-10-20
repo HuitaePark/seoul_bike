@@ -70,7 +70,7 @@ async def answer(agent, world, t, outcome, decision="APPROVE", role=None, **extr
     card = outcome.approval
     role = role or card["approver"]
     if decision == "APPROVE" and role == card["approver"] and not extra.get("excludeStationIds"):
-        world.approved.add(card["approvalId"])
+        world.approve(card)
     resume = {"approvalId": card["approvalId"], "decision": decision, "decidedBy": {"userId": "u", "role": role}, **extra}
     return await agent.resume_command(t, resume)
 
@@ -106,15 +106,40 @@ class ApprovalTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(world.executed_changes[0]["args"]["approval_id"], first.approval["approvalId"])
             self.assertEqual({e.trace_id for e in sink.events}, {"trace-1"})
 
-    async def test_minor_route_change_goes_to_driver_major_to_manager(self):
-        for grade, approver in (("MINOR", "DRIVER"), ("MAJOR", "MANAGER")):
+    async def test_route_change_cards_follow_required_approvers(self):
+        for grade, order in (("MINOR", ["DRIVER"]), ("MAJOR", ["MANAGER", "DRIVER"])):
             world = World(force_grade=grade, reports=[BLOCKED])
             steps = [plan("REPLAN", ["TR-1"], ["ST-2005"]), apply_last("TR-1"), say("변경")]
             async with harness(steps, world=world) as (agent, _, _, _, _, _):
-                t = blocked_task()
-                out = await agent.start(t)
-                self.assertEqual((out.approval["grade"], out.approval["approver"]), (grade, approver))
-                self.assertEqual(out.approval["diff"]["truckId"], "TR-1")
+                out = await agent.start(blocked_task())
+                card = out.approval
+                self.assertEqual((card["grade"], card["requiredApprovers"], card["approver"]), (grade, order, order[0]))
+                self.assertEqual(card["diff"]["truckId"], "TR-1")
+
+    async def test_major_change_needs_manager_then_driver_card(self):
+        world = World(force_grade="MAJOR", reports=[BLOCKED])
+        steps = [plan("REPLAN", ["TR-1"], ["ST-2005"]), apply_last("TR-1"), say("변경")]
+        async with harness(steps, world=world) as (agent, _, _, _, sink, _):
+            t = blocked_task()
+            manager_card = await agent.start(t)
+            driver_card = await answer(agent, world, t, manager_card)
+            self.assertEqual((driver_card.status, driver_card.approval["approver"]), ("APPROVAL_REQUIRED", "DRIVER"))
+            self.assertEqual(driver_card.approval["candidateId"], manager_card.approval["candidateId"])
+            self.assertNotEqual(driver_card.approval["approvalId"], manager_card.approval["approvalId"])
+            self.assertEqual(world.executed_changes, [])
+            self.assertEqual((await answer(agent, world, t, driver_card)).status, "DONE")
+            self.assertEqual([c["args"]["approval_id"] for c in world.executed_changes], [driver_card.approval["approvalId"]])
+            self.assertEqual(len(sink.of("APPROVAL_REQUIRED")), 2)
+
+    async def test_manager_rejection_sends_no_driver_card(self):
+        world = World(force_grade="MAJOR", reports=[BLOCKED])
+        steps = [plan("REPLAN", ["TR-1"], ["ST-2005"]), apply_last("TR-1"), say("기존 경로 유지")]
+        async with harness(steps, world=world) as (agent, _, _, _, sink, _):
+            t = blocked_task()
+            done = await answer(agent, world, t, await agent.start(t), decision="REJECT", comment="오늘은 유지")
+            self.assertEqual((done.status, done.rejected), ("DONE", True))
+            self.assertEqual([e.body["approval"]["approver"] for e in sink.of("APPROVAL_REQUIRED")], ["MANAGER"])
+            self.assertEqual(world.executed_changes, [])
 
     async def test_wrong_approver_cannot_resume(self):
         world = World(force_grade="MAJOR", reports=[BLOCKED])
@@ -128,7 +153,10 @@ class ApprovalTest(unittest.IsolatedAsyncioTestCase):
             stale = {**out.approval, "approvalId": "00000000-0000-0000-0000-000000000000"}
             with self.assertRaises(ApprovalMismatch):
                 await agent.resume_command(t, {"approvalId": stale["approvalId"], "decision": "APPROVE", "decidedBy": {"role": "MANAGER"}})
-            self.assertEqual((await answer(agent, world, t, out)).status, "DONE")
+            driver_card = await answer(agent, world, t, out)
+            with self.assertRaises(ApprovalMismatch):
+                await answer(agent, world, t, driver_card, role="MANAGER")
+            self.assertEqual((await answer(agent, world, t, driver_card)).status, "DONE")
             self.assertEqual(len(world.executed_changes), 1)
 
     async def test_rejected_change_is_never_executed(self):
@@ -441,11 +469,11 @@ class ContractTest(unittest.IsolatedAsyncioTestCase):
                 await agent2.start(task("qa", "질문"))
         events = sink.events + sink2.events
         self.assertEqual({e.type for e in events}, {"TOKEN", "TOOL_START", "TOOL_END", "APPROVAL_REQUIRED", "DONE", "FAILED"})
-        for event in events:
+        for seq, event in enumerate(events, 1):
             payload = event.to_json()
+            self.assertNotIn("seq", payload)  # the backend numbers events (asyncapi TaskEventMessage)
             self.assertEqual([e.message for e in kafka.iter_errors(payload)], [], event.type)
-            self.assertEqual([e.message for e in sse.iter_errors(payload)], [], event.type)
-        self.assertEqual([e.seq for e in sink.events], list(range(1, len(sink.events) + 1)))
+            self.assertEqual([e.message for e in sse.iter_errors({**payload, "seq": seq})], [], event.type)
 
     def test_field_report_command_becomes_a_driver_task(self):
         command = {

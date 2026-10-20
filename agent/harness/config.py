@@ -57,18 +57,14 @@ class RecoverySettings:
 
 @dataclass(frozen=True)
 class ApprovalRule:
-    """How a destructive tool's approval card looks (docs/specs openapi ApprovalRequest)."""
+    """How a destructive tool's approval cards look (docs/specs openapi ApprovalRequest).
+
+    `approver` is fixed for plans and constraints. For route changes it is None: the backend decides the approval
+    order per candidate (`PlanCandidate.requiredApprovers`) and the agent follows it, never the grade itself.
+    """
 
     kind: str  # SUBMIT_PLAN | ADD_CONSTRAINT | ROUTE_CHANGE
     approver: str | None = None  # MANAGER | DRIVER
-    approver_by_grade: dict[str, str] = field(default_factory=dict)  # MINOR/MAJOR -> approver
-
-    def approver_for(self, grade: str | None) -> str:
-        if self.approver_by_grade:
-            if grade not in self.approver_by_grade:
-                raise ValueError(f"{self.kind}: no approver for grade {grade!r}")
-            return self.approver_by_grade[grade]
-        return self.approver or "MANAGER"
 
 
 @dataclass(frozen=True)

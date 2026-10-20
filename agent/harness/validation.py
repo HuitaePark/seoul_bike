@@ -244,8 +244,8 @@ class ArgumentValidationMiddleware(AgentMiddleware):
         trucks = {r.get("truckId") for r in candidate.get("plan", {}).get("routes", [])}
         if args.truck_id not in trucks:
             reasons.append(f"후보 {args.candidate_id}에 {args.truck_id} 경로가 없다")
-        if candidate.get("grade") == "NONE":
-            reasons.append("변경 등급 NONE: 바뀐 것이 없어 적용하지 않는다")
+        if candidate.get("grade") == "NONE" or not candidate.get("requiredApprovers"):
+            reasons.append("변경 등급 NONE(승인 순서 없음): 바뀐 것이 없어 적용하지 않는다")
         if own and args.truck_id != own:
             reasons.append(f"기사는 자기 트럭({own})의 경로만 바꿀 수 있다")
         return reasons

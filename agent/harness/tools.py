@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -20,8 +20,8 @@ from langchain_mcp_adapters.interceptors import MCPToolCallRequest, MCPToolCallR
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 
-from .config import ToolSettings
-from .contract import approval_id
+from .config import ApprovalRule, ToolSettings
+from .contract import final_approval_id
 from .errors import FailureCode, HarnessFailure
 from .guardrails import destructive_tools
 from .task import HarnessContext
@@ -110,16 +110,18 @@ class ToolResultMiddleware(AgentMiddleware):
     """Wraps every tool call: TOOL_START/TOOL_END events, RAG top_k cap, approval id injection, driver scope,
     masking, truncation.
 
-    Gated tools get `approval_id` (stable id of this call's approval card) and `task_id` so the backend can check
-    the approval again (docs/specs internal-api `ApprovedChange`). For tasks a driver sent, other trucks' entries
+    Gated tools get `approval_id` (the last card of the call's approval order, e.g. the driver's acceptance of a
+    route change) and `task_id`, so the backend can check every approval again (docs/specs internal-api). For tasks a driver sent, other trucks' entries
     are removed from results (NFR-06). The MCP artifact is dropped so unscoped, unmasked data never enters state.
     """
 
-    def __init__(self, settings: ToolSettings, labels: dict[str, str], gated: Iterable[str], injected: Iterable[str]):
+    def __init__(
+        self, settings: ToolSettings, labels: dict[str, str], rules: Mapping[str, ApprovalRule], injected: Iterable[str]
+    ):
         super().__init__()
         self.settings = settings
         self.labels = labels
-        self.gated = frozenset(gated)
+        self.rules = rules
         self.injected = tuple(injected)
 
     @staticmethod
@@ -133,12 +135,12 @@ class ToolResultMiddleware(AgentMiddleware):
             parsed = scope_to_truck(parsed, requester.truck_id)
         return json.dumps(ctx.masker.value(parsed), ensure_ascii=False)
 
-    def _call_to_run(self, call: dict[str, Any], ctx: HarnessContext) -> dict[str, Any]:
+    def _call_to_run(self, call: dict[str, Any], ctx: HarnessContext, history: list) -> dict[str, Any]:
         args = {k: v for k, v in call["args"].items() if k not in self.injected}
         if call["name"] == self.settings.rag_tool and int(args.get("top_k", 0)) > self.settings.rag_top_k:
             args["top_k"] = self.settings.rag_top_k
-        if call["name"] in self.gated:
-            args |= {"approval_id": approval_id(ctx.task.task_id, call["id"]), "task_id": ctx.task.task_id}
+        if call["name"] in self.rules:
+            args |= {"approval_id": final_approval_id(ctx.task, call, history, self.rules), "task_id": ctx.task.task_id}
         return {**call, "args": args}
 
     def _tool(self, name: str, ok: bool | None = None) -> dict[str, Any]:
@@ -152,7 +154,7 @@ class ToolResultMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         ctx: HarnessContext = request.runtime.context
         call = request.tool_call
-        to_run = self._call_to_run(call, ctx)
+        to_run = self._call_to_run(call, ctx, request.state.get("messages", []))
         if to_run["args"] != call["args"]:
             request = request.override(tool_call=to_run)
         ctx.emit("TOOL_START", {"tool": self._tool(call["name"])})

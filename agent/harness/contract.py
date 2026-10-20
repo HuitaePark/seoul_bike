@@ -4,9 +4,10 @@
 
 """Contract mapping (docs/specs asyncapi `TaskCommand`, openapi `ApprovalRequest`, `TaskEvent`).
 
-Approval follows the specs design: the approval card goes to the approver chosen by the change grade
-(minor route change -> DRIVER, major -> MANAGER, plan and constraint -> MANAGER), and that approval is the
-acceptance. There is no second driver acceptance step.
+Approval follows docs/specs: a plan or constraint gets one MANAGER card. A route change gets one card per entry
+of the candidate's `requiredApprovers`, in order (minor `[DRIVER]`, major `[MANAGER, DRIVER]`, decided by the
+backend); the driver's card is the driver's acceptance, so there is no separate acceptance step. A rejection at
+any card stops the sequence and keeps the current route.
 """
 from __future__ import annotations
 
@@ -57,10 +58,10 @@ def task_from_command(
     )
 
 
-def approval_id(task_id: str, tool_call_id: str) -> str:
-    """Stable id for one gated tool call. The same call always gets the same id, so the id survives the interrupt
-    node re-running on resume and agent restarts, and the backend can match RESUME to the card."""
-    return str(uuid.uuid5(APPROVAL_NAMESPACE, f"{task_id}:{tool_call_id}"))
+def approval_id(task_id: str, tool_call_id: str, approver: str) -> str:
+    """Stable id for one approval card: one gated tool call and one approver. The same card always gets the same
+    id, so it survives the interrupt node re-running and agent restarts, and the backend can match RESUME to it."""
+    return str(uuid.uuid5(APPROVAL_NAMESPACE, f"{task_id}:{tool_call_id}:{approver}"))
 
 
 def _tool_results(history: Iterable[BaseMessage]) -> list[Any]:
@@ -79,16 +80,36 @@ def candidates(history: Iterable[BaseMessage]) -> dict[str, dict[str, Any]]:
     return {r["candidateId"]: r for r in _tool_results(history) if isinstance(r, dict) and "candidateId" in r}
 
 
+def approvers(call: Mapping[str, Any], history: list[BaseMessage], rules: Mapping[str, ApprovalRule]) -> list[str]:
+    """Approval order for a gated call: fixed for plans and constraints, the candidate's `requiredApprovers` for
+    route changes (MINOR `[DRIVER]`, MAJOR `[MANAGER, DRIVER]`, decided by the backend)."""
+    rule = rules[call["name"]]
+    if rule.approver:
+        return [rule.approver]
+    return list(candidates(history).get(call["args"].get("candidate_id"), {}).get("requiredApprovers") or [])
+
+
+def final_approval_id(task: Task, call: Mapping[str, Any], history: list[BaseMessage], rules: Mapping[str, ApprovalRule]) -> str:
+    """The id sent with the change itself: the last card of the order (for a route change, the driver's acceptance).
+    The backend checks that every card of the order before it was approved too."""
+    order = approvers(call, history, rules)
+    return approval_id(task.task_id, call["id"], order[-1])
+
+
 def approval_card(
-    task: Task, call: Mapping[str, Any], history: list[BaseMessage], rules: Mapping[str, ApprovalRule]
+    task: Task, call: Mapping[str, Any], history: list[BaseMessage], rules: Mapping[str, ApprovalRule], step: int = 0
 ) -> dict[str, Any]:
-    """Contract `ApprovalRequest` for a gated tool call. Every number in it comes from tool results."""
+    """Contract `ApprovalRequest` for card number `step` of a gated tool call. Numbers come from tool results."""
     rule = rules[call["name"]]
     args = call["args"]
+    order = approvers(call, history, rules)
+    approver = order[step]
     card: dict[str, Any] = {
-        "approvalId": approval_id(task.task_id, call["id"]),
+        "approvalId": approval_id(task.task_id, call["id"], approver),
         "kind": rule.kind,
+        "approver": approver,
         "grade": None,
+        "candidateId": None,
         "truckId": args.get("truck_id"),
         "planId": None,
         "reasons": [],
@@ -97,14 +118,14 @@ def approval_card(
     if rule.kind == "ROUTE_CHANGE":
         candidate = candidates(history).get(args.get("candidate_id"), {})
         grade = candidate.get("grade")
-        card["grade"] = grade
+        card |= {"grade": grade, "candidateId": args.get("candidate_id"), "requiredApprovers": order}
         card["planId"] = candidate.get("plan", {}).get("planId")
         card["diff"] = next((d for d in candidate.get("diffs", []) if d.get("truckId") == args.get("truck_id")), None)
         size = {"MINOR": "작은 변경", "MAJOR": "큰 변경"}.get(grade, "변경")
-        card["summary"] = f"{args.get('truck_id')} 경로 변경 ({size})"
+        role = {"MANAGER": "관리자 승인", "DRIVER": "기사 수락"}[approver]
+        card["summary"] = f"{args.get('truck_id')} 경로 변경 ({size}, {role} {step + 1}/{len(order)})"
         if card["diff"] and (card["diff"].get("addedMinutes") or 0) > 0:
             card["reasons"].append(f"소요 시간 {card['diff']['addedMinutes']}분 증가")
-        card["approver"] = rule.approver_for(grade)
     elif rule.kind == "SUBMIT_PLAN":
         card["planId"] = args.get("plan_id")
         plan = next(
@@ -114,13 +135,11 @@ def approval_card(
         card["summary"] = f"계획 {args.get('plan_id')} 활성화"
         if plan:
             card["reasons"].append(f"포기 대여소 {len(plan.get('unserved', []))}곳")
-        card["approver"] = rule.approver_for(None)
     else:
         stations = ", ".join(args.get("station_ids", []))
         card["summary"] = f"제약 추가 {args.get('type')}: {stations}"
         if args.get("reason"):
             card["reasons"].append(args["reason"])
-        card["approver"] = rule.approver_for(None)
     return card
 
 

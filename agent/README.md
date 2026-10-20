@@ -31,7 +31,7 @@ uv pip install -e ".[dev]"   # dev: 계약 스키마 검사(jsonschema)
 반드시 `agent/` 폴더에서, 이 폴더의 `.venv` Python으로 실행한다. `python`이 다른 버전(예: Homebrew 3.11)이나 다른 프로젝트 가상환경을 가리키면 테스트를 못 찾거나(`Ran 0 tests`) 다른 프로젝트 테스트가 실행된다.
 
 ```bash
-.venv/bin/python -m unittest discover tests -v      # 동작 테스트 36개, 키 불필요, 약 4초
+.venv/bin/python -m unittest discover tests -v      # 동작 테스트 38개, 키 불필요, 약 4초
 .venv/bin/python -m unittest tests.test_harness.RecoveryTest.test_fallback_model_after_retries   # 한 줄로 입력
 .venv/bin/python -m evaluation --out /tmp/eval.md   # 시나리오 15개, 키 불필요, 약 3초
 ```
@@ -54,8 +54,10 @@ LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 �
 | 묶음 | 테스트 | 깨지면 실패하는 동작 |
 | --- | --- | --- |
 | 승인 | `test_plan_runs_only_after_manager_approval` | 계획 제출은 관리자 승인 카드가 승인되기 전까지 실행되지 않고, 실행될 때 카드의 `approvalId`를 함께 보낸다 |
-| | `test_minor_route_change_goes_to_driver_major_to_manager` | 경로 변경 카드는 작은 변경이면 기사, 큰 변경이면 관리자에게 간다 |
-| | `test_wrong_approver_cannot_resume` | 승인자가 다르거나 승인 ID가 다른 RESUME으로는 아무것도 실행되지 않는다 |
+| | `test_route_change_cards_follow_required_approvers` | 경로 변경 카드는 후보의 `requiredApprovers` 순서를 따른다 (작은 변경 기사, 큰 변경 관리자 먼저) |
+| | `test_major_change_needs_manager_then_driver_card` | 큰 변경은 관리자 승인 뒤 같은 후보의 기사 카드가 나오고, 기사 수락 뒤에만 적용된다 |
+| | `test_manager_rejection_sends_no_driver_card` | 관리자가 거절하면 기사 카드를 보내지 않고 기존 경로를 유지한다 |
+| | `test_wrong_approver_cannot_resume` | 카드의 승인자가 아니거나 승인 ID가 다른 RESUME으로는 아무것도 실행되지 않는다 (관리자 카드의 기사, 기사 카드의 관리자) |
 | | `test_rejected_change_is_never_executed` | 거절하면 실행되지 않고 사유가 모델에 전달된다 |
 | | `test_excluded_stations_send_the_plan_back_for_recompute` | 대여소 제외 요청은 검토한 계획을 활성화하지 않고 다시 계산해 새 카드를 만든다 (FR-04) |
 | | `test_model_cannot_see_or_set_approval_id` | 모델은 `approval_id`를 볼 수도 넣을 수도 없다 |
@@ -86,7 +88,7 @@ LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 �
 | | `test_bad_request_fails_without_retry_or_fallback` | 400은 재시도·대체 모델 없이 `MODEL_ERROR` |
 | Instructions | `test_input_is_wrapped_and_brief_is_in_system_prompt` | 첫 메시지가 `요청자: …`로 시작하고 입력은 `<user_input>`으로 감싸진다 |
 | State | `test_tasks_on_same_shift_do_not_share_history_or_lose_approvals` | 같은 근무조 작업끼리 대화를 공유하지 않고 승인된 계획은 실제로 실행된다 |
-| 계약 | `test_every_event_type_matches_the_kafka_and_sse_contract` | 이벤트 6종이 `docs/specs`의 `TaskEventMessage`·`TaskEvent` 스키마를 통과하고 `seq`가 1부터 이어진다 |
+| 계약 | `test_every_event_type_matches_the_kafka_and_sse_contract` | 이벤트 6종이 `docs/specs`의 `TaskEventMessage` 스키마를 통과하고 `seq`는 보내지 않는다 (backend가 매김) |
 | | `test_field_report_command_becomes_a_driver_task` | 계약 `TaskCommand`(FIELD_REPORT)가 기사 작업으로 바뀐다 (트럭은 보고에서, 입력은 메모에서) |
 | Observability | `test_langsmith_runs_carry_trace_id_and_no_driver_identity` | LangSmith 업로드에 `trace_id`가 있고 기사 개인정보 원본은 없다 |
 

@@ -114,6 +114,7 @@ class World:
     log: list[dict[str, Any]] = field(default_factory=list)
     constraints: list[dict[str, Any]] = field(default_factory=list)
     approved: set[str] = field(default_factory=set)  # approval ids the backend recorded as APPROVED
+    candidate_approvals: dict[str, set[str]] = field(default_factory=dict)  # candidateId -> approvers who approved
     candidates: dict[str, dict[str, Any]] = field(default_factory=dict)
     active: dict[str, Any] = field(default_factory=dict)
     _seq: itertools.count = field(default_factory=itertools.count)
@@ -137,6 +138,12 @@ class World:
     @property
     def executed_changes(self) -> list[dict[str, Any]]:
         return [entry for entry in self.log if entry["destructive"]]
+
+    def approve(self, card: dict[str, Any]) -> None:
+        """Backend side of an APPROVE from the card's approver: record it (per candidate for route changes)."""
+        self.approved.add(card["approvalId"])
+        if card.get("candidateId"):
+            self.candidate_approvals.setdefault(card["candidateId"], set()).add(card["approver"])
 
     def require_approval(self, approval_id: str) -> None:
         if approval_id not in self.approved:
@@ -229,7 +236,10 @@ class World:
             else:
                 grade = "MAJOR" if len(redo) > 1 or len(removed) > 2 else "MINOR"
         cid = f"C-{plan['version']}"
-        self.candidates[cid] = {"candidateId": cid, "status": "OK", "plan": plan, "grade": grade, "diffs": diffs}
+        required = {"MINOR": ["DRIVER"], "MAJOR": ["MANAGER", "DRIVER"]}.get(grade, [])
+        self.candidates[cid] = {
+            "candidateId": cid, "status": "OK", "plan": plan, "grade": grade, "requiredApprovers": required, "diffs": diffs,
+        }
         return self.candidates[cid]
 
 
@@ -305,7 +315,8 @@ def business_server(world: World) -> FastMCP:
         shift_id: str, kind: str, truck_ids: list[str] | None = None, exclude_station_ids: list[str] | None = None
     ) -> str:
         """경로 계산 (활성화 전 후보). kind: PLAN(근무조 계획) | REPLAN(재경로, truck_ids만 다시 계산).
-        현장 보고의 실제 재고와 진입 불가는 자동 반영된다. 반환: candidateId, status, plan, grade(NONE|MINOR|MAJOR, REPLAN만), diffs."""
+        현장 보고의 실제 재고와 진입 불가는 자동 반영된다.
+        반환: candidateId, status, plan, grade(NONE|MINOR|MAJOR, REPLAN만), requiredApprovers(승인 순서), diffs."""
         args = {"shift_id": shift_id, "kind": kind, "truck_ids": truck_ids or [], "exclude_station_ids": exclude_station_ids or []}
         world.record("request_route_plan", args)
         for sid in args["exclude_station_ids"]:
@@ -345,9 +356,11 @@ def business_server(world: World) -> FastMCP:
 
     @mcp.tool(annotations=CHANGE)
     def propose_route_change(truck_id: str, candidate_id: str, approval_id: str, task_id: str) -> str:
-        """트럭 경로 변경 적용 (작은 변경은 기사, 큰 변경은 관리자 승인 필요). 반환: 적용된 Route."""
+        """트럭 경로 변경 적용 (후보의 requiredApprovers가 모두 승인돼야 한다. approval_id는 마지막 카드인 기사 수락). 반환: 적용된 Route."""
         world.require_approval(approval_id)
         candidate = world.candidates.get(candidate_id)
+        if candidate and not set(candidate["requiredApprovers"]) <= world.candidate_approvals.get(candidate_id, set()):
+            raise ToolError(f"후보 {candidate_id}의 승인 순서 {candidate['requiredApprovers']}가 모두 승인되지 않았다 (403).")
         route = next((r for r in candidate["plan"]["routes"] if r["truckId"] == truck_id), None) if candidate else None
         if route is None:
             raise ToolError(f"후보 {candidate_id}에 {truck_id} 경로가 없다 (409).")

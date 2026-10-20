@@ -27,14 +27,14 @@ class ProgressEvent:
     task_id: str
     trace_id: str
     shift_id: str
-    seq: int
     body: dict[str, Any] = field(default_factory=dict)
     harness: dict[str, Any] = field(default_factory=dict)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     occurred_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_json(self) -> dict[str, Any]:
-        """`TaskEventMessage`: Kafka envelope + SSE `TaskEvent` (+ `harness` extensions)."""
+        """`TaskEventMessage`: Kafka envelope + `TaskEvent` without `seq` (+ `harness` extensions). The backend
+        numbers events per task (`seq`) when it stores them and uses that as the SSE id."""
         message = {
             "eventId": self.event_id,
             "schemaVersion": SCHEMA_VERSION,
@@ -42,7 +42,6 @@ class ProgressEvent:
             "shiftId": self.shift_id,
             "traceId": self.trace_id,
             "taskId": self.task_id,
-            "seq": self.seq,
             "type": self.type,
             **self.body,
         }
