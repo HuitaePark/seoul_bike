@@ -25,6 +25,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import com.seoulbike.backend.TestInfra;
 import com.seoulbike.backend.common.ApiException;
@@ -137,7 +138,10 @@ class TaskFlowTest {
 		assertThat(json.readTree(res.body()).path("code").asString()).isEqualTo("TASK_TYPE_NOT_ALLOWED");
 	}
 
-	/** 승인 대기 중에 에이전트가 실패하면 그 승인 요청은 낡은 것이다. 끝난 작업을 다시 재개하지 않는다. */
+	/**
+	 * 승인 대기 중에 에이전트가 실패하면 그 승인 요청은 낡은 것이다. 끝난 작업을 다시 재개하지 않는다.
+	 * 화면으로는 계약 필드(code 포함)만 가고, agent 확장(harness)과 봉투는 가지 않는다.
+	 */
 	@Test
 	void approvalAfterTaskFailedIsRejected() throws Exception {
 		String manager = login("manager");
@@ -149,14 +153,20 @@ class TaskFlowTest {
 			SseEvent approval = stream.readUntil(e -> e.type().equals("APPROVAL_REQUIRED")).getLast();
 			String approvalId = json.readTree(approval.data()).path("approval").path("approvalId").asString();
 
-			kafka.send(Topics.AI_EVENTS, shiftId, json.writeValueAsString(json.createObjectNode()
+			ObjectNode failedEvent = json.createObjectNode()
 				.put("eventId", UUID.randomUUID().toString())
 				.put("schemaVersion", 1)
 				.put("shiftId", shiftId)
 				.put("taskId", taskId)
 				.put("type", "FAILED")
-				.put("error", "테스트: 에이전트 중단"))).get(10, TimeUnit.SECONDS);
-			stream.readUntil(e -> e.type().equals("FAILED"));
+				.put("error", "테스트: 에이전트 중단")
+				.put("code", "LOOP_TIMEOUT");
+			failedEvent.putObject("harness").put("runId", "run-1").put("totalTokens", 1234);
+			kafka.send(Topics.AI_EVENTS, shiftId, json.writeValueAsString(failedEvent)).get(10, TimeUnit.SECONDS);
+			JsonNode failedData = json.readTree(stream.readUntil(e -> e.type().equals("FAILED")).getLast().data());
+			assertThat(failedData.path("code").asString()).isEqualTo("LOOP_TIMEOUT");
+			assertThat(failedData.has("harness")).isFalse();
+			assertThat(failedData.has("eventId")).isFalse();
 
 			var late = call("POST", "/api/ai/tasks/" + taskId + "/approval", manager,
 					"{\"approvalId\":\"" + approvalId + "\",\"decision\":\"APPROVE\"}");

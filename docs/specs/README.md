@@ -45,7 +45,9 @@
 - **변경 API 3개(`/internal/constraints`, `/plans/{id}/activate`, `/routes/{truckId}/apply`)는 필요한 승인이 모두 `APPROVED`가 아니면 403**을 돌려준다. 에이전트 interrupt와 별개로 backend가 한 번 더 막는다.
 - **`propose_route_change`의 도구 앞 승인이 곧 기사 수락이다** (HARNESS.md 10절 (나)). 따로 수락 흐름을 두지 않아 같은 변경을 두 번 누르지 않는다. 작은 변경(MINOR)은 기사 카드 한 장, 큰 변경(MAJOR)은 관리자 → 기사 카드 두 장을 같은 작업에서 순서대로 보낸다. 누구에게 보낼지는 backend가 후보의 `requiredApprovers`로 정하고, 에이전트는 등급으로 판단하지 않는다.
 - Kafka 메시지 키는 `shiftId`, 모든 메시지에 `eventId`(중복 제거), `traceId`(관측)를 넣는다. 실패하면 `<토픽>.retry` → `<토픽>.dlq`.
-- 근무조 ID `{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}`를 LangGraph `thread_id`로 그대로 쓴다.
+- LangGraph `thread_id`는 **작업 단위 `{shiftId}:{taskId}`**다. backend가 `TaskCommand.threadId`로 보내고 agent는 직접 만들지 않고 그대로 쓴다. 근무조 상태(계획)의 원본은 DB다. (근무조 단위로 쓰면 같은 근무조 작업끼리 대기 중인 승인이 섞인다. HARNESS ISS-03)
+- 기사 작업은 `requestedBy.truckId`로 그 트럭에 한정한다 (NFR-06). backend는 JWT의 트럭으로 채운다.
+- SSE로는 계약 `TaskEvent` 필드만 보낸다. agent의 `harness` 같은 확장 필드는 저장·전달하지 않는다.
 
 ## 확인이 필요한 것 (담당자에게)
 
@@ -55,3 +57,4 @@
 | `TaskCommand`·`TaskEvent` 필드로 LangGraph 시작·재개·이벤트 발행이 충분한가 | 에이전트 |
 | `SolveRequest`·`SolveResult`가 OR-Tools 입력·출력과 맞는가 (`neededBikes` = 기존 `Imbalance.delta`) | 최적화 |
 | 화면에 필요한 필드가 빠지지 않았는가 (승인 카드, 근거 패널, 지도) | 화면 담당 전원 |
+| PRD 6.1의 "근무조 하나 = 그래프 스레드 하나"를 작업 단위 스레드(`{shiftId}:{taskId}`)로 고칠 것 | 기획 리드 |

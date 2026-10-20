@@ -161,7 +161,7 @@ class FakeAgent {
 			routeApprovals.requireApproved(taskId, lastApprovalId, truckId, candidate.candidateId(), candidate.grade());
 		}
 		catch (ApiException e) {
-			emit(cmd, "FAILED", f -> f.put("error", LABEL + "경로를 적용하지 않았다: " + e.getMessage()));
+			emit(cmd, "FAILED", f -> f.put("error", LABEL + "경로를 적용하지 않았다: " + e.getMessage()).put("code", e.code()));
 			return;
 		}
 		tokens(cmd, "승인 순서(" + candidate.grade().requiredApprovers() + ")를 확인했다.");
