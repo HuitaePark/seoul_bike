@@ -40,17 +40,36 @@ jobs:
           python-version: "3.12"
       - run: pip install -r infra/mcp/requirements-dev.txt -e business-mcp -e rag-mcp
       - name: MCP 기존 도구·문서 테스트
-        run: python -m pytest -q -o asyncio_mode=auto business-mcp/tests rag-mcp/tests
+        run: python -m pytest -q -c rag-mcp/pyproject.toml --strict-markers -m "not pgvector and not fastembed" business-mcp/tests rag-mcp/tests
       - name: 독립 MCP 컨테이너 시작
         run: docker compose -f infra/mcp/compose.dev.yaml up -d --build --wait
       - name: Streamable HTTP 도구·Resource 검증
         env:
           MCP_SMOKE_BUSINESS_URL: http://127.0.0.1:19101/mcp
           MCP_SMOKE_RAG_URL: http://127.0.0.1:19102/mcp
+          MCP_SMOKE_RAG_STORE: memory
         run: python -m pytest -q infra/mcp/tests
+      - name: 독립 pgvector 테스트 DB 시작
+        run: docker compose -f infra/mcp/compose.dev.yaml -f infra/mcp/compose.pgvector.yaml up -d --wait vectordb
+      - name: RAG 색인·재색인·DB 검색 검증
+        timeout-minutes: 5
+        env:
+          RAG_TEST_DSN: postgresql://mcp_test:mcp_test_only@127.0.0.1:19432/mcp_test
+        run: python -m pytest -q -c rag-mcp/pyproject.toml --strict-markers -m pgvector rag-mcp/tests
+      - name: pgvector RAG 컨테이너 시작
+        run: docker compose -f infra/mcp/compose.dev.yaml -f infra/mcp/compose.pgvector.yaml up -d --build --wait
+      - name: pgvector Streamable HTTP 검색·Resource 검증
+        env:
+          MCP_SMOKE_BUSINESS_URL: http://127.0.0.1:19101/mcp
+          MCP_SMOKE_RAG_URL: http://127.0.0.1:19102/mcp
+          MCP_SMOKE_RAG_STORE: pgvector
+        run: python -m pytest -q infra/mcp/tests -k "rag_http or grouped_client"
+      - name: 실패 시 MCP 테스트 로그
+        if: failure()
+        run: docker compose -f infra/mcp/compose.dev.yaml -f infra/mcp/compose.pgvector.yaml logs --no-color --tail=100
       - name: 독립 MCP 테스트 환경 정리
         if: always()
-        run: docker compose -f infra/mcp/compose.dev.yaml down
+        run: docker compose -f infra/mcp/compose.dev.yaml -f infra/mcp/compose.pgvector.yaml down --volumes
 
   backend:
     runs-on: ubuntu-latest
@@ -108,3 +127,4 @@ jobs:
           docker compose -f infra/optimizer/compose.dev.yaml --profile prepare --profile tools config -q
           docker compose -f infra/optimizer/compose.kafka.yaml config -q
           docker compose -f infra/mcp/compose.dev.yaml config -q
+          docker compose -f infra/mcp/compose.dev.yaml -f infra/mcp/compose.pgvector.yaml config -q

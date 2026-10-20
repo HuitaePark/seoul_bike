@@ -162,6 +162,26 @@ backend/·frontend/ 폴더와 CI 변경은 main에서 가져왔다. 이번 후�
 - 임시 MCP 컨테이너·네트워크는 검증 후 정리했다. backend의 ai.events retry/DLQ가
   optimizer의 solve.* retry/DLQ 구현을 의미하지는 않는다.
 
+## pgvector CI·HTTP 검증 보강
+
+- 기준은 개인 브랜치 41ec788이다. MCP 업무 소스·테스트, 최적화 코드, 공통 YAML,
+  운영 Compose를 바꾸지 않고 역할 5의 개발 환경·CI·HTTP 검사만 확장했다.
+- compose.pgvector.yaml은 기본 MCP 개발 환경에 더하는 테스트 전용 overlay다.
+  별도 프로젝트의 pgvector DB를 127.0.0.1:19432에 열고 DB 데이터는 tmpfs에만 둔다.
+- 기존 MCP 검사 **46개 통과**, 실제 pgvector 검사 **3개 통과**.
+  색인·동일 입력 생략, 모델 차원 변경에 따른 재색인, 검색·문서 필터·Resource·모델 불일치 차단을 검증했다.
+  RAG pyproject 설정을 명시해 기존 전용 마커 경고도 해소했다. 실제 fastembed 모델 검사는 제외한다.
+- 메모리 모드의 기존 HTTP 검사 **3개 통과**, pgvector 모드의 RAG·다중 서버 HTTP 검사 **2개 통과**.
+  응답 source와 embedding의 모델·차원도 확인해 요청한 저장소와 응답이 일치하는지 검사한다.
+- 실제 색인기가 문서 4개·chunk 42개를 hash-bigram-256으로 색인하고 종료 코드 0으로 끝난 뒤
+  RAG 서버가 시작됐다. MCP 서버·색인기 UID 10001, 문서 읽기 전용 마운트와 DB tmpfs를 확인했다.
+- 기본·pgvector Compose 구성과 CI YAML을 검사했다. CI에는 실제 DB 검사·두 저장소의 HTTP 검사,
+  실패 로그 수집과 항상 실행하는 정리를 추가했다. GitHub 호스팅 러너의 실제 실행은 아직 전이다.
+- 로컬에서 CI와 같은 검사 명령을 실행했고 전용 컨테이너 4개·네트워크를 모두 정리했다.
+
+검증용 hash 임베딩은 실제 한국어 의미 검색 품질을 입증하지 않는다. 운영 DB·LLM·backend와
+연결하지 않았으며, 이번 변경에서 실제 OSRM·Kafka·최적화 테스트를 다시 실행하지 않았다.
+
 ## 아직 검증하지 않은 범위
 
 운영 backend의 실제 solve 요청/응답, retry/DLQ·분산 중복 방지·볼륨 유실 복구,

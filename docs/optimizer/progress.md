@@ -9,7 +9,8 @@
 - OSRM 후속 구현은 로컬 `8c38ee1`로 저장했고, 이후 추가된 공통 명세도 병합했다.
 - acf3556까지 개인 브랜치 원격 push를 완료했다.
 - 242819a에서 최신 main 1ecdb7a를 병합했다. 이번 MCP·S05 후속 개발은 로컬에 저장한다.
-- 이후 MCP·S05 개발을 1c9b645로 저장했고, 2026-10-21 main 94d86d1을 병합했다. 개인 브랜치 원격 push는 아직 acf3556까지다.
+- 이후 MCP·S05 개발을 1c9b645로 저장했고, 2026-10-21 main 94d86d1을 병합했다. 개인 브랜치 원격 push는 41ec788까지 완료했다.
+- 이후 pgvector 테스트 DB·색인기 실행 환경과 CI·HTTP 검증을 추가했다. 이번 후속 변경은 로컬에 저장한다.
 - 명세 PR은 docs/specs의 역할 명세·목록·예시 5개 파일로 분리하고, 구현은 별도 PR로 제출할 계획이다.
 
 ## 최신 main의 상태
@@ -37,15 +38,19 @@ agent 자리는 설정으로 켜는 가짜 에이전트가 대신하며 ai.event
 | Kafka 실행기 | solve 요청 소비·결과 발행, shiftId 키, trace 전달, ACK 후 offset commit, 파일 상태로 완료 결과 재사용 | 실제 독립 브로커·재시작 검증. 단일 worker·동일 상태 볼륨 전제 |
 | Kafka 개발 인프라 | 개발용 브로커·solve 토픽 초기화·worker Compose, 필수 requestId별 실행 설정 | 실제 이미지 빌드·컨테이너 구동 검증. 운영 backend 미연결 |
 | MCP 개발 인프라 | 최신 main의 MCP 소스에 독립 컨테이너·고정 의존성·docs/evidence 읽기 전용 마운트·클라이언트 예시 구성 | 기존 MCP 테스트와 실제 Streamable HTTP 검증. fake backend·RAG memory 모드 |
+| pgvector 검증 인프라 | 일회용 DB·hash 임베딩 색인기·RAG 서버 overlay, 색인 완료 후 서버 시작, CI 실패 로그·항상 정리 | MCP 49개와 HTTP 5개 통과. 실제 의미 임베딩 품질은 별도 |
 | S05 참조 입력 | 역할 6의 ad17528에서 196곳·권역 행 추출, 원본/추출 해시, ID 대응·좌표·개수 검증 | 추출 해시·오류 시나리오 검증. 재고·필요량 생성 없음 |
 | 문서 | docs/specs/optimizer.md와 공통 요청·결과 예시 추가. 예전 독자 명세 정리 | 공통 YAML 변경 없음 |
 
-DB 직접 접근과 LLM 호출은 없다. 기존 CLI는 가상 대여소·예측 데모다.
+최적화 코어는 업무 DB에 직접 접근하거나 LLM을 호출하지 않는다. 기존 CLI는 가상 대여소·예측 데모다.
 별도 contract.solve_request()는 공통 메시지의 계산된 neededBikes를 받으며,
 명시적 SolveContext와 이동 공급자가 필요하다. 별도 worker는 외부 runtime 파일에서
 requestId별 설정을 받고 Kafka를 처리한다. 실제 backend 요청 생성·결과 소비는 아직 연결하지 않았다.
 
 ## 협의·연결이 필요한 항목
+
+역할 5가 바로 이어서 할 수 있는 작업은 기존 성능 측정의 재경로·p95·캐시 비교 확장과
+worker 요청·근무조·trace ID·처리 시간 로그 보강이다. 아래 실제 운영 연결과는 별개로 진행할 수 있다.
 
 1. **운영 설정·backend 연결:** [공통 대응 명세](../specs/optimizer.md)를 기준으로
    권역·스냅샷의 차고지·기준 시각을 자동 공급하는 경로를 담당자와 확인한다.

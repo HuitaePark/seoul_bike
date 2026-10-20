@@ -7,6 +7,16 @@ from fastmcp import Client
 
 BUSINESS_URL = os.environ.get("MCP_SMOKE_BUSINESS_URL")
 RAG_URL = os.environ.get("MCP_SMOKE_RAG_URL")
+RAG_STORE = os.environ.get("MCP_SMOKE_RAG_STORE", "memory")
+
+
+def assert_rag_backend(result):
+    """A successful response must come from the requested backend, not a fallback."""
+    assert RAG_STORE in {"memory", "pgvector"}, "MCP_SMOKE_RAG_STORE must be memory or pgvector"
+    assert result["source"].startswith(RAG_STORE + ":")
+    expected = {"model": "hash-bigram-256", "dim": 256} if RAG_STORE == "pgvector" else {
+        "model": None, "dim": None}
+    assert result["embedding"] == expected
 
 
 @pytest.mark.asyncio
@@ -45,6 +55,7 @@ async def test_rag_http_search_and_read_only_mounted_resources():
                     doc["doc_id"] for doc in index}
         result = await client.call_tool("search_docs", {"query": "불꽃축제 대여 반납 중지", "top_k": 3})
         assert not result.is_error and result.structured_content["chunks"]
+        assert_rag_backend(result.structured_content)
         chunk = result.structured_content["chunks"][0]
         assert {"citation", "basis", "uri", "doc_id"} <= chunk.keys()
         assert chunk["doc_id"] == "notice-seoul-fireworks-2025"
@@ -66,3 +77,4 @@ async def test_grouped_client_uses_agent_tool_prefixes():
         assert {"business_request_route_plan", "business_get_station_detail", "rag_search_docs"} <= names
         result = await client.call_tool("rag_search_docs", {"query": "운영 기준", "top_k": 1})
         assert not result.is_error and result.structured_content["chunks"]
+        assert_rag_backend(result.structured_content)
