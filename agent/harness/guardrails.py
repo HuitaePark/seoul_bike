@@ -8,11 +8,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_core.tools import BaseTool
+
+from .config import ApprovalRule
 
 PHONE = re.compile(r"01[016789][-\s]?\d{3,4}[-\s]?\d{4}")
 PHONE_MASK = "010-****-****"
@@ -107,14 +109,12 @@ def destructive_tools(tools: Iterable[BaseTool]) -> list[str]:
     return [t.name for t in tools if (t.metadata or {}).get("destructiveHint")]
 
 
-def approval_middleware(tool_names: Iterable[str], approver: dict[str, str]) -> HumanInTheLoopMiddleware:
-    """Interrupt before every destructive tool. Human answers approve, edit (e.g. exclude stations), or reject."""
+def approval_middleware(tool_names: Iterable[str], rules: Mapping[str, ApprovalRule]) -> HumanInTheLoopMiddleware:
+    """Interrupt before every destructive tool. The approval card (contract `ApprovalRequest`) is built from the
+    pending call by the agent; the human answers approve, reject (with a reason or excluded stations), or edit."""
     return HumanInTheLoopMiddleware(
         interrupt_on={
-            name: {
-                "allowed_decisions": ["approve", "edit", "reject"],
-                "description": f"승인 필요: {name} (승인 주체: {approver.get(name, 'manager')})",
-            }
+            name: {"allowed_decisions": ["approve", "edit", "reject"], "description": f"승인 필요: {rules[name].kind}"}
             for name in tool_names
         }
     )

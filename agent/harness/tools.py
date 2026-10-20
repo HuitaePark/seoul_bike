@@ -1,11 +1,12 @@
 # Author: Cheon Seonghun
 # Date: 20OCT2026
-# Purpose: Tools: MCP connection with server prefixes, per-task allow lists, result truncation and masking.
+# Purpose: Tools: MCP connection, per-task allow lists, approval id injection, driver scope, truncation, masking.
 
 """Tools (docs/HARNESS.md section 3.2)."""
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
@@ -20,8 +21,8 @@ from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 
 from .config import ToolSettings
+from .contract import approval_id
 from .errors import FailureCode, HarnessFailure
-from .events import ProgressEvent
 from .guardrails import destructive_tools
 from .task import HarnessContext
 
@@ -76,28 +77,50 @@ def truncate(text: str, limit: int) -> tuple[str, bool]:
 
 
 def scope_to_truck(value: Any, truck_id: str) -> Any:
-    """Drops list entries that belong to another truck (objects with a different `truck_id`), at any depth."""
+    """Drops list entries that belong to another truck (objects with a different `truckId`), at any depth."""
     if isinstance(value, list):
         return [
             scope_to_truck(v, truck_id)
             for v in value
-            if not (isinstance(v, dict) and "truck_id" in v and v["truck_id"] != truck_id)
+            if not (isinstance(v, dict) and "truckId" in v and v["truckId"] != truck_id)
         ]
     if isinstance(value, dict):
         return {k: scope_to_truck(v, truck_id) for k, v in value.items()}
     return value
 
 
-class ToolResultMiddleware(AgentMiddleware):
-    """Wraps every tool call: TOOL_START/TOOL_END events, RAG top_k cap, driver scope, masking, truncation.
+def hide_injected_args(tools: Iterable[BaseTool], names: Iterable[str]) -> list[BaseTool]:
+    """Removes Harness-filled arguments (`approval_id`, `task_id`) from the schemas the model sees, so the model can
+    neither see nor forge them. ToolResultMiddleware fills them in when the approved call runs."""
+    names = set(names)
+    out = []
+    for tool in tools:
+        schema = tool.args_schema
+        if isinstance(schema, dict) and names & set(schema.get("properties", {})):
+            schema = copy.deepcopy(schema)
+            for name in names:
+                schema["properties"].pop(name, None)
+            schema["required"] = [r for r in schema.get("required", []) if r not in names]
+            tool = tool.model_copy(update={"args_schema": schema})
+        out.append(tool)
+    return out
 
-    For tasks a driver sent, other trucks' entries are removed from results (NFR-06). The MCP artifact
-    (structured copy of the result) is dropped so unscoped, unmasked data never enters state or traces.
+
+class ToolResultMiddleware(AgentMiddleware):
+    """Wraps every tool call: TOOL_START/TOOL_END events, RAG top_k cap, approval id injection, driver scope,
+    masking, truncation.
+
+    Gated tools get `approval_id` (stable id of this call's approval card) and `task_id` so the backend can check
+    the approval again (docs/specs internal-api `ApprovedChange`). For tasks a driver sent, other trucks' entries
+    are removed from results (NFR-06). The MCP artifact is dropped so unscoped, unmasked data never enters state.
     """
 
-    def __init__(self, settings: ToolSettings) -> None:
+    def __init__(self, settings: ToolSettings, labels: dict[str, str], gated: Iterable[str], injected: Iterable[str]):
         super().__init__()
         self.settings = settings
+        self.labels = labels
+        self.gated = frozenset(gated)
+        self.injected = tuple(injected)
 
     @staticmethod
     def _prepare(text: str, ctx: HarnessContext) -> str:
@@ -110,6 +133,18 @@ class ToolResultMiddleware(AgentMiddleware):
             parsed = scope_to_truck(parsed, requester.truck_id)
         return json.dumps(ctx.masker.value(parsed), ensure_ascii=False)
 
+    def _call_to_run(self, call: dict[str, Any], ctx: HarnessContext) -> dict[str, Any]:
+        args = {k: v for k, v in call["args"].items() if k not in self.injected}
+        if call["name"] == self.settings.rag_tool and int(args.get("top_k", 0)) > self.settings.rag_top_k:
+            args["top_k"] = self.settings.rag_top_k
+        if call["name"] in self.gated:
+            args |= {"approval_id": approval_id(ctx.task.task_id, call["id"]), "task_id": ctx.task.task_id}
+        return {**call, "args": args}
+
+    def _tool(self, name: str, ok: bool | None = None) -> dict[str, Any]:
+        tool = {"name": name, "label": self.labels.get(name, name)}
+        return tool if ok is None else {**tool, "ok": ok}
+
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
@@ -117,17 +152,10 @@ class ToolResultMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         ctx: HarnessContext = request.runtime.context
         call = request.tool_call
-        if call["name"] == self.settings.rag_tool and int(call["args"].get("top_k", 0)) > self.settings.rag_top_k:
-            call = {**call, "args": {**call["args"], "top_k": self.settings.rag_top_k}}
-            request = request.override(tool_call=call)
-        ctx.sink.emit(
-            ProgressEvent(
-                "TOOL_START",
-                ctx.task.task_id,
-                ctx.task.trace_id,
-                {"tool": call["name"], "args": ctx.masker.value(call["args"])},
-            )
-        )
+        to_run = self._call_to_run(call, ctx)
+        if to_run["args"] != call["args"]:
+            request = request.override(tool_call=to_run)
+        ctx.emit("TOOL_START", {"tool": self._tool(call["name"])})
         try:
             result = await handler(request)
         except (GraphBubbleUp, HarnessFailure, asyncio.CancelledError):
@@ -140,12 +168,5 @@ class ToolResultMiddleware(AgentMiddleware):
         content, cut = truncate(self._prepare(_text(result.content), ctx), self.settings.result_max_chars)
         ctx.stats.truncated += cut
         masked = result.model_copy(update={"content": content, "artifact": None})
-        ctx.sink.emit(
-            ProgressEvent(
-                "TOOL_END",
-                ctx.task.task_id,
-                ctx.task.trace_id,
-                {"tool": call["name"], "ok": masked.status != "error", "truncated": cut},
-            )
-        )
+        ctx.emit("TOOL_END", {"tool": self._tool(call["name"], masked.status != "error")}, {"truncated": cut})
         return masked

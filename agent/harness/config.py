@@ -56,8 +56,25 @@ class RecoverySettings:
 
 
 @dataclass(frozen=True)
+class ApprovalRule:
+    """How a destructive tool's approval card looks (docs/specs openapi ApprovalRequest)."""
+
+    kind: str  # SUBMIT_PLAN | ADD_CONSTRAINT | ROUTE_CHANGE
+    approver: str | None = None  # MANAGER | DRIVER
+    approver_by_grade: dict[str, str] = field(default_factory=dict)  # MINOR/MAJOR -> approver
+
+    def approver_for(self, grade: str | None) -> str:
+        if self.approver_by_grade:
+            if grade not in self.approver_by_grade:
+                raise ValueError(f"{self.kind}: no approver for grade {grade!r}")
+            return self.approver_by_grade[grade]
+        return self.approver or "MANAGER"
+
+
+@dataclass(frozen=True)
 class GuardrailSettings:
-    approver: dict[str, str]
+    approval: dict[str, ApprovalRule]
+    injected_args: tuple[str, ...]
     mask_keys: frozenset[str]
     id_pattern: str
 
@@ -67,6 +84,7 @@ class ObservabilitySettings:
     project: str
     eval_project: str
     trace_header: str
+    tool_labels: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -128,10 +146,16 @@ def load_config(path: Path | str = DEFAULT_CONFIG, prompts_dir: Path | str = DEF
             retry_status=frozenset(int(s) for s in r["retry_status"]),
         ),
         guardrails=GuardrailSettings(
-            approver=dict(g["approver"]), mask_keys=frozenset(g["mask_keys"]), id_pattern=g["id_pattern"]
+            approval={name: ApprovalRule(**rule) for name, rule in g["approval"].items()},
+            injected_args=tuple(g["injected_args"]),
+            mask_keys=frozenset(g["mask_keys"]),
+            id_pattern=g["id_pattern"],
         ),
         observability=ObservabilitySettings(
-            project=o["project"], eval_project=o["eval_project"], trace_header=o["trace_header"]
+            project=o["project"],
+            eval_project=o["eval_project"],
+            trace_header=o["trace_header"],
+            tool_labels=dict(o.get("tool_labels") or {}),
         ),
         prompts_dir=Path(prompts_dir),
     )

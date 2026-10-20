@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from langchain.agents import create_agent
@@ -25,14 +26,15 @@ from langsmith.utils import tracing_is_enabled
 
 from .config import HarnessConfig
 from .context import StateBriefMiddleware, summarization
+from .contract import ApprovalMismatch, approval_card, decision_from_resume, sources
 from .errors import FailureCode, HarnessFailure
-from .events import EventSink, ProgressEvent
+from .events import EventSink
 from .guardrails import Masker, approval_middleware, destructive_tools
 from .loop import LoopGuardMiddleware
 from .prompts import Prompt, load_prompt, task_message
 from .recovery import RecoveryMiddleware, Sleep
 from .task import HarnessContext, Outcome, Task
-from .tools import ToolResultMiddleware, select_tools
+from .tools import ToolResultMiddleware, hide_injected_args, select_tools
 from .tracing import UsageMiddleware, langsmith_client, run_config
 from .validation import ArgumentValidationMiddleware
 
@@ -64,7 +66,7 @@ class HarnessAgent:
         sleep: Sleep = asyncio.sleep,
     ) -> None:
         self.config = config
-        self.tools = list(tools)
+        self.tools = hide_injected_args(tools, config.guardrails.injected_args)
         self.sink = sink
         kwargs = config.models.kwargs
         self.model = model or init_chat_model(config.models.primary, **kwargs)
@@ -76,11 +78,10 @@ class HarnessAgent:
         self.clock = clock
         self.sleep = sleep
         self._built: dict[str, tuple[Any, Prompt]] = {}
+        self._seq: dict[str, itertools.count] = {}
         # One masker per process (aliases are name hashes); also the LangSmith anonymizer (tracing.langsmith_client).
         self.masker = Masker(config.guardrails.mask_keys)
-        self.trace_client = (
-            langsmith_client(self.masker) if tracing_is_enabled() else None
-        )
+        self.trace_client = langsmith_client(self.masker) if tracing_is_enabled() else None
 
     @property
     def recursion_limit(self) -> int:
@@ -91,17 +92,20 @@ class HarnessAgent:
         if task_type not in self._built:
             cfg = self.config
             tools = select_tools(self.tools, task_type, cfg.tools)
-            destructive = destructive_tools(tools)
+            gated = destructive_tools(tools)
+            if missing := [name for name in gated if name not in cfg.guardrails.approval]:
+                # Every destructive tool must have an approval card; never run one ungated.
+                raise ValueError(f"guardrails.approval has no rule for destructive tools {missing}")
             prompt = load_prompt(cfg.prompts_dir, task_type)
             middleware = [
                 LoopGuardMiddleware(cfg.loop),
-                ArgumentValidationMiddleware({t.name for t in tools}, cfg.guardrails.id_pattern),
+                ArgumentValidationMiddleware({t.name for t in tools}, cfg.guardrails.id_pattern, gated),
                 UsageMiddleware(),
                 StateBriefMiddleware(),
                 RecoveryMiddleware(cfg.recovery, self.fallback_model, self.sleep),
-                ToolResultMiddleware(cfg.tools),
+                ToolResultMiddleware(cfg.tools, cfg.observability.tool_labels, gated, cfg.guardrails.injected_args),
                 summarization(self.model, cfg.context),
-                approval_middleware(destructive, cfg.guardrails.approver),
+                approval_middleware(gated, cfg.guardrails.approval),
             ]
             graph = create_agent(
                 self.model,
@@ -119,11 +123,27 @@ class HarnessAgent:
         self.masker.add_names(task.driver_names)
         return self.masker
 
+    def _next_seq(self, task: Task) -> Callable[[], int]:
+        counter = self._seq.setdefault(task.task_id, itertools.count(1))
+        return lambda: next(counter)
+
+    async def _state(self, task: Task) -> Any:
+        graph, _ = self._agent(task.task_type)
+        return await graph.aget_state({"configurable": {"thread_id": task.thread_id}})
+
     async def history(self, task: Task) -> list[BaseMessage]:
         """Masked message history of the task's thread (what the model saw), for evaluation and debugging."""
-        graph, _ = self._agent(task.task_type)
-        state = await graph.aget_state({"configurable": {"thread_id": task.thread_id}})
-        return list(state.values.get("messages", []))
+        return list((await self._state(task)).values.get("messages", []))
+
+    async def pending_approval(self, task: Task) -> dict[str, Any] | None:
+        """The approval card (contract `ApprovalRequest`) the task is waiting on, rebuilt from the checkpoint."""
+        state = await self._state(task)
+        if not state.interrupts:
+            return None
+        messages = state.values["messages"]
+        ai = next(m for m in reversed(messages) if isinstance(m, AIMessage))
+        call = next(tc for tc in ai.tool_calls if tc["name"] in self.config.guardrails.approval)
+        return approval_card(task, call, messages, self.config.guardrails.approval)
 
     async def start(self, task: Task) -> Outcome:
         """New task: requester and report values are written by code; free text is masked and wrapped as
@@ -132,16 +152,23 @@ class HarnessAgent:
         payload = {"messages": [HumanMessage(task_message(task, masker.text(task.input)))]}
         return await self._run(task, payload, masker, rejected=False)
 
+    async def resume_command(self, task: Task, resume: Mapping[str, Any]) -> Outcome:
+        """Contract RESUME (`TaskCommand.resume`): checks it answers the pending card and comes from that card's
+        approver, then resumes. Raises ApprovalMismatch without running anything otherwise."""
+        card = await self.pending_approval(task)
+        if card is None:
+            raise ApprovalMismatch(f"task {task.task_id} is not waiting for approval")
+        return await self.resume(task, [decision_from_resume(resume, card)])
+
     async def resume(self, task: Task, decisions: Sequence[dict[str, Any]]) -> Outcome:
-        """Approval answer for the pending interrupt, one decision per pending tool call, in order:
-        `{"type": "approve"}`, `{"type": "edit", "edited_action": {"name": ..., "args": ...}}`,
-        `{"type": "reject", "message": "..."}`."""
+        """Low-level resume with Harness decisions: `{"type": "approve"}`, `{"type": "reject", "message": ...}`,
+        `{"type": "edit", "edited_action": {"name": ..., "args": ...}}`. Prefer `resume_command`."""
         rejected = any(d.get("type") == "reject" for d in decisions)
         return await self._run(task, Command(resume={"decisions": list(decisions)}), self._masker(task), rejected)
 
     async def _run(self, task: Task, payload: Any, masker: Masker, rejected: bool) -> Outcome:
         graph, prompt = self._agent(task.task_type)
-        ctx = HarnessContext(task=task, sink=self.sink, masker=masker, clock=self.clock)
+        ctx = HarnessContext(task=task, sink=self.sink, masker=masker, next_seq=self._next_seq(task), clock=self.clock)
         config = run_config(
             task,
             prompt_version=prompt.version,
@@ -162,53 +189,44 @@ class HarnessAgent:
             return self._failed(ctx, run_id, FailureCode.INTERNAL_ERROR, f"{type(exc).__name__}: {exc}")
 
         if state.interrupts:
-            approvals = [
-                {
-                    "tool": action["name"],
-                    "args": action["args"],
-                    "approver": self.config.guardrails.approver.get(action["name"], "manager"),
-                    "description": action.get("description", ""),
-                }
-                for interrupt in state.interrupts
-                for action in interrupt.value["action_requests"]
-            ]
-            self._emit(ctx, "APPROVAL_REQUIRED", {"approvals": approvals, "run_id": run_id})
-            return Outcome("APPROVAL_REQUIRED", task.task_id, task.trace_id, run_id, approvals=approvals, stats=ctx.stats)
+            card = await self.pending_approval(task)
+            ctx.emit("APPROVAL_REQUIRED", {"approval": card}, {"runId": run_id})
+            return Outcome("APPROVAL_REQUIRED", task.task_id, task.trace_id, run_id, approval=card, stats=ctx.stats)
 
-        last = next((m for m in reversed(state.values["messages"]) if isinstance(m, AIMessage)), None)
+        messages = state.values["messages"]
+        last = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
         answer = masker.text(last.text if last else "")
-        self._emit(ctx, "DONE", {"answer": answer, "rejected": rejected, **self._summary(ctx, run_id)})
+        used = sources(messages, self.config.observability.tool_labels)
+        ctx.emit("DONE", {"answer": answer, "sources": used}, {"rejected": rejected, **self._summary(ctx, run_id)})
         return Outcome("DONE", task.task_id, task.trace_id, run_id, answer=answer, rejected=rejected, stats=ctx.stats)
 
     async def _stream(self, graph: Any, payload: Any, config: dict, ctx: HarnessContext) -> None:
         async for message, meta in graph.astream(payload, config, context=ctx, stream_mode="messages"):
             # Streaming models yield AIMessageChunk (a subclass); non-streaming ones yield one full AIMessage.
             if meta.get("langgraph_node") == "model" and isinstance(message, AIMessage) and message.text:
-                self._emit(ctx, "TOKEN", {"text": ctx.masker.text(message.text)})
+                ctx.emit("TOKEN", {"token": ctx.masker.text(message.text)})
 
     def _summary(self, ctx: HarnessContext, run_id: str) -> dict[str, Any]:
+        """Extension fields (`harness`) for DONE and FAILED, camelCase like the contract."""
         s = ctx.stats
         return {
-            "run_id": run_id,
-            "langsmith_project": self.project,
+            "runId": run_id,
+            "langsmithProject": self.project,
             "fallback": s.fallback,
             "turns": s.turns,
-            "tool_calls": s.tool_calls,
+            "toolCalls": s.tool_calls,
             "retries": s.retries,
             "truncated": s.truncated,
-            "input_tokens": s.input_tokens,
-            "output_tokens": s.output_tokens,
-            "elapsed_s": round(ctx.elapsed(), 3),
+            "inputTokens": s.input_tokens,
+            "outputTokens": s.output_tokens,
+            "elapsedS": round(ctx.elapsed(), 3),
         }
 
     def _failed(self, ctx: HarnessContext, run_id: str, code: FailureCode, message: str) -> Outcome:
         message = ctx.masker.text(message)
-        self._emit(ctx, "FAILED", {"code": str(code), "message": message, **self._summary(ctx, run_id)})
+        ctx.emit("FAILED", {"error": message}, {"code": str(code), **self._summary(ctx, run_id)})
         t = ctx.task
         return Outcome("FAILED", t.task_id, t.trace_id, run_id, code=str(code), message=message, stats=ctx.stats)
-
-    def _emit(self, ctx: HarnessContext, type_: str, data: dict[str, Any]) -> None:
-        ctx.sink.emit(ProgressEvent(type_, ctx.task.task_id, ctx.task.trace_id, data))
 
 
 async def connect(
