@@ -49,6 +49,7 @@ class Result:
     rentals: int = 0  # 시도한 대여
     failed: int = 0  # 재고가 0이라 실패한 대여
     failed_at: Counter = field(default_factory=Counter)  # 대여소별 실패 대여
+    failed_hour: Counter = field(default_factory=Counter)  # 시각(0~23)별 실패 대여
     latent: int = 0  # 시도한 대여 중 억눌린 수요
     failed_latent: int = 0  # 실패한 대여 중 억눌린 수요
     empty_min: float = 0.0  # 빈 대여소-분 (주 지표)
@@ -120,6 +121,7 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
                 res.failed += 1
                 res.failed_latent += is_latent
                 res.failed_at[s] += 1
+                res.failed_hour[now.hour] += 1
                 failed_trips.add(v)
         elif kind == "return":
             if v not in failed_trips:
