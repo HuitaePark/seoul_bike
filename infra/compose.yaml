@@ -52,6 +52,50 @@ services:
       retries: 10
     restart: unless-stopped
 
+  agent:
+    # 근무조 그래프 (docs/AGENT-GRAPH.md). ai.tasks를 소비해 ai.events를 발행한다. 공개 포트는 없다.
+    # 이 서비스가 떠 있으면 backend의 FAKE_AGENT_ENABLED는 false여야 한다 (켜 두면 둘 다 답해 이벤트가 두 번 나간다).
+    build:
+      context: ../agent
+    environment:
+      KAFKA_BOOTSTRAP: redpanda:9092
+      # 체크포인터·처리 기록. 업무 DB와 따로 agent 데이터베이스를 쓴다 (agent-db-init이 만든다).
+      # 비밀번호는 URL 대신 PGPASSWORD로 준다 (libpq가 읽는다). 특수문자가 있어도 URL 인코딩할 필요가 없다.
+      AGENT_PG_URL: postgresql://${POSTGRES_USER:-seoulbike}@postgres:5432/agent
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 .env에 필요하다}
+      # 비우면 harness.yaml 모델, none이면 LLM 없는 경로만, ollama:<모델>이면 그 모델
+      AGENT_LLM: ${AGENT_LLM:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-https://ollama.com}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      # business-mcp·rag-mcp(3)가 이 파일에 들어오기 전까지는 평가용 가짜 MCP로 돈다. 들어오면 .env에서 0으로 바꾼다.
+      MCP_FAKE: ${MCP_FAKE:-1}
+      MCP_BUSINESS_URL: ${MCP_BUSINESS_URL:-http://business-mcp:9101/mcp}
+      MCP_RAG_URL: ${MCP_RAG_URL:-http://rag-mcp:9102/mcp}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agent-db-init:
+        condition: service_completed_successfully
+      redpanda:
+        condition: service_healthy
+      # ai.tasks·ai.events(파티션 6개)는 backend가 만든다. agent가 먼저 구독하면 자동 생성된 1파티션 토픽을 보다가 명령을 놓친다.
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  agent-db-init:
+    # agent 데이터베이스가 없으면 만들고 끝난다. 이미 있는 pgdata 볼륨에도 돌도록 initdb 스크립트 대신 쓴다.
+    image: imresamu/postgis:16-3.4
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-seoulbike}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 .env에 필요하다}
+      PGDATABASE: ${POSTGRES_DB:-seoulbike}
+    command: ["sh", "-c", "psql -tAc \"select 1 from pg_database where datname = 'agent'\" | grep -q 1 || psql -c 'create database agent'"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     # postgis/postgis 공식 이미지는 amd64 전용이라 Apple Silicon에서 에뮬레이션으로 돈다.
     # 같은 메인테이너가 관리하는 멀티 아키텍처 이미지를 쓴다.

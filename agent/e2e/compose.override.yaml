@@ -1,0 +1,26 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: 로컬 통합 확인용 덮어쓰기. 호스트에서 띄운 agent가 Kafka·PostgreSQL에 붙도록 포트를 연다 (docs/AGENT-GRAPH.md 8.2).
+#
+# docker compose -p seoulbike-e2e -f infra/compose.yaml -f agent/e2e/compose.override.yaml --env-file <e2e.env> \
+#   up -d --build postgres redpanda backend
+# 서버 배포에는 쓰지 않는다. agent가 compose 서비스가 되면 지운다.
+
+services:
+  redpanda:
+    command:
+      - redpanda
+      - start
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "127.0.0.1:19092:19092"
+  postgres:
+    ports:
+      - "127.0.0.1:55432:5432"
