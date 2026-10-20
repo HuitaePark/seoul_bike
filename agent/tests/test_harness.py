@@ -4,17 +4,22 @@
 
 import json
 import logging
+import threading
 import time
 import unittest
 from contextlib import asynccontextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.tracers.langchain import wait_for_all_tracers
+from langsmith.run_helpers import tracing_context
 
 from evaluation.fake_mcp import SHIFT_ID, World, connect_world
 from evaluation.fakes import ScriptedChatModel, StatusError, call, say
 from harness import FieldReport, HarnessAgent, ListSink, Requester, Task, load_config
 from harness.prompts import wrap_user_input
 from harness.tools import select_tools
+from harness.tracing import langsmith_client
 
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
@@ -313,6 +318,56 @@ class DriverScopeTest(unittest.IsolatedAsyncioTestCase):
             out = await agent.start(task("field_report", "진입 불가", requester=DRIVER))
             self.assertEqual(out.code, "LOOP_TIMEOUT")
             self.assertLess(time.monotonic() - started, 2)
+
+
+class _LangSmithCapture(BaseHTTPRequestHandler):
+    """Stands in for the LangSmith API and keeps every uploaded run body."""
+
+    bodies: list[bytes] = []
+
+    def _reply(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def do_GET(self) -> None:  # noqa: N802
+        self._reply()
+
+    def do_POST(self) -> None:  # noqa: N802
+        self.bodies.append(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        self._reply()
+
+    do_PATCH = do_POST
+
+    def log_message(self, *args) -> None:
+        pass
+
+
+class ObservabilityTest(unittest.IsolatedAsyncioTestCase):
+    async def test_langsmith_runs_carry_trace_id_and_no_driver_identity(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _LangSmithCapture)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        _LangSmithCapture.bodies = []
+        steps = [call("business_get_truck_status", shift_id=SHIFT_ID), say("TR-1 확인")]
+        try:
+            async with harness(steps) as (agent, _, _, _, _, _):
+                agent.trace_client = langsmith_client(
+                    agent.masker, api_url=f"http://127.0.0.1:{server.server_port}", api_key="test", auto_batch_tracing=False
+                )
+                with tracing_context(enabled=True):
+                    await agent.start(task("qa", "김민수 기사(010-2345-6789) 트럭 상태", driver_names=("김민수",)))
+                wait_for_all_tracers()
+                agent.trace_client.flush()
+        finally:
+            server.shutdown()
+        runs = [json.loads(b) for b in _LangSmithCapture.bodies]
+        uploaded = json.dumps(runs, ensure_ascii=False)
+        root = next(r for r in runs if r.get("name") == "harness:qa")
+        self.assertEqual(root["extra"]["metadata"]["trace_id"], "trace-1")
+        self.assertIn("business_get_truck_status", {r.get("name") for r in runs})
+        for raw in ["김민수", "박지훈", "010-2345-6789", "010-9876-5432", "37.5194"]:
+            self.assertNotIn(raw, uploaded)
 
 
 if __name__ == "__main__":

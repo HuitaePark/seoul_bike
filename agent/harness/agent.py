@@ -21,6 +21,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from langsmith.run_helpers import tracing_context
+from langsmith.utils import tracing_is_enabled
 
 from .config import HarnessConfig
 from .context import StateBriefMiddleware, summarization
@@ -32,7 +33,7 @@ from .prompts import Prompt, load_prompt, task_message
 from .recovery import RecoveryMiddleware, Sleep
 from .task import HarnessContext, Outcome, Task
 from .tools import ToolResultMiddleware, select_tools
-from .tracing import UsageMiddleware, run_config
+from .tracing import UsageMiddleware, langsmith_client, run_config
 from .validation import ArgumentValidationMiddleware
 
 log = logging.getLogger(__name__)
@@ -75,6 +76,11 @@ class HarnessAgent:
         self.clock = clock
         self.sleep = sleep
         self._built: dict[str, tuple[Any, Prompt]] = {}
+        # One masker per process (aliases are name hashes); also the LangSmith anonymizer (tracing.langsmith_client).
+        self.masker = Masker(config.guardrails.mask_keys)
+        self.trace_client = (
+            langsmith_client(self.masker) if tracing_is_enabled() else None
+        )
 
     @property
     def recursion_limit(self) -> int:
@@ -110,7 +116,8 @@ class HarnessAgent:
         return self._built[task_type]
 
     def _masker(self, task: Task) -> Masker:
-        return Masker(self.config.guardrails.mask_keys, task.driver_names)
+        self.masker.add_names(task.driver_names)
+        return self.masker
 
     async def history(self, task: Task) -> list[BaseMessage]:
         """Masked message history of the task's thread (what the model saw), for evaluation and debugging."""
@@ -143,7 +150,7 @@ class HarnessAgent:
         )
         run_id = str(config["run_id"])
         try:
-            with tracing_context(project_name=self.project):
+            with tracing_context(project_name=self.project, client=self.trace_client):
                 await self._stream(graph, payload, config, ctx)
             state = await graph.aget_state({"configurable": {"thread_id": task.thread_id}})
         except HarnessFailure as failure:

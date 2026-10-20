@@ -134,7 +134,7 @@ PRD의 FR·NFR을 ISO/IEC 25010:2023 제품 품질 모델의 9개 특성과 부�
 
 | 부특성 | 이 제품에서의 의미 | FR/NFR | 측정·목표 | 증거 | 담당 |
 | --- | --- | --- | --- | --- | --- |
-| 기밀성 (Confidentiality) | 기사 이름·연락처·현재 위치가 모델과 LangSmith로 나가지 않는다. 기사는 `기사#3fa1` 같은 고정 해시 별칭으로만 남는다 | NFR-06 | trace 안 기사 개인정보 **0건** | HARNESS 6.2 마스킹 채점, 운영 프로젝트 표본 점검 | 2 |
+| 기밀성 (Confidentiality) | 기사 이름·연락처·현재 위치가 모델과 LangSmith로 나가지 않는다. 기사는 `기사#3fa1` 같은 고정 해시 별칭으로만 남는다 | NFR-06 | trace 안 기사 개인정보 **0건** | HARNESS 6.3 마스킹 채점, Harness 테스트(LangSmith 업로드 내용 검사), 운영 프로젝트 표본 점검 | 2 |
 | 기밀성 | 화면이 AI 서버 주소를 모르고 작업 API만 호출한다 | - | 프론트엔드 번들의 agent·MCP 주소 **0건** | 빌드 산출물 검색, Compose 네트워크 점검 | 4, 5 |
 | 무결성 (Integrity) | 업무 데이터는 backend 한 곳에서만 바뀌고, MCP는 `/internal/**`만 부른다 | NFR-07, FR-18 | MCP·agent의 업무 DB 직접 쓰기 경로 **0건** | 코드 리뷰 금지 사항 점검(ROLES 5), DB 계정 권한 점검 | 4, 3 |
 | 부인 방지 (Non-repudiation) | 승인·거절·현장 보고가 누가 언제 했는지와 함께 지워지지 않게 남는다 | NFR-05, FR-18 | 승인 이벤트마다 주체·시각·대상 버전 기록 **100%**, 감사 테이블 UPDATE·DELETE 권한 **없음** | 감사 로그 조회, DB 권한 점검 | 4 |
@@ -195,7 +195,7 @@ PRD의 FR·NFR을 ISO/IEC 25010:2023 제품 품질 모델의 9개 특성과 부�
 | --- | --- | --- | --- |
 | 시나리오 평가셋 | SC-01–07, FT-01–07 통과 여부와 채점 결과 | `agent/evaluation/scenarios.py`(원본), trace는 LangSmith 프로젝트 `seoul-bike-eval` | 2 |
 | 평가 결과표 | 프롬프트·한도·모델 변경 전후 비교 | `docs/eval/YYYY-MM-DD-{변경}.md` | 2 |
-| Harness 동작 테스트 | 8요소별 동작 26개 (승인·마스킹·인자 검증·기사 범위·한도·재시도·작업별 스레드 등) | `agent/tests/test_harness.py`, 실행법 [agent/README](../agent/README.md) | 2 |
+| Harness 동작 테스트 | 8요소별 동작 27개 (승인·마스킹·인자 검증·기사 범위·한도·재시도·작업별 스레드·LangSmith 업로드 마스킹 등) | `agent/tests/test_harness.py`, 실행법 [agent/README](../agent/README.md) | 2 |
 | LangSmith 운영 지표 | 작업별 지연, 입력·출력 토큰, 비용, 오류율, `fallback` 메타데이터 | 프로젝트 `seoul-bike` | 2 |
 | 시뮬레이터 지표 | 빈 대여소-분, 과적재 대여소-분, 트럭-시간당 해소 대수, 제안 수락률, 재경로·초안 시간 | 시뮬레이터 실행 결과 | 6 |
 | 감사 로그 | 계획 버전, 승인·거절, 현장 보고 (append-only) | backend DB | 4 |

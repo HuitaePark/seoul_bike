@@ -31,7 +31,7 @@ uv pip install -e .
 반드시 `agent/` 폴더에서, 이 폴더의 `.venv` Python으로 실행한다. `python`이 다른 버전(예: Homebrew 3.11)이나 다른 프로젝트 가상환경을 가리키면 테스트를 못 찾거나(`Ran 0 tests`) 다른 프로젝트 테스트가 실행된다.
 
 ```bash
-.venv/bin/python -m unittest discover tests -v      # 동작 테스트 26개, 키 불필요, 약 2초
+.venv/bin/python -m unittest discover tests -v      # 동작 테스트 27개, 키 불필요, 약 3초
 .venv/bin/python -m unittest tests.test_harness.RecoveryTest.test_fallback_model_after_retries   # 한 줄로 입력
 .venv/bin/python -m evaluation --out /tmp/eval.md   # 시나리오 14개, 키 불필요, 약 4초
 ```
@@ -79,6 +79,7 @@ LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 �
 | | `test_unknown_constraint_shape_is_rejected` | 정의되지 않은 제약 형식은 거부되고, 고친 호출만 실행된다 |
 | 기사 범위 | `test_driver_sees_and_changes_only_own_truck` | 기사 작업에서 모델은 자기 트럭 정보만 보고, 다른 트럭 경로 제안은 거부된다 |
 | | `test_field_report_has_its_own_time_limit` | 현장 보고는 작업 종류별 시간 한도(NFR-01 10초)를 따른다 |
+| Observability | `test_langsmith_runs_carry_trace_id_and_no_driver_identity` | LangSmith로 올라가는 run에 `trace_id` 메타데이터가 있고, 기사 이름·전화번호·좌표 원본은 하나도 없다 (업로드를 받아 두는 로컬 서버로 확인) |
 
 ### 시나리오 평가 (`python -m evaluation`)
 

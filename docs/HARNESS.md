@@ -202,7 +202,7 @@ sequenceDiagram
 | --- | --- |
 | 승인 | 변경 도구 호출이 나오면 실행 전에 `interrupt` (`HumanInTheLoopMiddleware`), `APPROVAL_REQUIRED` 발행 |
 | 결정 | `approve` 실행, `edit` 고친 인자로 실행, `reject` 실행하지 않고 사유를 모델에 전달. 마지막 결정이 거절이면 `DONE.rejected=true` |
-| 마스킹 | 기사 이름 → `기사#3fa1`(이름 해시, 구간·프로세스가 바뀌어도 같다), 전화번호 → `010-****-****`, 트럭·기사 위치 → `[위치]`. 작업 입력, 상태 요약, 도구 결과, 이벤트, 답변에 적용 |
+| 마스킹 | 기사 이름 → `기사#3fa1`(이름 해시, 작업·구간·프로세스가 바뀌어도 같다), 전화번호 → `010-****-****`, 트럭·기사 위치 → `[위치]`. 작업 입력, 상태 요약, 도구 결과, 이벤트, 답변, **LangSmith로 올라가는 모든 run**에 적용. 문자열 안에 든 JSON(MCP 원본 결과)도 풀어서 키로 가린다 |
 
 **인자 검증** (PRD 6.8-3, NFR-06, NFR-07). `request_route_plan`, `add_constraint`, `submit_plan`, `propose_route_change` 호출은 실행 전, 승인 요청 전에 검사한다. 어기면 사유를 붙여 모델에 1회 다시 요청하고, 또 어기면 `FAILED(OUTPUT_INVALID)`.
 
@@ -234,11 +234,14 @@ sequenceDiagram
 | 규칙 | 내용 |
 | --- | --- |
 | `trace_id` | backend 발급 → Kafka 헤더 → `Task.trace_id` → MCP 헤더 `X-Trace-Id` → 모든 이벤트 → 작업 이력 |
-| LangSmith | `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`가 있으면 자동 기록. 실행 구간 하나 = 루트 run 하나, 이름 `harness:{task_type}` |
+| LangSmith | `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`가 있으면 자동 기록. 실행 구간 하나 = 루트 run 하나, 이름 `harness:{task_type}`. 하위 run은 미들웨어 단계·모델 호출·도구 호출 |
+| LangSmith 마스킹 | 미들웨어 안쪽에서 기록되는 도구 run은 마스킹 전 MCP 원본 결과를 담는다. 그래서 LangSmith 클라이언트에 마스커를 `anonymizer`로 걸어 모든 run의 inputs·outputs·error·metadata를 올리기 전에 가린다 (`tracing.langsmith_client`) |
 | 메타데이터 | `trace_id`, `task_id`, `task_type`, `shift_id`, `thread_id`, `requester`, `prompt_version`, `model`. 태그 `task_type`, `prompt_version` |
 | 실패 | `FAILED`에 `code`, `message`, `run_id`, `langsmith_project` |
 
-**측정:** 테스트(모든 이벤트가 같은 `trace_id`). **코드:** `harness/tracing.py`, `harness/events.py`
+**측정:** 테스트(모든 이벤트가 같은 `trace_id`, LangSmith 업로드 내용에 `trace_id` 메타데이터가 있고 기사 이름·전화번호·좌표가 없음). **코드:** `harness/tracing.py`, `harness/events.py`
+
+**검증 범위:** LangSmith API 대신 업로드를 받아 두는 로컬 서버로 실제 LangSmith 클라이언트가 보내는 내용을 확인했다 (루트 run 1개 + 하위 run 23개, 메타데이터·태그 정상). 실제 LangSmith 계정·화면은 키가 없어 확인하지 못했다.
 
 ---
 
@@ -331,7 +334,7 @@ sequenceDiagram
 
 ```bash
 cd agent
-.venv/bin/python -m unittest discover tests -v                          # Harness 동작 테스트 26개
+.venv/bin/python -m unittest discover tests -v                          # Harness 동작 테스트 27개
 .venv/bin/python -m evaluation --out /tmp/eval.md                       # 기준 궤적 (키 불필요)
 .venv/bin/python -m evaluation --model openai:gpt-4.1-mini --label v1   # 실제 모델 + 설명 품질 채점
 ```
@@ -433,6 +436,7 @@ outcome = await agent.resume(task, [{"type": "approve"}])    # 또는 edit / rej
 | --- | --- | --- | --- | --- |
 | 2026-10-20 | 전체 | 초기값 확정, 8요소 구현 (v0.2) | 06 Harness 뷰와 과제 권장값 | 기준 궤적 10/10 |
 | 2026-10-20 | State, Guardrails, Loop, Instructions | 작업 단위 스레드, 인자 검증(스키마·숫자 출처·범위·기사 범위), 작업별 시간 한도, `temperature: 0`, 요청자·보고 필드, 요청자별 답변 형식, 거절 후 재계산, `get_audit` (v0.3, 프롬프트 `common@2`) | PRD 검수 (8절) | [scripted-baseline](eval/2026-10-20-scripted-baseline.md) 14/14, 무승인 변경 0. 실제 모델 기준선 측정 전 |
+| 2026-10-20 | Observability, Guardrails | LangSmith 업로드 마스킹(`anonymizer`), 프로세스 단위 마스커, 문자열 속 JSON 마스킹 | 로컬 업로드 확인 중 미들웨어 안쪽 도구 run에 기사 이름·전화번호·좌표 원본이 올라가는 것을 발견 | 수정 후 업로드 내용에 원본 0건, 회귀 테스트 추가. 기준 궤적 14/14 |
 
 ---
 
@@ -449,3 +453,4 @@ outcome = await agent.resume(task, [{"type": "approve"}])    # 또는 edit / rej
 | 같은 도구 3회 · 실행 구간 | 이름 + 인자, 승인 대기 제외 | 1 그래프 |
 | 주 모델 · 대체 모델 | `gpt-4.1-mini` · `gpt-4.1-nano` 임시 | 전원 |
 | 실제 모델 기준선 | 유효한 API 키로 실행 필요 | 2 Harness |
+| LangSmith 실계정 확인 | `LANGSMITH_API_KEY`로 `seoul-bike` 프로젝트에 trace가 보이는지, 비용·지연 집계가 나오는지 확인 필요 | 2 Harness |
