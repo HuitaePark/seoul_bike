@@ -9,6 +9,7 @@ on:
       - "infra/**"
       - "services/**"
       - "packages/**"
+      - "docs/specs/**"
       - "apps/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
