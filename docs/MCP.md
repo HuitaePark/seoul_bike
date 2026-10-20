@@ -7,7 +7,7 @@
 | 담당 | 3 MCP · RAG |
 | 사용 | 1 에이전트 그래프 (MCP Client), 2 Harness (도구 허용 목록, 승인, 마스킹), 4 백엔드 (`/internal/**`) |
 | 계약 원본 | 도구와 내부 API 대응은 [internal-api.yaml](specs/internal-api.yaml), 근거 표시는 [openapi.yaml](specs/openapi.yaml)의 `Source`. **이 문서와 specs가 다르면 specs가 우선**이다 |
-| 코드 | `services/business-mcp`, `services/rag-mcp` (FastMCP 4.1), 근거 문서 `docs/rag/` |
+| 코드 | `business-mcp/`, `rag-mcp/` (FastMCP 4.1), 근거 문서 `docs/rag/` |
 
 ---
 
@@ -173,11 +173,11 @@ front matter 필수: `doc_id`(파일 이름과 같게), `doc_type`, `title`, `ve
 ## 5. 실행과 테스트
 
 ```bash
-cd services/business-mcp && pip install -e ".[test]" && python -m pytest -q
+cd business-mcp && pip install -e ".[test]" && python -m pytest -q
 ```
 
 ```bash
-cd services/rag-mcp && pip install -e ".[test]" && python -m pytest -q
+cd rag-mcp && pip install -e ".[test]" && python -m pytest -q
 ```
 
 | 환경 변수 | 서버 | 뜻 |

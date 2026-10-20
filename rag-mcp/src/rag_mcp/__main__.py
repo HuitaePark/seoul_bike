@@ -18,7 +18,7 @@ from .docs import load_docs
 from .server import build_server
 from .store import InMemoryKeywordStore
 
-DEFAULT_DOCS_DIR = Path(__file__).resolve().parents[4] / "docs" / "rag"
+DEFAULT_DOCS_DIR = Path(__file__).resolve().parents[3] / "docs" / "rag"
 
 
 def main() -> None:

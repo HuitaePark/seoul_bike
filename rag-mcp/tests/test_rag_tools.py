@@ -14,7 +14,7 @@ from rag_mcp.docs import DOC_TYPES, chunk_doc, load_docs, parse_doc
 from rag_mcp.server import build_server
 from rag_mcp.store import InMemoryKeywordStore
 
-DOCS_DIR = Path(__file__).resolve().parents[3] / "docs" / "rag"
+DOCS_DIR = Path(__file__).resolve().parents[2] / "docs" / "rag"
 
 
 @pytest.fixture(scope="module")
