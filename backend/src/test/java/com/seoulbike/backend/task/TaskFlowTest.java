@@ -1,6 +1,7 @@
 package com.seoulbike.backend.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -26,6 +27,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.common.ApiException;
+import com.seoulbike.backend.route.RouteChangeGrade;
 
 /**
  * M2 완료 기준: 로그인 → 작업 202 → SSE로 진행 이벤트 → 승인 → 같은 스트림에서 DONE.
@@ -45,6 +48,9 @@ class TaskFlowTest {
 
 	@Autowired
 	KafkaTemplate<String, String> kafka;
+
+	@Autowired
+	RouteChangeApprovals routeApprovals;
 
 	private final HttpClient http = HttpClient.newHttpClient();
 
@@ -166,6 +172,94 @@ class TaskFlowTest {
 		var res = call("GET", "/api/ai/tasks?size=500", login("manager"), null);
 		assertThat(res.statusCode()).isEqualTo(400);
 		assertThat(json.readTree(res.body()).path("code").asString()).as(res.body()).isEqualTo("INVALID_REQUEST");
+	}
+
+	/** 관리자 요청에서 비롯된 경로 변경은 큰 변경이다: 관리자 카드 → 기사 카드 → 적용 (같은 후보, 같은 작업). */
+	@Test
+	void majorRouteChangeNeedsManagerThenTrucksDriver() throws Exception {
+		String manager = login("manager");
+		String driver1 = login("driver1");
+		var created = call("POST", "/api/ai/tasks", manager,
+				"{\"type\":\"REQUEST\",\"shiftId\":\"gwangjin-seongdong:2026-11-05:AM\",\"text\":\"행사로 ST-201 수요 증가\"}");
+		UUID taskId = UUID.fromString(json.readTree(created.body()).path("taskId").asString());
+
+		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), manager, null)) {
+			JsonNode constraint = nextCard(stream);
+			assertThat(constraint.path("kind").asString()).isEqualTo("ADD_CONSTRAINT");
+			assertThat(decide(taskId, manager, constraint)).isEqualTo(202);
+
+			JsonNode managerCard = nextCard(stream);
+			assertThat(managerCard.path("kind").asString()).isEqualTo("ROUTE_CHANGE");
+			assertThat(managerCard.path("approver").asString()).isEqualTo("MANAGER");
+			assertThat(managerCard.path("grade").asString()).isEqualTo("MAJOR");
+			assertThat(managerCard.path("requiredApprovers").valueStream().map(JsonNode::asString))
+				.containsExactly("MANAGER", "DRIVER");
+			String candidateId = managerCard.path("candidateId").asString();
+			UUID managerCardId = UUID.fromString(managerCard.path("approvalId").asString());
+
+			// 기사는 자기 트럭 변경이 오는 것을 볼 수 있지만, 관리자 카드를 대신 결정할 수는 없다.
+			assertThat(decide(taskId, driver1, managerCard)).isEqualTo(403);
+			assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, managerCardId, "truck-1", candidateId,
+					RouteChangeGrade.MAJOR))
+				.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("관리자 승인이 없다"));
+			assertThat(decide(taskId, manager, managerCard)).isEqualTo(202);
+
+			JsonNode driverCard = nextCard(stream);
+			assertThat(driverCard.path("approver").asString()).isEqualTo("DRIVER");
+			assertThat(driverCard.path("truckId").asString()).isEqualTo("truck-1");
+			assertThat(driverCard.path("candidateId").asString()).isEqualTo(candidateId);
+			assertThat(decide(taskId, driver1, driverCard)).isEqualTo(202);
+
+			// 가짜 에이전트는 적용 전에 같은 확인 규칙을 부른다. 통과해야 DONE이다.
+			SseEvent end = stream.readUntil(e -> e.type().equals("DONE") || e.type().equals("FAILED")).getLast();
+			assertThat(end.type()).as(end.data()).isEqualTo("DONE");
+			assertThat(json.readTree(end.data()).path("answer").asString()).contains("truck-1 경로 변경을 적용");
+		}
+	}
+
+	/** 적용 확인은 backend가 계산한 등급을 쓴다. 카드에 적힌 등급, 다른 트럭, 마지막이 아닌 카드는 통과하지 못한다. */
+	@Test
+	void applyCheckFollowsBackendGradeAndTruck() throws Exception {
+		String manager = login("manager");
+		var created = call("POST", "/api/ai/tasks", manager,
+				"{\"type\":\"FIELD_REPORT\",\"shiftId\":\"gwangjin-seongdong:2026-11-05:PM\"}");
+		UUID taskId = UUID.fromString(json.readTree(created.body()).path("taskId").asString());
+
+		JsonNode driverCard;
+		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), manager, null)) {
+			driverCard = nextCard(stream);
+			assertThat(driverCard.path("grade").asString()).isEqualTo("MINOR");
+			assertThat(driverCard.path("requiredApprovers").valueStream().map(JsonNode::asString)).containsExactly("DRIVER");
+			assertThat(decide(taskId, login("driver1"), driverCard)).isEqualTo(202);
+			assertThat(stream.readUntil(e -> e.type().equals("DONE") || e.type().equals("FAILED")).getLast().type())
+				.isEqualTo("DONE");
+		}
+		String candidateId = driverCard.path("candidateId").asString();
+		UUID driverCardId = UUID.fromString(driverCard.path("approvalId").asString());
+
+		routeApprovals.requireApproved(taskId, driverCardId, "truck-1", candidateId, RouteChangeGrade.MINOR);
+		assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, driverCardId, "truck-1", candidateId,
+				RouteChangeGrade.MAJOR))
+			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code()).isEqualTo("APPROVAL_REQUIRED"));
+		assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, driverCardId, "truck-2", candidateId,
+				RouteChangeGrade.MINOR))
+			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("truck-2 기사 승인이 없다"));
+		assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, UUID.randomUUID(), "truck-1", candidateId,
+				RouteChangeGrade.MINOR))
+			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("마지막 승인이 아니다"));
+		assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, driverCardId, "truck-1", candidateId,
+				RouteChangeGrade.NONE))
+			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code()).isEqualTo("NOTHING_TO_APPLY"));
+	}
+
+	private JsonNode nextCard(SseStream stream) {
+		SseEvent event = stream.readUntil(e -> e.type().equals("APPROVAL_REQUIRED")).getLast();
+		return json.readTree(event.data()).path("approval");
+	}
+
+	private int decide(UUID taskId, String token, JsonNode card) throws Exception {
+		return call("POST", "/api/ai/tasks/" + taskId + "/approval", token,
+				"{\"approvalId\":\"" + card.path("approvalId").asString() + "\",\"decision\":\"APPROVE\"}").statusCode();
 	}
 
 	private String login(String loginId) throws Exception {

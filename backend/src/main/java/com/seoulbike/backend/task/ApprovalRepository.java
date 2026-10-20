@@ -1,5 +1,10 @@
 package com.seoulbike.backend.task;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,7 +21,8 @@ class ApprovalRepository {
 		PENDING, APPROVED, REJECTED, SUPERSEDED
 	}
 
-	record Approval(UUID approvalId, UUID taskId, String kind, Role approverRole, String truckId, Status status) {
+	record Approval(UUID approvalId, UUID taskId, String kind, Role approverRole, String truckId, String candidateId,
+			Status status, Instant decidedAt) {
 
 		/** 계획·제약은 관리자, 경로 변경은 그 트럭의 기사만 결정한다. */
 		boolean canBeDecidedBy(CurrentUser user) {
@@ -27,6 +33,12 @@ class ApprovalRepository {
 			};
 		}
 	}
+
+	record NewApproval(UUID approvalId, UUID taskId, String kind, String approverRole, String truckId,
+			String candidateId, String grade, String requestJson) {
+	}
+
+	private static final String COLUMNS = "approval_id, task_id, kind, approver_role, truck_id, candidate_id, status, decided_at";
 
 	private final JdbcClient jdbc;
 
@@ -41,33 +53,43 @@ class ApprovalRepository {
 			.update();
 	}
 
-	void insertPending(UUID approvalId, UUID taskId, String kind, String approverRole, String truckId,
-			String requestJson) {
+	void insertPending(NewApproval a) {
 		jdbc.sql("""
-				insert into approvals (approval_id, task_id, kind, approver_role, truck_id, status, request)
-				values (:approvalId, :taskId, :kind, :approverRole, :truckId, 'PENDING', cast(:request as jsonb))
+				insert into approvals (approval_id, task_id, kind, approver_role, truck_id, candidate_id, grade, status, request)
+				values (:approvalId, :taskId, :kind, :approverRole, :truckId, :candidateId, :grade, 'PENDING',
+				        cast(:request as jsonb))
 				on conflict (approval_id) do nothing
 				""")
-			.param("approvalId", approvalId)
-			.param("taskId", taskId)
-			.param("kind", kind)
-			.param("approverRole", approverRole)
-			.param("truckId", truckId)
-			.param("request", requestJson)
+			.param("approvalId", a.approvalId())
+			.param("taskId", a.taskId())
+			.param("kind", a.kind())
+			.param("approverRole", a.approverRole())
+			.param("truckId", a.truckId())
+			.param("candidateId", a.candidateId())
+			.param("grade", a.grade())
+			.param("request", a.requestJson())
 			.update();
 	}
 
 	Optional<Approval> find(UUID approvalId, UUID taskId) {
-		return jdbc.sql("""
-				select approval_id, task_id, kind, approver_role, truck_id, status
-				from approvals where approval_id = :approvalId and task_id = :taskId
-				""")
+		return jdbc.sql("select " + COLUMNS + " from approvals where approval_id = :approvalId and task_id = :taskId")
 			.param("approvalId", approvalId)
 			.param("taskId", taskId)
-			.query((rs, i) -> new Approval(rs.getObject("approval_id", UUID.class), rs.getObject("task_id", UUID.class),
-					rs.getString("kind"), Role.valueOf(rs.getString("approver_role")), rs.getString("truck_id"),
-					Status.valueOf(rs.getString("status"))))
+			.query(ApprovalRepository::map)
 			.optional();
+	}
+
+	/** 이 작업에서 이 후보 경로에 대해 승인된 카드들. 결정한 순서대로. */
+	List<Approval> approvedRouteChanges(UUID taskId, String candidateId) {
+		return jdbc.sql("select " + COLUMNS + """
+				 from approvals
+				 where task_id = :taskId and kind = 'ROUTE_CHANGE' and candidate_id = :candidateId and status = 'APPROVED'
+				 order by decided_at
+				""")
+			.param("taskId", taskId)
+			.param("candidateId", candidateId)
+			.query(ApprovalRepository::map)
+			.list();
 	}
 
 	/** PENDING일 때만 바꾼다. 동시에 두 번 눌러도 한 번만 반영된다. */
@@ -82,5 +104,23 @@ class ApprovalRepository {
 			.param("decidedBy", decidedBy)
 			.param("approvalId", approvalId)
 			.update() == 1;
+	}
+
+	/** 결정을 에이전트에 전하지 못했을 때 되돌린다. 다시 결정할 수 있게 된다. */
+	void reopen(UUID approvalId) {
+		jdbc.sql("""
+				update approvals set status = 'PENDING', decision = null, decided_by = null, decided_at = null
+				where approval_id = :approvalId
+				""")
+			.param("approvalId", approvalId)
+			.update();
+	}
+
+	private static Approval map(ResultSet rs, int row) throws SQLException {
+		OffsetDateTime decidedAt = rs.getObject("decided_at", OffsetDateTime.class);
+		return new Approval(rs.getObject("approval_id", UUID.class), rs.getObject("task_id", UUID.class),
+				rs.getString("kind"), Role.valueOf(rs.getString("approver_role")), rs.getString("truck_id"),
+				rs.getString("candidate_id"), Status.valueOf(rs.getString("status")),
+				decidedAt == null ? null : decidedAt.toInstant());
 	}
 }

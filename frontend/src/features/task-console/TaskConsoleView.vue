@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, problemMessage, type Schemas } from '../../shared/api/client'
 import { useTaskStream } from '../../shared/composables/useTaskStream'
+import { roleLabel } from '../../shared/labels'
 
 // 작업 콘솔: 공통 뼈대(api 클라이언트, useTaskStream) 사용 예시이자 에이전트 화면의 출발점.
 // 진짜 agent가 붙기 전에는 backend의 가짜 에이전트가 답한다.
@@ -23,6 +24,11 @@ const decisionError = ref('')
 const deciding = ref(false)
 
 const stream = useTaskStream(selected)
+// 큰 경로 변경은 관리자 → 기사 순서로 카드가 온다. 순서가 하나뿐이면 보여 주지 않는다.
+const approvalOrder = computed(() => {
+  const order = stream.pendingApproval.value?.requiredApprovers ?? []
+  return order.length > 1 ? order.map((r) => roleLabel[r]).join(' → ') : ''
+})
 
 async function refresh() {
   const { data } = await api.GET('/api/ai/tasks', { params: { query: { size: 20 } } })
@@ -111,10 +117,11 @@ const statusLabel: Record<Schemas['TaskStatus'], string> = {
         <div v-if="stream.pendingApproval.value" class="approval">
           <h3>{{ stream.pendingApproval.value.summary }}</h3>
           <p class="muted">
-            승인 주체: {{ stream.pendingApproval.value.approver }}
+            승인 주체: {{ roleLabel[stream.pendingApproval.value.approver] }}
             <template v-if="stream.pendingApproval.value.truckId"> · {{ stream.pendingApproval.value.truckId }}</template>
             <template v-if="stream.pendingApproval.value.grade"> · {{ stream.pendingApproval.value.grade }}</template>
           </p>
+          <p v-if="approvalOrder" class="muted">승인 순서: {{ approvalOrder }}</p>
           <ul>
             <li v-for="r in stream.pendingApproval.value.reasons" :key="r">{{ r }}</li>
           </ul>

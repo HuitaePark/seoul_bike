@@ -36,6 +36,7 @@
 | `/api/system/status` | 구현 |
 | 대여소 · 계획 · 현장 보고 · 성과 API | 계약만 |
 | `/internal/**` · `solve.*` | 계약만 (backend는 `/internal/**`를 아직 막아 둔다) |
+| 변경 등급 규칙 · 경로 변경 승인 순서 확인 | 구현 (등급 기준은 `application.properties`의 `app.route-change.*`). 확인 규칙을 부를 적용 API `/internal/routes/{truckId}/apply`는 `/internal`과 함께 M3. 그전까지는 가짜 에이전트가 같은 확인 규칙을 부른다 |
 
 ## 이 초안이 정한 것
 
