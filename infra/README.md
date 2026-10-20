@@ -43,7 +43,7 @@ flowchart LR
 
 같은 서버에서 Ollama(`com.baki.ollama-server`, `100.109.172.112:11434`)도 돈다. 모델을 올리면 메모리를 쓰므로 Colima 메모리(8GB)와 합이 16GB를 넘지 않게 본다.
 
-접속 확인: `http://baki-macbookpro.tail3286a4.ts.net:8080` (시스템 상태 페이지, Tailscale 네트워크 안에서만).
+접속 확인: `http://baki-macbookpro.tail3286a4.ts.net:8080` (시스템 상태 페이지). Colima가 모든 네트워크 인터페이스에 포트를 열기 때문에, Tailscale뿐 아니라 서버가 연결된 공유기 내부망에서도 열려 있다.
 
 ## 배포하기
 
