@@ -16,7 +16,10 @@ import tools.jackson.databind.node.ObjectNode;
 import com.seoulbike.backend.auth.CurrentUser;
 import com.seoulbike.backend.common.ApiException;
 
-/** ai.tasks로 TaskCommand를 보낸다 (계약 asyncapi.yaml). 근무조 ID가 키이자 LangGraph thread_id다. */
+/**
+ * ai.tasks로 TaskCommand를 보낸다 (계약 asyncapi.yaml). 근무조 ID가 키라 한 근무조의 명령은 순서대로 간다.
+ * LangGraph thread_id는 작업 단위({shiftId}:{taskId})다. 같은 근무조 작업끼리 대기 중인 승인이 섞이지 않게 한다.
+ */
 @Component
 class TaskCommandPublisher {
 
@@ -63,11 +66,12 @@ class TaskCommandPublisher {
 		cmd.put("shiftId", shiftId);
 		cmd.put("traceId", traceId);
 		cmd.put("taskId", taskId.toString());
-		cmd.put("threadId", shiftId);
+		cmd.put("threadId", shiftId + ":" + taskId);
 		cmd.put("type", type);
 		ObjectNode requestedBy = cmd.putObject("requestedBy");
 		requestedBy.put("userId", by.id());
 		requestedBy.put("role", by.role().name());
+		requestedBy.put("truckId", by.truckId());
 		return cmd;
 	}
 
