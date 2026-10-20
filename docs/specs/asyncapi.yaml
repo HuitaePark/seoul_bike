@@ -14,6 +14,10 @@ info:
     - `traceId`를 그대로 넘긴다. LangSmith trace와 로그를 한 줄로 잇는다 (Harness Observability).
     - 처리에 실패하면 `<토픽>.retry`로 재시도하고, 계속 실패하면 `<토픽>.dlq`로 보낸다 (대기열 가산점).
       backend(Spring Kafka)는 `@RetryableTopic(retryTopicSuffix=".retry", dltTopicSuffix=".dlq")`로 맞춘다.
+      **backend의 `ai.events`**: 처음 한 번 + `ai.events.retry`(같은 간격, 기본 2초) 재시도 3번 뒤 `ai.events.dlq`.
+      형식이 깨진 메시지(JSON 아님, 객체 아님, `eventId`·`taskId`가 UUID 아님)는 재시도 없이 바로 dlq.
+      아직 모르는 작업의 이벤트는 재시도한 뒤 dlq. dlq 메시지에는 원래 토픽·이유가 `kafka_original-topic`·`kafka_exception-message` 헤더로 붙는다.
+      재시도한 이벤트는 같은 작업의 뒤 이벤트보다 늦게 저장될 수 있다(`seq`가 뒤로 밀린다).
 
     | 토픽 | 보내는 쪽 → 받는 쪽 |
     | --- | --- |

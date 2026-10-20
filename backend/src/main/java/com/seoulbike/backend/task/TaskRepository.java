@@ -77,6 +77,19 @@ class TaskRepository {
 		return jdbc.sql(SELECT + " where t.task_id = :taskId").param("taskId", taskId).query(this::map).optional();
 	}
 
+	/**
+	 * 작업 행을 잠근다 (트랜잭션 안에서). 이벤트 저장과 승인 결정이 같은 작업을 동시에 건드릴 때 한 줄로 세운다.
+	 * 본 컨테이너와 재시도(ai.events.retry) 컨테이너가 같은 작업 이벤트를 함께 저장하면 seq(max+1)가 겹치고,
+	 * 승인 결정과 이벤트가 행을 다른 순서로 잠그면 교착이 날 수 있다. 둘 다 작업 행을 먼저 잡는다. 작업이 없으면 false.
+	 */
+	boolean lock(UUID taskId) {
+		return jdbc.sql("select 1 from ai_tasks where task_id = :taskId for update")
+			.param("taskId", taskId)
+			.query(Integer.class)
+			.optional()
+			.isPresent();
+	}
+
 	Page list(CurrentUser user, boolean mine, TaskStatus status, String shiftId, int page, int size) {
 		String where = " where " + VISIBLE + """
 				 and (not :mine or t.created_by = :userId)
