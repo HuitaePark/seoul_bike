@@ -7,7 +7,7 @@
 | 담당 | 3 MCP · RAG |
 | 사용 | 1 에이전트 그래프 (MCP Client), 2 Harness (도구 허용 목록, 승인, 마스킹), 4 백엔드 (`/internal/**`) |
 | 계약 원본 | 도구와 내부 API 대응은 [internal-api.yaml](specs/internal-api.yaml), 근거 표시는 [openapi.yaml](specs/openapi.yaml)의 `Source`. **이 문서와 specs가 다르면 specs가 우선**이다 |
-| 코드 | `business-mcp/`, `rag-mcp/` (FastMCP 4.1), 근거 문서 `docs/rag/` |
+| 코드 | `business-mcp/`, `rag-mcp/` (FastMCP 4.1, 색인기 `rag-indexer` 포함), 근거 문서 `docs/evidence/`, 컨테이너 `infra/compose.yaml` |
 
 ---
 
@@ -117,14 +117,20 @@ grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부�
 
 변경 도구와 `request_route_plan`에는 위 인자 말고 Harness가 채우는 `approval_id`, `task_id`가 더 있다 (2.4).
 
-- `horizon_h` 최대 5: 근거 문서 [ref-forecast-kim-2023](rag/ref-forecast-kim-2023.md) 7절 (논문 본문 3~5시간). specs는 6까지 받으므로 MCP가 더 좁게 받는다.
+- `horizon_h` 최대 5: 근거 문서 [ref-forecast-kim-2023](evidence/ref-forecast-kim-2023.md) 7절 (논문 본문 3~5시간), 6번 합의 29번 제안(최대 5시간)과 같다. specs는 6까지 받으므로 MCP가 더 좁게 받는다.
 - `add_constraint.type`: `TARGET_ADJUST`, `STATION_SUSPENDED`(대여·반납 중지), `STATION_BLOCKED`(트럭 진입 불가), `INVENTORY_OVERRIDE`, `PRIORITY_BOOST`. `TARGET_ADJUST`, `INVENTORY_OVERRIDE`는 `value` 필수.
 - `request_route_plan`: 현장 실제 재고는 기사 보고로 백엔드에 이미 들어가 있으므로 따로 넘기지 않는다. 이번 계산에서 뺄 대여소만 `exclude_station_ids`로 넘긴다.
 - `propose_route_change`: 경로를 직접 받지 않고 `request_route_plan(kind=REPLAN)`이 만든 `candidateId`를 적용한다. 승인 카드는 후보의 `requiredApprovers` 순서를 따른다 (2.4).
 
 ---
 
-## 4. `rag-mcp`
+## 4. `rag-mcp`와 `rag-indexer`
+
+```
+docs/evidence/*.md --(rag-indexer)--> Chunking --> Embedding --> Indexing --> vectordb (pgvector)
+                                                                                  |
+agent --rag_search_docs--> rag-mcp: 질문 임베딩 -> 코사인 후보 -> 키워드 점수 섞기 -> chunk + 출처
+```
 
 ### 4.1 도구 `search_docs(query, top_k=5, doc_types=None)`
 
@@ -132,66 +138,98 @@ grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부�
 | --- | --- |
 | `query` | 자연어 질문 (1~500자) |
 | `top_k` | 1~10 (Harness가 5로 제한) |
-| `doc_types` | `ops_standard`(운영 기준), `seoul_notice`(서울시 공지), `reverse_analysis`(역산 분석), `handover`(인수인계 양식), `reference_paper`(외부 논문) |
+| `doc_types` | `ops_standard`(운영 기준), `seoul_notice`(서울시 공지), `reverse_analysis`(역산 분석), `handover`(인수인계 양식), `reference_paper`(외부 논문), `general`(종류 미지정) |
 
-결과: `{as_of, source, embedding{model, dim}, chunks[], truncated}`.
+결과: `{as_of, source, embedding{model, dim}, chunks[], truncated}`. `as_of`는 색인을 만든 시각이다.
 
 | chunk 필드 | 뜻 | `Source` 대응 |
 | --- | --- | --- |
 | `title` | 문서 제목 | `title` |
 | `uri` | `doc://{doc_id}#{절 번호}` | `uri` |
 | `text` | 본문 (절의 `출처:` 줄 포함) | `excerpt` |
-| `citation` | 사람이 읽는 출처 | `citation` |
-| `basis` | `primary`(팀 저장소) / `supplementary`(저장소 밖 자료) | `basis` (대문자로) |
-| `section` | 절 이름 | `section` |
-| `doc_id`, `doc_type`, `version`, `data_period`, `score` | 색인 정보, 관련도(0~1) | |
+| `citation` | 사람이 읽는 출처. `[보조]` 조각은 그 조각에 이름이 나오는 보조 출처만 | 계약에 없음 (PR #5 제안) |
+| `basis` | `primary`(팀 저장소) / `supplementary`(저장소 밖 자료) | 계약에 없음 (PR #5 제안) |
+| `status` | 문서의 한계 (추정치, 가상 값 등). 답변에도 함께 밝힌다 | |
+| `section`, `doc_id`, `doc_type`, `version`, `data_period`, `score` | 절 이름, 색인 정보, 관련도(0~1) | |
 
-- 같은 점수면 `primary`를 앞에 둔다. 두 등급이 다른 값을 주면 `primary`가 우선이다.
-- 결과가 없으면 빈 목록과 `message`(다시 검색하는 방법).
-- M1은 메모리 안 BM25 키워드 검색(한국어 글자 2-gram)이다. 임베딩 모델이 정해지면 같은 `DocStore` 계약으로 pgvector 구현을 붙이고 `embedding.model`, `dim`을 기록한다.
+### 4.2 검색 방식
 
-### 4.2 Resource
+| 단계 | 내용 | 코드 |
+| --- | --- | --- |
+| 1 | 질문을 색인과 **같은 모델**로 임베딩. rag-mcp는 시작할 때 `rag_index`의 모델 이름·차원이 다르면 뜨지 않는다 | `pgvector_store.py` |
+| 2 | `rag_chunk`에서 코사인 거리(`<=>`, HNSW)로 후보 `max(top_k x 4, 20)`개 | |
+| 3 | 혼합 점수 = 0.7 x 코사인 + 0.3 x 키워드(BM25, 한국어 글자 2-gram, 후보 중 최댓값으로 나눔) | `store.py` |
+| 4 | 가장 높은 점수를 1로 맞추고, 같으면 `primary`를 앞에 | |
+
+DB 없이 돌릴 때(`RAG_STORE=memory`)는 파일을 읽어 키워드 점수만 쓴다. 테스트와 로컬 확인용이다.
+
+### 4.3 임베딩 모델
+
+| 항목 | 값 |
+| --- | --- |
+| 기본 모델 | `intfloat/multilingual-e5-large` (1024차원), fastembed(ONNX, PyTorch 없음). 질문 앞 `query: `, 문서 앞 `passage: ` |
+| 고른 이유 | 10문항 점검에서 다국어 MiniLM(384)·mpnet(768)보다 벡터 검색 적중이 높음 ([eval/README.md](../rag-mcp/eval/README.md) 1절) |
+| 자원 | 메모리 약 1.6GB(프로세스), rag-mcp 컨테이너 약 2.0GB. 질문 하나 약 36ms. 이미지에 모델 포함(약 4.2GB) |
+| 바꾸기 | `EMBED_MODEL` 빌드 인자·환경 변수. rag-indexer가 새 모델로 다시 색인한다 (차원이 바뀌면 표를 새로 만든다) |
+| 테스트 | `EMBED_PROVIDER=hash` (네트워크 없는 글자 2-gram 해시, 256차원) |
+
+검색 품질 (2026-10-20, 조정에 쓰지 않은 확인용 8문항): 혼합 1위 5/8, 3위 안 7/8, 키워드만도 같은 점수. 작은 문서 묶음에서는 혼합의 이점이 아직 드러나지 않는다 ([eval/README.md](../rag-mcp/eval/README.md) 3절).
+
+### 4.4 색인기 `rag-indexer`
+
+`docker compose run --rm rag-indexer`, 또는 `rag-indexer [--docs DIR] [--force]`. compose에서는 rag-mcp보다 먼저 한 번 돌고 끝난다.
+
+| 표 (vectordb) | 내용 |
+| --- | --- |
+| `rag_doc` | 문서 원문·머리말 (Resource `doc://{doc_id}`가 읽음) |
+| `rag_chunk` | chunk 본문, 출처(`citation`, `basis`, `section`, `doc_version`, `status`), `embedding vector(dim)`, HNSW 코사인 색인 |
+| `rag_index` | 색인 기록: 모델 이름, 차원, 문서 묶음 해시, 문서·chunk 수, 만든 시각 |
+
+문서 묶음 해시와 모델이 직전 기록과 같으면 다시 만들지 않는다 (`{"skipped": true}`).
+
+### 4.5 Resource
 
 | URI | 내용 |
 | --- | --- |
-| `doc://{doc_id}` | 근거 문서 원문 (Markdown, front matter 포함). `#절 번호`가 붙어도 같은 원문 |
-| `doc://index` | 문서 목록 (doc_id, title, doc_type, version, verified_at, uri) |
+| `doc://{doc_id}` | 근거 문서 원문 (Markdown, 머리말 포함). `#절 번호`가 붙어도 같은 원문 |
+| `doc://index` | 문서 목록 (doc_id, title, doc_type, version, updated, uri) |
 
 여러 서버를 한 Client로 묶으면 Resource URI에 서버 이름이 붙을 수 있다 (`doc://rag/{doc_id}`). 근거 패널에는 `doc://{doc_id}`를 쓴다.
 
-### 4.3 근거 문서 (`docs/rag/`)
+### 4.6 근거 문서 (`docs/evidence/`)
 
-**작성 원칙:** 팀 저장소 내용을 기본으로 쓰고, 저장소 밖 자료는 `[보조]`로 표시한다. 각 절 끝에 `출처:` 줄을 둔다.
+위치와 머리말은 6번 합의 21번 제안(`title`, `doc_id`, `version`, `updated`, `source`, `status`)을 따른다. 작성 규칙은 [docs/evidence/README.md](evidence/README.md).
 
-| 문서 | doc_id | doc_type |
-| --- | --- | --- |
-| 재배치 운영 기준 | [ops-rebalancing-standard](rag/ops-rebalancing-standard.md) | `ops_standard` |
-| 역산 분석 요약 | [analysis-reverse-estimation](rag/analysis-reverse-estimation.md) | `reverse_analysis` |
-| 서울시 공지 (2025 불꽃축제) | [notice-seoul-fireworks-2025](rag/notice-seoul-fireworks-2025.md) | `seoul_notice` |
-| 근무조 인수인계 요약 양식 | [handover-shift-summary-template](rag/handover-shift-summary-template.md) | `handover` |
-| 수요예측 논문 요약 (보조) | [ref-forecast-kim-2023](rag/ref-forecast-kim-2023.md) | `reference_paper` |
+| 문서 | doc_id | doc_type | 작성 |
+| --- | --- | --- | --- |
+| 재배치 운영 기준 | [ops-rebalancing-standard](evidence/ops-rebalancing-standard.md) | `ops_standard` | 3 |
+| 서울시 공지 (2025 불꽃축제) | [notice-seoul-fireworks-2025](evidence/notice-seoul-fireworks-2025.md) | `seoul_notice` | 3 |
+| 근무조 인수인계 요약 양식 | [handover-shift-summary-template](evidence/handover-shift-summary-template.md) | `handover` | 3 |
+| 수요예측 논문 요약 (보조) | [ref-forecast-kim-2023](evidence/ref-forecast-kim-2023.md) | `reference_paper` | 3 |
+| 따릉이 트럭 재배치 역산 요약 | `rebal-summary` (PR #10) | `reverse_analysis` (머리말에 없으면 MCP가 채움) | 6 |
 
-front matter 필수: `doc_id`(파일 이름과 같게), `doc_type`, `title`, `version`, `verified_at`, `sources[]`(`role`: primary 또는 supplementary, `type`, `citation` 또는 `repo`·`commit`·`paths`). 선택: `data_period`.
-
-**Chunking:** `##` 절 단위, 절의 `출처:` 줄을 함께 넣는다. 1,200자를 넘는 절의 표는 행 단위로 나누고 표 머리 줄을 붙인다. `[보조]` 문단은 따로 떼어 `basis: supplementary`. `reference_paper` 문서와 제목에 `[보조]`가 있는 절은 전부 `supplementary`.
+**Chunking:** `##` 절 단위, 절의 `출처:` 줄을 함께 넣는다. 1,200자를 넘는 절의 표는 행 단위로 나누고 표 머리 줄을 붙인다. `[보조]` 문단은 따로 떼어 `basis: supplementary`. `reference_paper` 문서와 제목에 `[보조]`가 있는 절은 전부 `supplementary`. 임베딩에는 `제목 + 절 이름 + 본문`을 넣는다.
 
 ---
 
 ## 5. 실행과 테스트
 
-```bash
-cd business-mcp && pip install -e ".[test]" && python -m pytest -q
-```
-
-```bash
-cd rag-mcp && pip install -e ".[test]" && python -m pytest -q
-```
+| 방법 | 명령 |
+| --- | --- |
+| 전체 (서버와 같은 방식) | `docker compose -f infra/compose.yaml --env-file <.env> up -d --wait vectordb rag-indexer rag-mcp business-mcp` |
+| business-mcp 테스트 | `cd business-mcp && pip install -e ".[test]" && python -m pytest -q` |
+| rag-mcp 테스트 (DB 없이) | `cd rag-mcp && pip install -e ".[test]" && python -m pytest -q` |
+| rag-mcp 테스트 (pgvector·실제 모델까지) | `RAG_TEST_DSN=postgresql://...  RAG_TEST_FASTEMBED=1 python -m pytest -q` |
+| 검색 품질 점검 | `VECTOR_DSN=... python eval/retrieval_eval.py` |
 
 | 환경 변수 | 서버 | 뜻 |
 | --- | --- | --- |
-| `INTERNAL_MODE` | business-mcp | `fake`(기본, 가짜 `/internal`) 또는 `http` |
+| `INTERNAL_MODE` (.env `MCP_INTERNAL_MODE`) | business-mcp | `fake`(기본, 가짜 `/internal`) 또는 `http` |
 | `BACKEND_URL`, `INTERNAL_TOKEN` | business-mcp | `http` 모드의 백엔드 주소와 서비스 토큰 |
-| `RAG_DOCS_DIR` | rag-mcp | 근거 문서 폴더 (기본 `docs/rag/`) |
+| `RAG_STORE` | rag-mcp | `pgvector`(PG 접속 정보가 있으면 기본) 또는 `memory` |
+| `PGHOST`·`PGUSER`·`PGPASSWORD`·`PGDATABASE` 또는 `VECTOR_DSN` | rag-mcp, rag-indexer | vectordb 접속 |
+| `EMBED_PROVIDER`, `EMBED_MODEL` | rag-mcp, rag-indexer | 임베딩 공급자·모델. 두 서비스가 같아야 한다 |
+| `RAG_DOCS_DIR` | rag-indexer, memory 저장소 | 근거 문서 폴더 (기본 `docs/evidence/`) |
 | `MCP_HOST`, `MCP_PORT` | 둘 다 | 기본 `0.0.0.0`, 9101 / 9102 |
 
 테스트는 인메모리 Client(`Client(server)`)로 MCP 프로토콜을 그대로 거친다. 가짜 `/internal`의 대여소·재고는 가짜 값이다.
@@ -203,10 +241,12 @@ cd rag-mcp && pip install -e ".[test]" && python -m pytest -q
 | 항목 | 상대 | 내용 |
 | --- | --- | --- |
 | `get_audit` 계약 | 4 백엔드 | 내부 API `GET /internal/shifts/{shiftId}/audit`와 `AuditEvent` 추가 여부 (ISSUES ISS-06). 결정되면 harness.yaml `qa`에 다시 넣음 |
-| 권역 ID 형식 | 6 데이터, 4 백엔드 | `N01`~`S09` 제안 (6번 agreements 2번). MCP는 대문자도 받음 |
-| 근거 문서 위치·머리말 | 6 데이터 | 6번 제안은 `docs/evidence/`와 `title`·`doc_id`·`version`·`updated`·`source`·`status` 머리말 (agreements 21번). 지금은 `docs/rag/`와 4.3절 머리말. 합의 후 한쪽으로 맞춤. `rebal-summary`와 `analysis-reverse-estimation`이 겹침 |
-| `Forecast` 시간별 값 | 6 데이터, 4 백엔드 | `rentalsH`·`returnsH` 추가 제안 (agreements 15번). 백엔드가 주면 MCP는 그대로 전달 |
-| `horizonH` 최대값 | 4 백엔드, 6 데이터 | specs 6, MCP 5 (근거 문서 7절) |
-| 임베딩 모델 | 1, 2 | 모델 이름·차원 기록 |
-| compose 등록 | 5 인프라 | `business-mcp`, `rag-mcp` 컨테이너와 `docs/rag` 마운트 |
-| 불꽃축제 폐쇄 대여소 목록 | 6 데이터 | 서울시 첨부 PDF를 대여소 ID와 맞춰 [notice-seoul-fireworks-2025](rag/notice-seoul-fireworks-2025.md) 5절 예시를 채움 |
+| `Source`의 `citation`·`basis` | 4 백엔드, 화면 담당 | 근거 패널에 출처·등급을 보이려면 openapi `Source`에 필요 (PR #5 제안, 닫힘) |
+| 대여소 ID 형식 | 전원 | 6번 합의 1번 제안 `"108"`. MCP는 `ST-1023`과 `108` 둘 다 받는다. Harness `id_pattern`, 승인 카드 화면도 함께 바꿔야 함 |
+| 권역 ID 형식 | 6 데이터, 4 백엔드 | `N01`~`S09` 제안 (합의 2번). MCP는 대문자도 받음 |
+| `Forecast` 시간별 값 | 6 데이터, 4 백엔드 | `rentalsH`·`returnsH` 제안 (합의 15번). 백엔드가 주면 MCP는 그대로 전달 |
+| `horizonH` 최대값 | 4 백엔드 | specs 6, MCP 5. 6번도 5시간 제안 (합의 29번) |
+| CI·배포 경로 | 5 인프라 | `.github/workflows` 수정 권한이 필요해 이 PR에 넣지 못함. PR 설명의 제안대로 `mcp` 잡과 배포 `paths` 추가 |
+| 근거 패널 화면 | 3 (M4) | `frontend/src/features/evidence`. 계약의 `Source` 필드가 정해진 뒤 |
+| 불꽃축제 폐쇄 대여소 목록 | 6 데이터 | 서울시 첨부 PDF를 대여소 ID와 맞춰 [notice-seoul-fireworks-2025](evidence/notice-seoul-fireworks-2025.md) 5절 예시를 채움 |
+| 검색 개선 | 3 | 확인용 질문에서 놓친 "재고 불일치 -> INVENTORY_OVERRIDE" 문항. 문서가 늘면 혼합 비중 다시 점검 |
