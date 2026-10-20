@@ -29,6 +29,7 @@ jobs:
     env:
       COMPOSE_FILE: infra/compose.yaml
       COMPOSE_PROJECT_NAME: seoul-bike
+      GIT_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
