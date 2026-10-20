@@ -65,7 +65,7 @@ class TaskEventStore {
 		UUID eventId = UUID.fromString(message.path("eventId").asString());
 		UUID taskId = UUID.fromString(message.path("taskId").asString());
 		String type = message.path("type").asString();
-		if (tasks.find(taskId).isEmpty()) {
+		if (!tasks.lock(taskId)) {
 			throw new UnknownTaskException(taskId, eventId);
 		}
 

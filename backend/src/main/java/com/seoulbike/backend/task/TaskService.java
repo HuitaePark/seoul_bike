@@ -113,6 +113,7 @@ public class TaskService {
 
 	private Task record(CurrentUser user, UUID taskId, ApprovalDecision decision) {
 		Task task = get(user, taskId);
+		tasks.lock(taskId); // 이벤트 저장과 같은 순서(작업 행 먼저)로 잠근다
 		var approval = approvals.find(decision.approvalId(), taskId)
 			.orElseThrow(() -> ApiException.notFound("APPROVAL_NOT_FOUND", "이 작업에 승인 요청 " + decision.approvalId() + "가 없다"));
 		switch (approval.status()) {
