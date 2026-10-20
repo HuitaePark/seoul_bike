@@ -1,0 +1,19 @@
+# 03a 통합 확인: 실제 backend(main 1ecdb7a) + redpanda + PostgreSQL + agent 컨테이너(가짜 MCP, 모델 없음)
+$ .venv/bin/python e2e/check_03a.py <SEED_USER_PASSWORD>
+
+login: MANAGER
+create: 202 {'taskId': '2edacd9d-00ac-43e9-a3ad-1a7637414c5a', 'status': 'QUEUED', 'streamUrl': '/api/ai/tasks/2edacd9d-00ac-43e9-a3ad-1a7637414c5a/stream'}
+stream 1: [(1, 'TOOL_START'), (2, 'TOOL_END'), (3, 'APPROVAL_REQUIRED')]
+card 1: SUBMIT_PLAN MANAGER 계획 P-1 활성화 | routes: 2
+task: WAITING_APPROVAL True
+exclude: 202 ST-2005
+stream 2: [(4, 'TOOL_START'), (5, 'TOOL_END'), (6, 'APPROVAL_REQUIRED')]
+card 2: 계획 P-2 활성화 ['포기 대여소 2곳', '포기 ST-2002: 트럭 시간·적재량 한계', '포기 ST-2003: 트럭 시간·적재량 한계', '제외한 대여소: ST-2005']
+late decision: 409 APPROVAL_ALREADY_DECIDED
+approve: 202
+stream 3: [(7, 'TOOL_START'), (8, 'TOOL_END'), (9, 'DONE')]
+answer: 승인되어 실행했습니다: 계획 P-2 활성화
+포기 대여소 2곳
+task: DONE sources: ['경로 계산', '계획 활성화']
+replay ids: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+E2E 03a OK

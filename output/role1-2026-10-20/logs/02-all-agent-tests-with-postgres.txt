@@ -1,0 +1,77 @@
+$ AGENT_TEST_PG_URL=postgresql://…@127.0.0.1:54329/agent_test .venv/bin/python -m unittest discover -v tests   # 전체: Harness(2) + 그래프(1) + PostgreSQL 재개 (UTF8 DB)
+test_brief_lists_pending_approval_and_reports (test_graph.BriefTest.test_brief_lists_pending_approval_and_reports) ... ok
+test_bad_commands_are_rejected (test_graph.ContractTest.test_bad_commands_are_rejected) ... ok
+test_driver_names_are_masked_before_model (test_graph.ContractTest.test_driver_names_are_masked_before_model) ... ok
+test_driver_without_truck_fails (test_graph.ContractTest.test_driver_without_truck_fails) ... ok
+test_duplicate_start_is_ignored (test_graph.ContractTest.test_duplicate_start_is_ignored) ... ok
+test_every_event_matches_the_kafka_contract (test_graph.ContractTest.test_every_event_matches_the_kafka_contract) ... ok
+test_harness_failure_code_reaches_the_contract_field (test_graph.ContractTest.test_harness_failure_code_reaches_the_contract_field) ... ok
+test_ids_reach_the_screen_with_ascii_hyphens (test_graph.ContractTest.test_ids_reach_the_screen_with_ascii_hyphens) ... ok
+rag-mcp `search_docs`는 {chunks: [...]}를 준다 (MCP 명세 4.1). Harness는 목록 모양만 읽으므로 그래프가 채운다 (ISS-23). ... ok
+test_model_error_falls_back_to_code_path_without_failed_event (test_graph.FallbackTest.test_model_error_falls_back_to_code_path_without_failed_event) ... ok
+test_no_llm_mode_handles_plan_and_rejects_question (test_graph.FallbackTest.test_no_llm_mode_handles_plan_and_rejects_question) ... ok
+test_change_refused_by_backend_is_not_reported_as_done (test_graph.FieldReportTest.test_change_refused_by_backend_is_not_reported_as_done) ... ok
+test_grade_none_finishes_without_approval (test_graph.FieldReportTest.test_grade_none_finishes_without_approval) ... ok
+test_major_change_needs_manager_then_driver (test_graph.FieldReportTest.test_major_change_needs_manager_then_driver) ... ok
+test_manager_rejection_keeps_route_without_driver_card (test_graph.FieldReportTest.test_manager_rejection_keeps_route_without_driver_card) ... ok
+test_memo_less_minor_change_goes_straight_to_the_driver (test_graph.FieldReportTest.test_memo_less_minor_change_goes_straight_to_the_driver) ... ok
+test_plan_waiting_for_approval_does_not_block_report (test_graph.FieldReportTest.test_plan_waiting_for_approval_does_not_block_report) ... ok
+test_report_with_memo_goes_through_harness_with_driver_scope (test_graph.FieldReportTest.test_report_with_memo_goes_through_harness_with_driver_scope) ... ok
+ISS-19: Harness는 카드 단계를 메모리에만 둔다. 재시작한 agent도 기사 카드로 재개해야 한다. ... ok
+test_approver_comment_is_masked_and_wrapped (test_graph.PlanApprovalTest.test_approver_comment_is_masked_and_wrapped) ... ok
+test_exclude_recalculates_and_issues_new_card (test_graph.PlanApprovalTest.test_exclude_recalculates_and_issues_new_card) ... ok
+test_exclusions_only_on_plan_cards_and_only_station_ids (test_graph.PlanApprovalTest.test_exclusions_only_on_plan_cards_and_only_station_ids) ... ok
+test_newer_plan_supersedes_pending_one (test_graph.PlanApprovalTest.test_newer_plan_supersedes_pending_one) ... ok
+test_only_the_card_approver_can_decide (test_graph.PlanApprovalTest.test_only_the_card_approver_can_decide) ... ok
+test_plan_waits_for_manager_then_activates (test_graph.PlanApprovalTest.test_plan_waits_for_manager_then_activates) ... ok
+test_reject_never_executes (test_graph.PlanApprovalTest.test_reject_never_executes) ... ok
+test_duplicate_event_is_skipped (test_graph.WorkerTest.test_duplicate_event_is_skipped) ... ok
+test_exception_retries_then_dlq (test_graph.WorkerTest.test_exception_retries_then_dlq) ... ok
+test_failed_outcome_is_not_marked (test_graph.WorkerTest.test_failed_outcome_is_not_marked) ... ok
+test_invalid_command_with_task_id_fails_the_task (test_graph.WorkerTest.test_invalid_command_with_task_id_fails_the_task) ... ok
+test_invalid_message_goes_to_dlq (test_graph.WorkerTest.test_invalid_message_goes_to_dlq) ... ok
+test_approval_resumes_in_new_process (test_graph_postgres.PostgresResumeTest.test_approval_resumes_in_new_process) ... ok
+test_excluded_stations_send_the_plan_back_for_recompute (test_harness.ApprovalTest.test_excluded_stations_send_the_plan_back_for_recompute) ... ok
+test_major_change_needs_manager_then_driver_card (test_harness.ApprovalTest.test_major_change_needs_manager_then_driver_card) ... ok
+test_manager_rejection_sends_no_driver_card (test_harness.ApprovalTest.test_manager_rejection_sends_no_driver_card) ... ok
+test_model_cannot_see_or_set_approval_id (test_harness.ApprovalTest.test_model_cannot_see_or_set_approval_id) ... ok
+test_only_one_change_per_model_turn (test_harness.ApprovalTest.test_only_one_change_per_model_turn) ... ok
+test_plan_runs_only_after_manager_approval (test_harness.ApprovalTest.test_plan_runs_only_after_manager_approval) ... ok
+test_rejected_change_is_never_executed (test_harness.ApprovalTest.test_rejected_change_is_never_executed) ... ok
+test_route_change_cards_follow_required_approvers (test_harness.ApprovalTest.test_route_change_cards_follow_required_approvers) ... ok
+test_wrong_approver_cannot_resume (test_harness.ApprovalTest.test_wrong_approver_cannot_resume) ... ok
+test_every_event_type_matches_the_kafka_and_sse_contract (test_harness.ContractTest.test_every_event_type_matches_the_kafka_and_sse_contract) ... ok
+test_field_report_command_becomes_a_driver_task (test_harness.ContractTest.test_field_report_command_becomes_a_driver_task) ... FAIL
+test_driver_sees_recomputes_and_changes_only_own_truck (test_harness.DriverScopeTest.test_driver_sees_recomputes_and_changes_only_own_truck) ... ok
+test_field_report_has_its_own_time_limit (test_harness.DriverScopeTest.test_field_report_has_its_own_time_limit) ... ok
+test_driver_identity_never_reaches_model_or_events (test_harness.GuardrailTest.test_driver_identity_never_reaches_model_or_events) ... ok
+test_read_only_task_never_gets_destructive_tools (test_harness.GuardrailTest.test_read_only_task_never_gets_destructive_tools) ... ok
+test_repeated_invalid_change_fails_task (test_harness.GuardrailTest.test_repeated_invalid_change_fails_task) ... ok
+test_unknown_station_in_change_is_sent_back_before_any_approval (test_harness.GuardrailTest.test_unknown_station_in_change_is_sent_back_before_any_approval) ... ok
+test_user_input_cannot_close_its_boundary (test_harness.GuardrailTest.test_user_input_cannot_close_its_boundary) ... ok
+test_input_is_wrapped_and_brief_is_in_system_prompt (test_harness.InstructionsTest.test_input_is_wrapped_and_brief_is_in_system_prompt) ... ok
+test_limits_restart_after_approval (test_harness.LoopTest.test_limits_restart_after_approval) ... ok
+test_same_call_is_blocked_then_fails (test_harness.LoopTest.test_same_call_is_blocked_then_fails) ... ok
+test_same_tool_with_different_arguments_is_allowed (test_harness.LoopTest.test_same_tool_with_different_arguments_is_allowed) ... ok
+test_segment_time_limit_cancels_slow_tool (test_harness.LoopTest.test_segment_time_limit_cancels_slow_tool) ... ok
+test_turn_limit (test_harness.LoopTest.test_turn_limit) ... ok
+test_langsmith_runs_carry_trace_id_and_no_driver_identity (test_harness.ObservabilityTest.test_langsmith_runs_carry_trace_id_and_no_driver_identity) ... /opt/homebrew/Cellar/python@3.12/3.12.13_4/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/events.py:88: ResourceWarning: unclosed <socket.socket fd=6, family=2, type=1, proto=0, laddr=('127.0.0.1', 56712)>
+test_all_models_unavailable (test_harness.RecoveryTest.test_all_models_unavailable) ... ok
+test_bad_request_fails_without_retry_or_fallback (test_harness.RecoveryTest.test_bad_request_fails_without_retry_or_fallback) ... ok
+test_fallback_model_after_retries (test_harness.RecoveryTest.test_fallback_model_after_retries) ... ok
+test_rate_limit_is_retried_with_backoff (test_harness.RecoveryTest.test_rate_limit_is_retried_with_backoff) ... ok
+test_tasks_on_same_shift_do_not_share_history_or_lose_approvals (test_harness.ThreadTest.test_tasks_on_same_shift_do_not_share_history_or_lose_approvals) ... ok
+test_long_result_is_truncated_with_notice (test_harness.ToolTest.test_long_result_is_truncated_with_notice) ... ok
+test_rag_top_k_is_capped (test_harness.ToolTest.test_rag_top_k_is_capped) ... ok
+test_tool_error_goes_back_to_model_with_retry_hint (test_harness.ToolTest.test_tool_error_goes_back_to_model_with_retry_hint) ... ok
+test_inventory_value_from_field_report_is_accepted (test_harness.ValidationTest.test_inventory_value_from_field_report_is_accepted) ... ok
+test_inventory_value_needs_a_source (test_harness.ValidationTest.test_inventory_value_needs_a_source) ... ok
+test_only_computed_plans_can_be_submitted (test_harness.ValidationTest.test_only_computed_plans_can_be_submitted) ... ok
+test_unknown_constraint_type_is_rejected (test_harness.ValidationTest.test_unknown_constraint_type_is_rejected) ... ok
+test_value_above_docks_is_rejected (test_harness.ValidationTest.test_value_above_docks_is_rejected) ... ok
+FAIL: test_field_report_command_becomes_a_driver_task (test_harness.ContractTest.test_field_report_command_becomes_a_driver_task)
+AssertionError: Lists differ: ["'truckId' is a required property"] != []
+"'truckId' is a required property"
+- ["'truckId' is a required property"]
+Ran 70 tests in 7.196s
+FAILED (failures=1)

@@ -1,0 +1,30 @@
+# 03b 경로 변경 승인 순서: 실제 backend + agent 컨테이너(가짜 MCP, 모델 없음)
+# backend 작업 API로 FIELD_REPORT 작업을 만든 뒤, G13이 고쳐졌을 때 backend가 보낼 명령(reportId·보고 값·기사 트럭)을 Kafka에 넣었다 (scripts/e2e_03b_twostep.py)
+# 'wrong person' = 승인 주체가 아닌 사람이 누름 → 403이어야 한다. 'last TOOL_END ok' = backend DB에 저장된 실제 실행 결과
+
+## 변경 등급 MAJOR (taskId 99399810-c3f4-4e6c-8c9c-8826ce758b04)
+[(1, 'TOOL_START'), (2, 'TOOL_END'), (3, 'APPROVAL_REQUIRED')]
+  card ROUTE_CHANGE approver=MANAGER required=['MANAGER', 'DRIVER'] candidate=C-1 truck=TR-1
+   TR-1 경로 변경 (큰 변경, 관리자 승인 1/2)
+  wrong person: 403 NOT_APPROVER
+  manager approves: 202 
+[(4, 'APPROVAL_REQUIRED')]
+  card ROUTE_CHANGE approver=DRIVER required=['MANAGER', 'DRIVER'] candidate=C-1 truck=TR-1
+   TR-1 경로 변경 (큰 변경, 기사 수락 2/2)
+  wrong person: 403 NOT_APPROVER
+  driver TR-1 approves: 202 
+[(5, 'TOOL_START'), (6, 'TOOL_END'), (7, 'DONE')]
+end: DONE 승인되어 실행했습니다: TR-1 경로 변경 (큰 변경, 기사 수락 2/2)
+task: DONE | cards: ['MANAGER', 'DRIVER']
+  last TOOL_END ok (backend DB): true
+
+## 변경 등급 MINOR (taskId 8f8bfece-e812-468b-809d-d19dcbacdd21)
+[(1, 'TOOL_START'), (2, 'TOOL_END'), (3, 'APPROVAL_REQUIRED')]
+  card ROUTE_CHANGE approver=DRIVER required=['DRIVER'] candidate=C-1 truck=TR-1
+   TR-1 경로 변경 (작은 변경, 기사 수락 1/1)
+  wrong person: 403 NOT_APPROVER
+  driver TR-1 approves: 202 
+[(4, 'TOOL_START'), (5, 'TOOL_END'), (6, 'DONE')]
+end: DONE 승인되어 실행했습니다: TR-1 경로 변경 (작은 변경, 기사 수락 1/1)
+task: DONE | cards: ['DRIVER']
+  last TOOL_END ok (backend DB): true

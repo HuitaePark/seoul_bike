@@ -1,0 +1,14 @@
+# 03a 전체 경로: 실제 backend + redpanda + agent 컨테이너 + 실제 MCP 서버(3 브랜치, 호스트 9111·9102)
+agent 로그: INFO:graph.wiring:도구 12개, 모델 none
+# A: backend /internal(M3)이 아직 없어 business-mcp에 승인 기록이 없다 → 변경 403 → FAILED(이유 포함)
+# B: 승인 기록을 넣어 /internal이 생긴 상황을 흉내 → 실제 실행 → DONE
+
+A no /internal record: ['TOOL_START', 'TOOL_END', 'APPROVAL_REQUIRED'] | 계획 PL-gwangjin-seongdong:2026-10-21:AM-v7 활성화 | routes 2
+  approve 202 → ['TOOL_START', 'TOOL_END', 'FAILED'] in 6.5s | tool ok: [False]
+  end: FAILED TOOL_UNAVAILABLE | TOOL_UNAVAILABLE: 도구 오류로 끝냈다: business_submit_plan: {"code": "APPROVAL_REQUIRED", "message": "approvalId f8377466-ec98-53ca-8792-153e3732b65c는 이 작업의 MANAGER 승인이 아닙니다. 승인 
+  task: FAILED | error: TOOL_UNAVAILABLE: 도구 오류로 끝냈다: business_submit_plan: {"code": "APPROVAL_REQUIRED"
+
+B with /internal record: ['TOOL_START', 'TOOL_END', 'APPROVAL_REQUIRED'] | 계획 PL-gwangjin-seongdong:2026-10-21:AM-v8 활성화 | routes 2
+  approve 202 → ['TOOL_START', 'TOOL_END', 'DONE'] in 0.1s | tool ok: [True]
+  end: DONE None | 승인되어 실행했습니다: 계획 PL-gwangjin-seongdong:2026-10-21:AM-v8 활성화 포기 대여소 2곳
+  task: DONE | error: 

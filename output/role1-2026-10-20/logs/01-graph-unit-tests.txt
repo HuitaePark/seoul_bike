@@ -1,0 +1,39 @@
+$ .venv/bin/python -m unittest -v tests.test_graph
+test_brief_lists_pending_approval_and_reports (tests.test_graph.BriefTest.test_brief_lists_pending_approval_and_reports) ... ok
+test_bad_commands_are_rejected (tests.test_graph.ContractTest.test_bad_commands_are_rejected) ... ok
+test_driver_names_are_masked_before_model (tests.test_graph.ContractTest.test_driver_names_are_masked_before_model) ... ok
+test_driver_without_truck_fails (tests.test_graph.ContractTest.test_driver_without_truck_fails) ... ok
+test_duplicate_start_is_ignored (tests.test_graph.ContractTest.test_duplicate_start_is_ignored) ... ok
+test_every_event_matches_the_kafka_contract (tests.test_graph.ContractTest.test_every_event_matches_the_kafka_contract) ... ok
+test_harness_failure_code_reaches_the_contract_field (tests.test_graph.ContractTest.test_harness_failure_code_reaches_the_contract_field) ... ok
+test_ids_reach_the_screen_with_ascii_hyphens (tests.test_graph.ContractTest.test_ids_reach_the_screen_with_ascii_hyphens) ... ok
+test_rag_chunks_become_doc_sources (tests.test_graph.ContractTest.test_rag_chunks_become_doc_sources)
+rag-mcp `search_docs`는 {chunks: [...]}를 준다 (MCP 명세 4.1). Harness는 목록 모양만 읽으므로 그래프가 채운다 (ISS-23). ... ok
+test_model_error_falls_back_to_code_path_without_failed_event (tests.test_graph.FallbackTest.test_model_error_falls_back_to_code_path_without_failed_event) ... ok
+test_no_llm_mode_handles_plan_and_rejects_question (tests.test_graph.FallbackTest.test_no_llm_mode_handles_plan_and_rejects_question) ... ok
+test_change_refused_by_backend_is_not_reported_as_done (tests.test_graph.FieldReportTest.test_change_refused_by_backend_is_not_reported_as_done) ... ok
+test_grade_none_finishes_without_approval (tests.test_graph.FieldReportTest.test_grade_none_finishes_without_approval) ... ok
+test_major_change_needs_manager_then_driver (tests.test_graph.FieldReportTest.test_major_change_needs_manager_then_driver) ... ok
+test_manager_rejection_keeps_route_without_driver_card (tests.test_graph.FieldReportTest.test_manager_rejection_keeps_route_without_driver_card) ... ok
+test_memo_less_minor_change_goes_straight_to_the_driver (tests.test_graph.FieldReportTest.test_memo_less_minor_change_goes_straight_to_the_driver) ... ok
+test_plan_waiting_for_approval_does_not_block_report (tests.test_graph.FieldReportTest.test_plan_waiting_for_approval_does_not_block_report) ... ok
+test_report_with_memo_goes_through_harness_with_driver_scope (tests.test_graph.FieldReportTest.test_report_with_memo_goes_through_harness_with_driver_scope) ... ok
+test_restart_between_manager_and_driver_keeps_the_step (tests.test_graph.FieldReportTest.test_restart_between_manager_and_driver_keeps_the_step)
+ISS-19: Harness는 카드 단계를 메모리에만 둔다. 재시작한 agent도 기사 카드로 재개해야 한다. ... ok
+test_approver_comment_is_masked_and_wrapped (tests.test_graph.PlanApprovalTest.test_approver_comment_is_masked_and_wrapped) ... ok
+test_exclude_recalculates_and_issues_new_card (tests.test_graph.PlanApprovalTest.test_exclude_recalculates_and_issues_new_card) ... ok
+test_exclusions_only_on_plan_cards_and_only_station_ids (tests.test_graph.PlanApprovalTest.test_exclusions_only_on_plan_cards_and_only_station_ids) ... ok
+test_newer_plan_supersedes_pending_one (tests.test_graph.PlanApprovalTest.test_newer_plan_supersedes_pending_one) ... ok
+test_only_the_card_approver_can_decide (tests.test_graph.PlanApprovalTest.test_only_the_card_approver_can_decide) ... ok
+test_plan_waits_for_manager_then_activates (tests.test_graph.PlanApprovalTest.test_plan_waits_for_manager_then_activates) ... ok
+test_reject_never_executes (tests.test_graph.PlanApprovalTest.test_reject_never_executes) ... ok
+test_duplicate_event_is_skipped (tests.test_graph.WorkerTest.test_duplicate_event_is_skipped) ... ok
+test_exception_retries_then_dlq (tests.test_graph.WorkerTest.test_exception_retries_then_dlq) ... ok
+test_failed_outcome_is_not_marked (tests.test_graph.WorkerTest.test_failed_outcome_is_not_marked) ... ok
+test_invalid_command_with_task_id_fails_the_task (tests.test_graph.WorkerTest.test_invalid_command_with_task_id_fails_the_task) ... ok
+test_invalid_message_goes_to_dlq (tests.test_graph.WorkerTest.test_invalid_message_goes_to_dlq) ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 1.241s
+
+OK

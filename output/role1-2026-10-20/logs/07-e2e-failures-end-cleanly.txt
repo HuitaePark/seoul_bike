@@ -1,0 +1,12 @@
+# 실패도 이유와 함께 끝나는지: 실제 backend + agent 컨테이너 (모델 없음)
+# 1) backend 작업 API로 만든 FIELD_REPORT: backend가 reportId 없이 보낸다(G13) → agent가 계약 위반으로 DLQ + FAILED(code)
+# 2) 모델 없이 질의: FAILED(MODEL_UNAVAILABLE)
+
+FIELD_REPORT: 202=True → status FAILED
+  error: INTERNAL_ERROR: 계약에 맞지 않는 명령이라 처리하지 않았다 (FIELD_REPORT에는 reportId가 필요하다)
+  taskId: e03811fd-9abd-4bca-ac5e-ef3a87cbbe4a
+QUESTION: 202=True → status FAILED
+  error: MODEL_UNAVAILABLE: 모델 없이 처리할 수 없는 작업이다 (자연어 해석이 필요하다)
+  taskId: 5a93250f-0895-46ff-8bad-7b79691eea3a
+stored event: type=FAILED code=INTERNAL_ERROR harness_ext_stored=false
+stored event: type=FAILED code=MODEL_UNAVAILABLE harness_ext_stored=false
