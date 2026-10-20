@@ -3,3 +3,4 @@
 # Purpose: Python dependencies for the OR-Tools rebalancing example.
 
 ortools>=9.10
+duckdb>=1.1  # sim·forecast가 Parquet 대여이력을 읽는다
