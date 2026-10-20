@@ -10,6 +10,25 @@ from .geo import distance_matrix
 LatLon = tuple[float, float]
 
 
+def validate_point(name: str, point: LatLon) -> None:
+    if not isinstance(point, (tuple, list)) or len(point) != 2:
+        raise ValueError(f"{name} must be (latitude, longitude)")
+    lat, lon = point
+    if any(type(v) not in (int, float) or not isfinite(v) for v in point):
+        raise ValueError(f"{name} has invalid coordinates")
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise ValueError(f"{name} has invalid coordinates")
+
+
+def normalized_points(points: list[LatLon]) -> list[LatLon]:
+    result = []
+    for i, point in enumerate(points):
+        validate_point(f"points[{i}]", point)
+        # No rounding: two distinct truck positions must not share a cache key.
+        result.append(tuple(0.0 if v == 0 else float(v) for v in point))
+    return result
+
+
 @dataclass(frozen=True)
 class TravelMatrix:
     """Rows and columns follow exactly the order of points passed to the provider.

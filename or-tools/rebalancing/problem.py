@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
 
 from .models import Imbalance, Plan, Route, Station, Truck
-from .travel_time import HaversineTravelTime, LatLon, TravelMatrix, TravelTime
+from .travel_time import HaversineTravelTime, LatLon, TravelMatrix, TravelTime, validate_point
 
 
 @dataclass(frozen=True)
@@ -26,16 +25,6 @@ class PlanningOptions:
 def require_int(name: str, value: int, minimum: int = 0) -> None:
     if type(value) is not int or not minimum <= value <= 1_000_000_000:
         raise ValueError(f"{name} must be an integer in [{minimum}, 1000000000]")
-
-
-def validate_point(name: str, point: LatLon) -> None:
-    if not isinstance(point, (tuple, list)) or len(point) != 2:
-        raise ValueError(f"{name} must be (latitude, longitude)")
-    lat, lon = point
-    if any(type(v) not in (int, float) or not isfinite(v) for v in point):
-        raise ValueError(f"{name} has invalid coordinates")
-    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
-        raise ValueError(f"{name} has invalid coordinates")
 
 
 @dataclass

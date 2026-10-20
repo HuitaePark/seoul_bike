@@ -40,3 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: compose 파일 검증
         run: docker compose -f infra/compose.yaml --env-file infra/.env.example config -q
+      - name: 최적화 독립 개발 환경 검증
+        run: |
+          sh -n infra/optimizer/prepare-osrm.sh
+          docker compose -f infra/optimizer/compose.dev.yaml --profile prepare --profile tools config -q

@@ -5,4 +5,6 @@
 
 - 개발 안내: `docs/optimizer/README.md`
 - 백엔드·데이터 담당 검토용 명세: `docs/optimizer/solve-contract.md`
+- OSRM·캐시 독립 실행: [개발 환경](../infra/optimizer/README.md)
+- 역할 5 진행 요약: [progress.md](../docs/optimizer/progress.md)
 - 구조 학습용 기존 자료: `docs/or-tools/` (초기 mock 결과와 현재 기본값을 구분)

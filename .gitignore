@@ -10,3 +10,6 @@ __pycache__/
 docs/images/**/*.svg
 # 비밀값
 .env
+# Local road extracts, preprocessed OSRM files and matrix cache
+.cache/
+infra/optimizer/data/

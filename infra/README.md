@@ -20,6 +20,9 @@ flowchart LR
 | `.github/workflows/ci.yml` | PR·main 검사 (GitHub 호스팅 러너) |
 | `.github/workflows/deploy.yml` | main 배포 (서버 러너, `seoul-bike` 라벨) |
 
+역할 5의 OSRM·최적화 단독 검증은 [독립 개발 환경](optimizer/README.md)을 사용한다.
+별도 Compose 파일이며 위 서버 배포 서비스에는 아직 연결하지 않았다.
+
 ## 서버 최초 설정 (한 번)
 
 현재 서버: `bakillm@baki-macbookpro` (Tailscale `100.109.172.112`), CPU 10코어 · 메모리 16GB. 화면 없이 SSH로 관리하므로 Docker Desktop 대신 Colima를 쓴다.
