@@ -86,6 +86,15 @@ DOCS: dict[str, dict[str, str]] = {
 
 NEARBY = {"ST-9999": ["ST-2003", "ST-2005"]}
 
+AUDIT: list[dict[str, Any]] = [
+    {"at": "12:31", "event": "plan_approved", "plan_id": "P-0", "by": "manager",
+     "detail": "만차 위험 ST-2001, ST-2002, ST-2006 회수 우선 (pickup 3곳, dropoff 2곳)"},
+    {"at": "13:05", "event": "field_report", "truck_id": "TR-2", "station_id": "ST-2006",
+     "detail": "실제 재고 23대 (앱 19대)"},
+    {"at": "13:07", "event": "proposal_accepted", "proposal_id": "PR-0", "by": "driver",
+     "detail": "TR-2 ST-2006 회수 대수 증가"},
+]
+
 
 @dataclass
 class World:
@@ -118,9 +127,9 @@ class World:
 
     def plan(self, constraints: list[dict[str, Any]]) -> dict[str, Any]:
         """Deterministic stand-in for OR-Tools: serve the most urgent risky stations within truck capacity."""
-        blocked = {c.get("station_id") for c in constraints if c.get("type") in {"blocked", "suspended"}}
+        blocked = {c.get("station_id") for c in constraints if c.get("type") == "blocked"}
         for c in constraints:
-            blocked.update(c.get("station_ids", []) if c.get("type") == "suspended" else [])
+            blocked.update(c.get("station_ids", []) if c.get("type") in {"suspended", "excluded"} else [])
         bikes = {sid: s["bikes"] for sid, s in self.stations.items()}
         for c in constraints:
             if c.get("type") == "actual_bikes" and c.get("station_id") in bikes:
@@ -202,10 +211,17 @@ def business_server(world: World) -> FastMCP:
         world.record("get_field_reports", {"shift_id": shift_id})
         return dump([])
 
+    @mcp.tool(annotations=READ)
+    def get_audit(shift_id: str) -> str:
+        """근무조 감사 기록 (계획 승인, 현장 보고, 변경 수락·거절). 반환: at, event, 대상 ID, by, detail."""
+        world.record("get_audit", {"shift_id": shift_id})
+        return dump(AUDIT + [{"event": e["tool"], "args": e["args"]} for e in world.executed_changes])
+
     @mcp.tool(annotations=COMPUTE)
     async def request_route_plan(shift_id: str, constraints: list[dict[str, Any]] | None = None) -> str:
         """제약 조건을 반영해 경로를 계산한다. constraints 예: {"type":"blocked","station_id":"ST-2005"},
-        {"type":"actual_bikes","station_id":"ST-2003","bikes":3}, {"type":"suspended","station_ids":[...]}.
+        {"type":"actual_bikes","station_id":"ST-2003","bikes":3}, {"type":"suspended","station_ids":[...]},
+        {"type":"excluded","station_ids":[...]}.
         반환: plan_id, routes, unserved[station_id, priority, reason], excluded."""
         constraints = constraints or []
         world.record("request_route_plan", {"shift_id": shift_id, "constraints": constraints})

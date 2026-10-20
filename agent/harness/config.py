@@ -20,6 +20,7 @@ DEFAULT_PROMPTS = AGENT_DIR / "prompts"
 class ModelSettings:
     primary: str
     fallback: str | None
+    kwargs: dict[str, Any] = field(default_factory=dict)  # init_chat_model 인자. temperature 고정 (NFR-04)
 
 
 @dataclass(frozen=True)
@@ -40,8 +41,11 @@ class ContextSettings:
 @dataclass(frozen=True)
 class LoopSettings:
     max_turns: int
-    max_seconds: float
+    max_seconds: dict[str, float]  # task_type별, 없으면 "default"
     max_same_tool_calls: int
+
+    def seconds_for(self, task_type: str) -> float:
+        return self.max_seconds.get(task_type, self.max_seconds["default"])
 
 
 @dataclass(frozen=True)
@@ -77,6 +81,9 @@ class HarnessConfig:
     prompts_dir: Path = field(default=DEFAULT_PROMPTS)
 
     def with_loop(self, **changes: Any) -> HarnessConfig:
+        """`max_seconds` may be a number (applies to every task type) or a per-task mapping."""
+        if isinstance(changes.get("max_seconds"), int | float):
+            changes["max_seconds"] = {"default": float(changes["max_seconds"])}
         return replace(self, loop=replace(self.loop, **changes))
 
     def with_recovery(self, **changes: Any) -> HarnessConfig:
@@ -86,11 +93,22 @@ class HarnessConfig:
         return replace(self, tools=replace(self.tools, **changes))
 
 
+def _seconds(value: Any) -> dict[str, float]:
+    seconds = {k: float(v) for k, v in value.items()} if isinstance(value, dict) else {"default": float(value)}
+    if "default" not in seconds:
+        raise ValueError("loop.max_seconds needs a `default` entry")
+    return seconds
+
+
 def load_config(path: Path | str = DEFAULT_CONFIG, prompts_dir: Path | str = DEFAULT_PROMPTS) -> HarnessConfig:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     t, c, lp, r, g, o = (raw[k] for k in ("tools", "context", "loop", "recovery", "guardrails", "observability"))
     return HarnessConfig(
-        models=ModelSettings(primary=raw["models"]["primary"], fallback=raw["models"].get("fallback")),
+        models=ModelSettings(
+            primary=raw["models"]["primary"],
+            fallback=raw["models"].get("fallback"),
+            kwargs=dict(raw["models"].get("kwargs") or {}),
+        ),
         tools=ToolSettings(
             result_max_chars=int(t["result_max_chars"]),
             rag_top_k=int(t["rag_top_k"]),
@@ -101,7 +119,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG, prompts_dir: Path | str = DEF
         context=ContextSettings(token_budget=int(c["token_budget"]), keep_tokens=int(c["keep_tokens"])),
         loop=LoopSettings(
             max_turns=int(lp["max_turns"]),
-            max_seconds=float(lp["max_seconds"]),
+            max_seconds=_seconds(lp["max_seconds"]),
             max_same_tool_calls=int(lp["max_same_tool_calls"]),
         ),
         recovery=RecoverySettings(

@@ -26,13 +26,14 @@ from .config import HarnessConfig
 from .context import StateBriefMiddleware, summarization
 from .errors import FailureCode, HarnessFailure
 from .events import EventSink, ProgressEvent
-from .guardrails import Masker, OutputValidationMiddleware, approval_middleware, destructive_tools
+from .guardrails import Masker, approval_middleware, destructive_tools
 from .loop import LoopGuardMiddleware
-from .prompts import Prompt, load_prompt, wrap_user_input
+from .prompts import Prompt, load_prompt, task_message
 from .recovery import RecoveryMiddleware, Sleep
 from .task import HarnessContext, Outcome, Task
 from .tools import ToolResultMiddleware, select_tools
 from .tracing import UsageMiddleware, run_config
+from .validation import ArgumentValidationMiddleware
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ def _model_name(model: BaseChatModel) -> str:
 class HarnessAgent:
     """Model + Harness for one agent server process.
 
-    Middleware order (outer → inner) for model calls: LoopGuard → OutputValidation → Usage → StateBrief → Recovery.
+    Middleware order (outer → inner) for model calls: LoopGuard → ArgumentValidation → Usage → StateBrief → Recovery.
     Tool calls: LoopGuard → ToolResult. Hooks: Summarization before the model, approval interrupt after it.
     """
 
@@ -64,9 +65,10 @@ class HarnessAgent:
         self.config = config
         self.tools = list(tools)
         self.sink = sink
-        self.model = model or init_chat_model(config.models.primary)
+        kwargs = config.models.kwargs
+        self.model = model or init_chat_model(config.models.primary, **kwargs)
         self.fallback_model = fallback_model or (
-            init_chat_model(config.models.fallback) if config.models.fallback else None
+            init_chat_model(config.models.fallback, **kwargs) if config.models.fallback else None
         )
         self.checkpointer = checkpointer or InMemorySaver()
         self.project = project or config.observability.project
@@ -87,7 +89,7 @@ class HarnessAgent:
             prompt = load_prompt(cfg.prompts_dir, task_type)
             middleware = [
                 LoopGuardMiddleware(cfg.loop),
-                OutputValidationMiddleware(destructive, cfg.guardrails.id_pattern),
+                ArgumentValidationMiddleware({t.name for t in tools}, cfg.guardrails.id_pattern),
                 UsageMiddleware(),
                 StateBriefMiddleware(),
                 RecoveryMiddleware(cfg.recovery, self.fallback_model, self.sleep),
@@ -117,9 +119,10 @@ class HarnessAgent:
         return list(state.values.get("messages", []))
 
     async def start(self, task: Task) -> Outcome:
-        """New task: the input is masked and wrapped as untrusted user input."""
+        """New task: requester and report values are written by code; free text is masked and wrapped as
+        untrusted user input."""
         masker = self._masker(task)
-        payload = {"messages": [HumanMessage(wrap_user_input(masker.text(task.input)))]}
+        payload = {"messages": [HumanMessage(task_message(task, masker.text(task.input)))]}
         return await self._run(task, payload, masker, rejected=False)
 
     async def resume(self, task: Task, decisions: Sequence[dict[str, Any]]) -> Outcome:

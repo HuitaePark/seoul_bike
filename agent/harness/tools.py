@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Iterable
+from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
@@ -73,15 +75,40 @@ def truncate(text: str, limit: int) -> tuple[str, bool]:
     return f"{text[:limit]}\n[잘림: 전체 {len(text)}자 중 {limit}자]", True
 
 
-class ToolResultMiddleware(AgentMiddleware):
-    """Wraps every tool call: TOOL_START/TOOL_END events, RAG top_k cap, masking, truncation.
+def scope_to_truck(value: Any, truck_id: str) -> Any:
+    """Drops list entries that belong to another truck (objects with a different `truck_id`), at any depth."""
+    if isinstance(value, list):
+        return [
+            scope_to_truck(v, truck_id)
+            for v in value
+            if not (isinstance(v, dict) and "truck_id" in v and v["truck_id"] != truck_id)
+        ]
+    if isinstance(value, dict):
+        return {k: scope_to_truck(v, truck_id) for k, v in value.items()}
+    return value
 
-    The MCP artifact (structured copy of the result) is dropped so unmasked data never enters state or traces.
+
+class ToolResultMiddleware(AgentMiddleware):
+    """Wraps every tool call: TOOL_START/TOOL_END events, RAG top_k cap, driver scope, masking, truncation.
+
+    For tasks a driver sent, other trucks' entries are removed from results (NFR-06). The MCP artifact
+    (structured copy of the result) is dropped so unscoped, unmasked data never enters state or traces.
     """
 
     def __init__(self, settings: ToolSettings) -> None:
         super().__init__()
         self.settings = settings
+
+    @staticmethod
+    def _prepare(text: str, ctx: HarnessContext) -> str:
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return ctx.masker.text(text)
+        requester = ctx.task.requester
+        if requester.role == "driver" and requester.truck_id:
+            parsed = scope_to_truck(parsed, requester.truck_id)
+        return json.dumps(ctx.masker.value(parsed), ensure_ascii=False)
 
     async def awrap_tool_call(
         self,
@@ -110,7 +137,7 @@ class ToolResultMiddleware(AgentMiddleware):
             raise HarnessFailure(FailureCode.TOOL_UNAVAILABLE, f"{call['name']}: {type(exc).__name__}: {exc}") from exc
         if not isinstance(result, ToolMessage):
             return result
-        content, cut = truncate(ctx.masker.json_text(_text(result.content)), self.settings.result_max_chars)
+        content, cut = truncate(self._prepare(_text(result.content), ctx), self.settings.result_max_chars)
         ctx.stats.truncated += cut
         masked = result.model_copy(update={"content": content, "artifact": None})
         ctx.sink.emit(

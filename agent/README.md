@@ -31,9 +31,9 @@ uv pip install -e .
 반드시 `agent/` 폴더에서, 이 폴더의 `.venv` Python으로 실행한다. `python`이 다른 버전(예: Homebrew 3.11)이나 다른 프로젝트 가상환경을 가리키면 테스트를 못 찾거나(`Ran 0 tests`) 다른 프로젝트 테스트가 실행된다.
 
 ```bash
-.venv/bin/python -m unittest discover tests -v      # 동작 테스트 20개, 키 불필요, 약 2초
+.venv/bin/python -m unittest discover tests -v      # 동작 테스트 26개, 키 불필요, 약 2초
 .venv/bin/python -m unittest tests.test_harness.RecoveryTest.test_fallback_model_after_retries   # 한 줄로 입력
-.venv/bin/python -m evaluation --out /tmp/eval.md   # 시나리오 10개, 키 불필요, 약 3초
+.venv/bin/python -m evaluation --out /tmp/eval.md   # 시나리오 14개, 키 불필요, 약 4초
 ```
 
 | 명령 | 언제 |
@@ -72,7 +72,13 @@ LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 �
 | | `test_fallback_model_after_retries` | 재시도까지 실패하면 대체 모델이 답하고 `fallback=true`가 남는다 |
 | | `test_all_models_unavailable` | 대체 모델까지 실패하면 `MODEL_UNAVAILABLE` |
 | | `test_bad_request_fails_without_retry_or_fallback` | 400 같은 요청 오류는 재시도·대체 모델 없이 `MODEL_ERROR` |
-| Instructions | `test_input_is_wrapped_and_brief_is_in_system_prompt` | 사용자 입력은 `<user_input>`으로 감싸지고, 근무조 상태 요약이 시스템 프롬프트에 들어간다 |
+| Instructions | `test_input_is_wrapped_and_brief_is_in_system_prompt` | 첫 메시지가 `요청자: …`로 시작하고 사용자 입력은 `<user_input>`으로 감싸지며, 근무조 상태 요약이 시스템 프롬프트에 들어간다 |
+| State | `test_tasks_on_same_shift_do_not_share_history_or_lose_approvals` | 같은 근무조에서 계획이 승인 대기 중일 때 기사 보고가 와도, 기사 작업은 계획 대화를 보지 못하고 계획은 승인 후 실제로 실행된다 |
+| 인자 검증 | `test_bike_count_must_come_from_report` | 메모 숫자(5대)로 만든 재고 제약은 보고 값(3대)과 달라 거부되고, 반복하면 `OUTPUT_INVALID`로 끝나며 재계산은 실행되지 않는다 |
+| | `test_bike_count_above_dock_capacity_is_rejected` | 거치대 수(20대)를 넘는 재고 제약은 거부된다 |
+| | `test_unknown_constraint_shape_is_rejected` | 정의되지 않은 제약 형식은 거부되고, 고친 호출만 실행된다 |
+| 기사 범위 | `test_driver_sees_and_changes_only_own_truck` | 기사 작업에서 모델은 자기 트럭 정보만 보고, 다른 트럭 경로 제안은 거부된다 |
+| | `test_field_report_has_its_own_time_limit` | 현장 보고는 작업 종류별 시간 한도(NFR-01 10초)를 따른다 |
 
 ### 시나리오 평가 (`python -m evaluation`)
 

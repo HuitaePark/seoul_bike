@@ -7,17 +7,19 @@ from .agent import HarnessAgent, connect
 from .config import HarnessConfig, load_config
 from .errors import FailureCode, HarnessFailure
 from .events import EventSink, ListSink, ProgressEvent
-from .task import Outcome, Task
+from .task import FieldReport, Outcome, Requester, Task
 
 __all__ = [
     "FailureCode",
     "EventSink",
+    "FieldReport",
     "HarnessAgent",
     "HarnessConfig",
     "HarnessFailure",
     "ListSink",
     "Outcome",
     "ProgressEvent",
+    "Requester",
     "Task",
     "connect",
     "load_config",

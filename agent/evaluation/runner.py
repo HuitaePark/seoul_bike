@@ -27,7 +27,7 @@ from harness.prompts import load_prompt
 
 from .fake_mcp import SHIFT_ID, connect_world
 from .fakes import ScriptedChatModel
-from .scenarios import SCENARIOS, RunRecord, Scenario
+from .scenarios import APPROVE, SCENARIOS, RunRecord, Scenario
 from .scorers import Check, judge_explanation, score, unapproved_changes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -59,8 +59,9 @@ async def run_scenario(sc: Scenario, base: HarnessConfig, model_name: str | None
     real = model_name is not None and sc.model_scenario
     async with connect_world(world, config.observability.trace_header) as tools:
         if real:
-            model: BaseChatModel = init_chat_model(model_name)
-            fallback = init_chat_model(config.models.fallback) if config.models.fallback else None
+            kwargs = config.models.kwargs
+            model: BaseChatModel = init_chat_model(model_name, **kwargs)
+            fallback = init_chat_model(config.models.fallback, **kwargs) if config.models.fallback else None
         else:
             model = ScriptedChatModel(steps=list(sc.script), label="scripted")
             fallback = ScriptedChatModel(steps=list(sc.fallback_script), label="scripted-fallback")
@@ -72,17 +73,18 @@ async def run_scenario(sc: Scenario, base: HarnessConfig, model_name: str | None
             sleep=asyncio.sleep if real else _no_sleep,
         )
         task = Task(
-            task_id=f"eval-{sc.id}", trace_id=f"eval-{sc.id}-{int(time.time())}", task_type=sc.task_type,
-            thread_id=f"{SHIFT_ID}:eval:{sc.id}:{time.time_ns()}", input=sc.input, brief=sc.brief,
-            driver_names=sc.driver_names,
+            task_id=f"eval-{sc.id}-{time.time_ns()}", trace_id=f"eval-{sc.id}-{int(time.time())}",
+            task_type=sc.task_type, shift_id=SHIFT_ID, input=sc.input, brief=sc.brief,
+            driver_names=sc.driver_names, requester=sc.requester, report=sc.report,
         )
         started = time.monotonic()
         outcomes = [await agent.start(task)]
         approvals = []
         while outcomes[-1].status == "APPROVAL_REQUIRED" and len(approvals) < 4:
             pending = outcomes[-1].approvals
-            approvals.append({"seq": world.next_seq(), "tools": [a["tool"] for a in pending]})
-            outcomes.append(await agent.resume(task, [{"type": "approve"}] * len(pending)))
+            decision = sc.decisions[len(approvals)] if len(approvals) < len(sc.decisions) else APPROVE
+            approvals.append({"seq": world.next_seq(), "tools": [a["tool"] for a in pending], "decision": decision["type"]})
+            outcomes.append(await agent.resume(task, [decision] * len(pending)))
         record = RunRecord(sc, outcomes, sink.events, world, await agent.history(task), approvals, time.monotonic() - started)
     checks = score(record)
     graded = await judge_explanation(judge, record) if judge is not None and real else None
@@ -92,6 +94,7 @@ async def run_scenario(sc: Scenario, base: HarnessConfig, model_name: str | None
 def render(results: list[Result], config: HarnessConfig, label: str, model_name: str | None) -> str:
     versions = sorted({load_prompt(config.prompts_dir, t).version for t in {r.scenario.task_type for r in results}})
     loop, rec, tools, ctx = config.loop, config.recovery, config.tools, config.context
+    seconds = " · ".join(f"{k} {v:g}초" for k, v in loop.max_seconds.items())
     lines = [
         f"# Harness 평가 결과: {label}",
         "",
@@ -101,19 +104,22 @@ def render(results: list[Result], config: HarnessConfig, label: str, model_name:
         f"| 모델 | {model_name or 'scripted (기준 궤적, 모델 품질이 아닌 Harness·채점 경로 검증)'} |",
         f"| 대체 모델 | {config.models.fallback if model_name else 'scripted-fallback'} |",
         f"| 프롬프트 | {', '.join(versions)} |",
-        f"| 한도 | {loop.max_turns}턴 · {loop.max_seconds:g}초 · 같은 도구 {loop.max_same_tool_calls}회 · 결과 {tools.result_max_chars}자 · 토큰 {ctx.token_budget} · 재시도 {rec.model_retries}회 |",
+        f"| 한도 | {loop.max_turns}턴 · 같은 도구 {loop.max_same_tool_calls}회 · 결과 {tools.result_max_chars}자 · 토큰 {ctx.token_budget} · 재시도 {rec.model_retries}회 |",
+        f"| 시간 한도 | {seconds} (시나리오별 설정 변경은 FT-06만) |",
+        f"| 모델 설정 | {config.models.kwargs or '-'} |",
         "",
         "## 시나리오별 결과",
         "",
-        "| ID | 시나리오 | 모델 | 판정 | 상태 | 턴 | 도구 | 재시도 | 대체 모델 | 잘림 | 토큰(입/출) | 시간(s) | 설명 품질 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| ID | 시나리오 | PRD | 모델 | 판정 | 상태 | 승인 결정 | 턴 | 도구 | 재시도 | 대체 모델 | 잘림 | 토큰(입/출) | 시간(s) | 설명 품질 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in results:
         final = r.record.final
         fallback = any(o.stats and o.stats.fallback for o in r.record.outcomes)
         lines.append(
-            f"| {r.scenario.id} | {r.scenario.title} | {r.model} | {'PASS' if r.passed else 'FAIL'} | "
-            f"{final.status}{f' ({final.code})' if final.code else ''} | {r.stat('turns')} | {r.stat('tool_calls')} | "
+            f"| {r.scenario.id} | {r.scenario.title} | {r.scenario.prd or '-'} | {r.model} | {'PASS' if r.passed else 'FAIL'} | "
+            f"{final.status}{f' ({final.code})' if final.code else ''} | "
+            f"{' → '.join(a['decision'] for a in r.record.approvals) or '-'} | {r.stat('turns')} | {r.stat('tool_calls')} | "
             f"{r.stat('retries')} | {'예' if fallback else '-'} | {r.stat('truncated')} | "
             f"{r.stat('input_tokens')}/{r.stat('output_tokens')} | {r.record.elapsed_s:.2f} | {r.judge if r.judge is not None else '-'} |"
         )

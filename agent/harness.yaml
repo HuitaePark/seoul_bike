@@ -5,6 +5,8 @@
 models:
   primary: openai:gpt-4.1-mini      # 초기값. 팀 결정 전
   fallback: openai:gpt-4.1-nano     # 초기값. 주 모델과 다른 공급사 권장
+  kwargs:
+    temperature: 0                  # 같은 입력이면 같은 해석에 가깝게 (NFR-04)
 
 tools:
   result_max_chars: 4000            # 초기값
@@ -48,6 +50,7 @@ tools:
       - business_get_current_plan
       - business_get_truck_status
       - business_get_field_reports
+      - business_get_audit             # PRD 6.7 get_audit. 05 뷰에 없음: 3 MCP · RAG와 계약 필요
       - rag_search_docs
 
 context:
@@ -56,7 +59,10 @@ context:
 
 loop:
   max_turns: 8
-  max_seconds: 120
+  max_seconds:                      # 실행 구간 한도 (초)
+    default: 120                    # 과제 권장값
+    field_report: 10                # 초기값. NFR-01 재경로 10초
+    plan_draft: 60                  # 초기값. NFR-02 초안 생성 60초
   max_same_tool_calls: 3
 
 recovery:

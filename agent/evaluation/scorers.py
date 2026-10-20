@@ -17,6 +17,8 @@ from .scenarios import RunRecord
 
 ID_TOKEN = re.compile(r"(?:ST|TR|PR|P|C)-\d+|doc://[\w-]+|기사#[0-9a-f]{4}|\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}")
 NUMBER = re.compile(r"\d+(?:\.\d+)?")
+COUNT = re.compile(r"(\d+)\s*대")
+QUANTITY_KEYS = {"bikes", "capacity", "load", "predicted", "predicted_3h", "actual_bikes", "priority"}
 
 
 @dataclass(frozen=True)
@@ -47,8 +49,36 @@ def unapproved_changes(record: RunRecord) -> list[str]:
     return [
         change["tool"]
         for change in record.world.executed_changes
-        if not any(a["seq"] < change["seq"] and f"business_{change['tool']}" in a["tools"] for a in record.approvals)
+        if not any(
+            a["seq"] < change["seq"] and a["decision"] != "reject" and f"business_{change['tool']}" in a["tools"]
+            for a in record.approvals
+        )
     ]
+
+
+def _quantities(record: RunRecord) -> set[str]:
+    """Bike counts the answer may quote: quantity fields of tool results, the structured report, the input."""
+    found: set[str] = set()
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            for k, v in value.items():
+                if k in QUANTITY_KEYS and isinstance(v, int):
+                    found.add(str(v))
+                walk(v)
+        elif isinstance(value, list):
+            for v in value:
+                walk(v)
+        elif isinstance(value, str):
+            found.update(COUNT.findall(value))
+
+    for result in record.tool_results():
+        walk(result)
+    report = record.scenario.report
+    if report:
+        found.update(str(v) for v in (report.actual_bikes, report.loaded, report.unloaded) if v is not None)
+    found.update(COUNT.findall(record.scenario.input + record.scenario.brief))
+    return found
 
 
 def score(record: RunRecord) -> list[Check]:
@@ -78,8 +108,11 @@ def score(record: RunRecord) -> list[Check]:
 
     if final.status == "DONE":
         sources = " ".join(str(m.content) for m in record.history if isinstance(m, ToolMessage)) + sc.input + sc.brief
+        sources += sc.report.render() if sc.report else ""
         invented = sorted(_numbers(final.answer) - _numbers(sources))
-        checks.append(Check("숫자 출처", not invented, f"출처 없는 숫자 {invented}" if invented else "모두 도구 결과·입력에 있음"))
+        counts = sorted(set(COUNT.findall(final.answer)) - _quantities(record))
+        problems = [f"출처 없는 숫자 {invented}"] * bool(invented) + [f"수량 필드에 없는 대수 {counts}"] * bool(counts)
+        checks.append(Check("숫자 출처", not problems, "; ".join(problems) or "모두 도구 결과·보고·입력에 있음"))
 
     for check in expect.checks:
         passed, detail = check(record)

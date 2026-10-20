@@ -27,7 +27,8 @@ class LoopGuardMiddleware(AgentMiddleware):
     """Outermost middleware. Limits count from `HarnessContext.stats`, which is fresh for every segment.
 
     - turns: the (max_turns + 1)-th model call fails with LOOP_MAX_TURNS.
-    - time: model and tool calls are cancelled when the segment budget runs out (LOOP_TIMEOUT).
+    - time: model and tool calls are cancelled when the segment budget for the task type runs out
+      (LOOP_TIMEOUT). field_report and plan_draft follow NFR-01/NFR-02, others the default.
     - same tool: the call after max_same_tool_calls identical calls is answered with an error ToolMessage
       instead of running; one more identical call fails with LOOP_SAME_TOOL.
     """
@@ -36,18 +37,19 @@ class LoopGuardMiddleware(AgentMiddleware):
         super().__init__()
         self.settings = settings
 
-    def _timeout(self) -> HarnessFailure:
-        return HarnessFailure(FailureCode.LOOP_TIMEOUT, f"작업 시간 {self.settings.max_seconds:g}초 초과")
+    def _timeout(self, limit: float) -> HarnessFailure:
+        return HarnessFailure(FailureCode.LOOP_TIMEOUT, f"작업 시간 {limit:g}초 초과")
 
     async def _within_budget[T](self, ctx: HarnessContext, call: Coroutine[object, object, T]) -> T:
-        remaining = self.settings.max_seconds - ctx.elapsed()
+        limit = self.settings.seconds_for(ctx.task.task_type)
+        remaining = limit - ctx.elapsed()
         if remaining <= 0:
             call.close()
-            raise self._timeout()
+            raise self._timeout(limit)
         try:
             return await asyncio.wait_for(call, remaining)
         except TimeoutError as exc:
-            raise self._timeout() from exc
+            raise self._timeout(limit) from exc
 
     async def awrap_model_call(
         self,
