@@ -50,7 +50,7 @@ class Forecast:
     start: datetime  # 예측 구간 시작 시각(정시)
     rentals_h: tuple[float, ...]  # 시간별로 대여되어 대여소에서 나갈 것으로 예상되는 자전거 수
     returns_h: tuple[float, ...]  # 시간별로 반납되어 대여소로 들어올 것으로 예상되는 자전거 수
-    model: str  # 어떤 예측기가 만든 값인지. 거점별 근거(FR-03)에 표시한다
+    model_version: str  # 어떤 예측기·버전이 만든 값인지(API의 modelVersion). 거점별 근거(FR-03)에 표시한다
 
     @property
     def rentals(self) -> float:

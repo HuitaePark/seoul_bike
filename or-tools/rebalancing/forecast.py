@@ -47,7 +47,7 @@ class HeuristicPredictor:
         # 한 시간씩 아래 규칙을 적용해 시간별 값을 만든다. 날짜는 보지 않고 시각만 본다(mock이라서).
         hours = [self._one_hour(station, (start + timedelta(hours=i)).hour) for i in range(horizon_h)]
         return Forecast(start=start, rentals_h=tuple(r for r, _ in hours), returns_h=tuple(t for _, t in hours),
-                        model="heuristic")
+                        model_version="heuristic")
 
     def _one_hour(self, station: Station, hour: int) -> tuple[int, int]:
         base = max(2, station.capacity // 5)  # 평소(출퇴근이 아닐 때)의 대여·반납 수
