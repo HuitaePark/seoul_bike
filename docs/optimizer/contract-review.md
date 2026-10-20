@@ -1,6 +1,7 @@
 # 공통 solve 명세 대응 기록
 
-기준: main e819a4b의 공통 v0.1. 공유 YAML을 유지하고 개인 브랜치의 코드·문서를 맞췄다.
+기준 main: 18e11a3. 공개 API 0.3.0-draft, 내부 API·Kafka 0.2.0-draft를 따른다.
+공유 YAML을 유지하고 개인 브랜치의 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
 | 이전 차이 | 현재 대응 |
@@ -21,3 +22,13 @@ Kafka 실행기가 권역·스냅샷 메타데이터에서 이 설정을 얻는 
 
 테스트는 공통 YAML을 직접 읽어 정상·부분 처리·오류·타임아웃 결과를 검증한다.
 실제 도로 품질·서버 배포·전체 응답시간 완료를 의미하지 않는다.
+
+## 최신 명세 반영
+
+공통 문서 버전은 올라갔지만 Envelope·SolveStation·SolveTruck·SolveRequest·SolveResult와
+공개 Route·Stop·Unserved 모델은 이전 검토와 동일하다. 입력·결과 변환 동작은 유지한다.
+경로 변경 승인 순서는 backend의 requiredApprovers를 따르며 optimizer가 결정하지 않는다.
+작업 이벤트 seq도 backend가 부여하므로 SolveResult에 추가하지 않는다.
+
+명세·예시만 먼저 PR로 제출할 수 있도록 optimizer.md에 구현 브랜치·미병합 상태를 표시하고,
+main에 없는 실행 코드·인프라 안내는 해당 브랜치 링크로 연결했다.

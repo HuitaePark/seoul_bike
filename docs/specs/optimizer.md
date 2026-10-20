@@ -1,7 +1,17 @@
 # 최적화 · 인프라 명세
 
-상태: **공통 v0.1 명세 대응 구현, Kafka 연결 전**. 담당: 역할 5.
-기준 main: `e819a4b`. 구현: `or-tools/rebalancing/`.
+상태: **명세 검토용, 계산 구현은 개인 브랜치에 있으며 Kafka 미연결**. 담당: 역할 5.
+기준 main: `18e11a3`.
+
+| 참조 명세 | 문서 버전 |
+| --- | --- |
+| 공개 API (OpenAPI) | 0.3.0-draft |
+| 내부 API (OpenAPI) | 0.2.0-draft |
+| Kafka (AsyncAPI) | 0.2.0-draft |
+
+메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
+아래 구현 설명은 [feat/optimizer-core의 계산 코드](https://github.com/HuitaePark/skala_seoul_bike/tree/feat/optimizer-core/or-tools/rebalancing)를 기준으로 한다.
+이 명세와 예시만 main에 반영해도 계산 코드가 함께 반영되는 것은 아니다. 구현은 별도 PR에서 검토한다.
 
 외부 형식은 [asyncapi.yaml](asyncapi.yaml)의 SolveRequest·SolveResult와
 [openapi.yaml](openapi.yaml)의 Route·Stop·Unserved가 원본이다.
@@ -13,6 +23,12 @@
 `backend → solve.requests → optimizer → solve.results → backend` 순서다.
 optimizer는 후보 경로만 계산한다. 계획 ID·버전, 변경 등급, 승인·활성화·감사·업무 갱신은 backend가 담당한다.
 optimizer는 DB 직접 접근과 LLM 호출을 하지 않는다.
+
+경로 변경 승인 순서는 backend의 PlanCandidate.requiredApprovers를 따른다.
+NONE은 적용하지 않고, MINOR는 기사 승인, MAJOR는 관리자 → 기사 승인 순서다.
+도구 앞의 기사 승인이 곧 경로 변경 수락이며 별도 수락 단계를 추가하지 않는다.
+optimizer는 grade·requiredApprovers·승인 카드를 생성하지 않는다.
+TaskEventMessage의 seq는 backend가 부여하는 작업 이벤트 정보이며 SolveResult에 추가하지 않는다.
 
 `contract.solve_request()`는 변환·계산·결과 생성 함수다. Kafka 소비·발행, offset commit,
 영속 중복 제거, retry/DLQ와 topics-init은 후속 연결 범위다. 현재 함수는 결과를 저장하지 않는다.
@@ -48,7 +64,7 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
 
 ## payload 밖의 필수 실행 설정
 
-v0.1에는 차고지와 입력 스냅샷 기준 시각 필드가 없다. 호출자가
+현재 AsyncAPI 0.2.0-draft의 SolveRequest에도 차고지와 입력 스냅샷 기준 시각 필드가 없다. 호출자가
 `SolveContext(depot, as_of)`와 `travel_time` 공급자를 명시한다.
 실행기는 권역 설정·입력 스냅샷 메타데이터에서 이를 제공해야 한다. 해당 연결은 아직 남아 있다.
 
@@ -93,9 +109,9 @@ OSRM 도로 거리·시간을 조회하며 중복 제거·요청 분할·순서 
 만료·손상은 재조회하고 디스크 기록 실패는 경고 후 유효한 결과를 유지한다. 도로 변경 시 버전을 갱신한다.
 정적 car 프로필은 실시간 교통·트럭 높이/중량을 보장하지 않는다.
 
-[독립 개발 환경](../../infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
+[개인 브랜치의 독립 개발 환경](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
 운영 Compose·topics-init·Kafka 연결·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
-CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
+구현 브랜치의 CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
 
 ## 예시와 단독 호출
 
@@ -103,7 +119,10 @@ CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리
 - [result.json](examples/optimizer/result.json): 해당 요청의 SolveResult 예시. solveMs는 성능 보장값이 아님.
 - [context.json](examples/optimizer/context.json): **함수 호출 설정 예시**, Kafka 메시지 스키마가 아님.
 
-Python 3.12로 의존성을 설치한 뒤 or-tools/에서 실행한다.
+단독 호출에는 구현 브랜치의 소스와 개발 의존성이 필요하다.
+명세·예시만 반영된 main에서는 아래 Python 모듈·테스트가 아직 제공되지 않는다.
+[구현 브랜치 실행 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/docs/optimizer/README.md)에 따라
+Python 3.12 환경을 준비하고, 그 브랜치의 or-tools/에서 실행한다.
 
 ```bash
 ../.venv/bin/python -m pip install -r ../requirements.txt -r requirements-dev.txt

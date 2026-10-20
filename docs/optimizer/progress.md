@@ -2,20 +2,22 @@
 
 ## 확인 기준
 
-- 최초 확인 origin/main: 221caf5. aebf8a6 공통 명세와 e819a4b Harness 변경까지 반영했다.
+- 최초 확인 origin/main: 221caf5. 현재 18e11a3의 공개 API v0.3·내부 API/Kafka v0.2까지 반영했다.
 - 개인 브랜치: `feat/optimizer-core`.
 - 기존 원격 작업: `aeaa62c`(최적화 코어), `e0d3d36`(실행 안내·명세 초안).
 - `9460226`에서 최신 main을 개인 브랜치에 충돌 없이 병합했다.
 - OSRM 후속 구현은 로컬 `8c38ee1`로 저장했고, 이후 추가된 공통 명세도 병합했다.
-- 905222d까지 개인 브랜치 원격 push를 완료했다.
-- 이번 공통 명세 대응은 e5f3e59에서 최신 main 병합 후 진행하며 로컬에 저장한다.
+- 4009edf까지 개인 브랜치 원격 push를 완료했다.
+- 이번 명세 갱신은 3c621bd에서 최신 main 병합 후 진행하며 로컬에 저장한다.
+- 명세 PR은 docs/specs의 역할 명세·목록·예시 5개 파일로 분리하고, 구현은 별도 PR로 제출할 계획이다.
 
 ## 최신 main의 상태
 
-Spring Boot 백엔드, `/api/system/status`와 상태 화면, PostGIS·pgvector·Redpanda
-Compose, 백엔드 테스트·CI·서버 배포 연결이 추가돼 있다. 이후 공개·내부 OpenAPI,
-Kafka AsyncAPI 초안, Swagger 화면과 명세 CI, Harness 구현·평가셋도 추가됐다. 업무 명세와 상태 조회 기반까지 마련된
-상태이며, 계획·승인 업무 API, Kafka solve 실행기, Vue 공통 화면이 완성됐다는 뜻은 아니다.
+Spring Boot 백엔드는 backend/로 이동했고 Vue 공통 뼈대는 frontend/에 있다.
+로그인·회원가입·계정 관리·작업 API·SSE·승인·ai.tasks 발행·ai.events 소비가 구현됐다.
+agent 자리는 설정으로 켜는 가짜 에이전트가 대신하며 retry/DLQ는 후속 단계다.
+대여소·계획·현장 보고·성과 API와 /internal/**·solve.*는 아직 계약 단계다.
+경로 변경은 backend가 정한 requiredApprovers 순서로 승인한다. MINOR는 기사, MAJOR는 관리자 → 기사다.
 기존 최적화 코어와 이번 OSRM 변경은 개인 브랜치에 있으며 main에는 아직 없다.
 
 ## 내가 진행한 구현
@@ -43,8 +45,8 @@ DB 직접 접근과 LLM 호출은 없다. 기존 CLI는 가상 대여소·예측
    이후 `solve.requests/results`, 재시도·DLQ, topics-init을 연결한다.
 2. **역할 6과 권역·정책 확정:** 도로 파일 범위와 버전, 운영 상한, 우선순위,
    근무시간·작업시간을 확정한다. 그 입력으로 실제 도로의 200곳·5대 성능을 측정한다.
-3. **역할 4의 Vue 공통 뼈대 이후:** 지도·계획 검토 화면을 시작한다.
-   `ROLES.md`에 선행 조건이 명시되어 있다.
+3. **준비된 Vue 공통 뼈대 사용:** frontend/src/features/plan-map/의 지도·계획 검토 설계를 진행할 수 있다.
+   공유 API 클라이언트·생성 타입·useTaskStream을 사용하고, 실제 업무 API가 준비되기 전에는 명세 기반 가짜 API를 쓴다.
 4. **서버 운영 담당과 통합:** 지도 전처리 메모리·디스크 예산과 배포 절차를 확인한 뒤
    운영 Compose에 연결하고 전체 실행·재경로 10초를 검증한다.
 
@@ -52,7 +54,7 @@ DB 직접 접근과 LLM 호출은 없다. 기존 CLI는 가상 대여소·예측
 
 - `README.md`·`ROLES.md`는 Spring Boot·Vue 구조지만 `PRD.md`·`ARCHITECTURE.md`의
   일부 스택·예시는 FastAPI 업무 백엔드·Next.js 구조다. 공통 문서는 담당자와 통일해야 한다.
-- README에는 Spring Boot 3으로 적혀 있지만 실제 `services/backend/build.gradle`은 4.1.1이다.
+- README에는 Spring Boot 3으로 적혀 있지만 실제 backend/build.gradle은 4.1.1이다.
   최적화 작업에서 임의로 버전이나 공동 문서를 바꾸지 않았다.
 - 명시된 커밋 메시지 규칙은 찾지 못했다. 기존 이력의 `type(scope): 한국어 설명` 형식을 따른다.
   `ROLES.md`의 PR 모듈 승인·계약 명세 2인 승인 규칙과는 별개다.

@@ -1,4 +1,4 @@
-"""Pure adapter for docs/specs/asyncapi.yaml v0.1; no Kafka or database I/O."""
+"""AsyncAPI 0.2 adapter (payload schemaVersion 1); no Kafka or database I/O."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -74,7 +74,7 @@ def _minutes(name: str, value) -> int:
 class SolveContext:
     """Required caller configuration, separate from the public Kafka payload.
 
-    Current v0.1 does not define depot or a snapshot/as-of timestamp. A caller
+    The shared SolveRequest does not define depot or a snapshot/as-of timestamp. A caller
     must supply the region's depot and stable snapshot time explicitly; neither
     the demo depot nor the consumer's clock is substituted automatically.
     """
