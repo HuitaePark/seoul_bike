@@ -18,7 +18,8 @@ BACKEND_URL=https://baki-macbookpro.tail3286a4.ts.net npm run dev   # 배포 서
 | `src/shared/api/schema.d.ts` | `docs/specs/openapi.yaml`에서 생성. **손으로 고치지 않는다.** 계약을 바꾸면 `npm run gen:api` |
 | `src/shared/auth/store.ts` | `useAuth()` → `login`, `logout`, `user`, `token` |
 | `src/shared/composables/useTaskStream.ts` | `useTaskStream(taskIdRef)` → `answer`, `activeTool`, `pendingApproval`, `sources`, `error`, `state`. 끊기면 `Last-Event-ID`로 다시 붙는다 |
-| `src/features/task-console/` | 위 셋을 쓰는 예시 화면 (작업 만들기 → 진행 → 승인 카드 → 근거) |
+| `src/features/task-console/` | 관제 작업 화면 (1): 작업 만들기 → 진행 이벤트 로그 → 승인 카드 → 근거 |
+| `src/features/approval/` | 승인 카드 (1). 기사 화면도 `<ApprovalCard :card :user @decide>`로 쓴다. 결정 권한 규칙은 `approval.ts` (backend와 같음) |
 
 ## 규칙
 

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, problemMessage, type Schemas } from '../../shared/api/client'
+import { useAuth } from '../../shared/auth/store'
 import { useTaskStream } from '../../shared/composables/useTaskStream'
-import { roleLabel } from '../../shared/labels'
+import ApprovalCard from '../approval/ApprovalCard.vue'
+import type { ApprovalDecision } from '../approval/approval'
 
-// 작업 콘솔: 공통 뼈대(api 클라이언트, useTaskStream) 사용 예시이자 에이전트 화면의 출발점.
-// 진짜 agent가 붙기 전에는 backend의 가짜 에이전트가 답한다.
+// 관제 작업 화면 (ROLES 1): 요청 입력, 작업 목록, 진행 이벤트 로그, 승인 카드.
+// agent가 붙어 있으면 근무조 그래프가, 없으면 backend의 가짜 에이전트(FAKE_AGENT_ENABLED)가 답한다.
 
 type TaskType = Schemas['TaskType']
 
@@ -23,12 +25,26 @@ const selected = ref<string | null>(null)
 const decisionError = ref('')
 const deciding = ref(false)
 
+const auth = useAuth()
 const stream = useTaskStream(selected)
-// 큰 경로 변경은 관리자 → 기사 순서로 카드가 온다. 순서가 하나뿐이면 보여 주지 않는다.
-const approvalOrder = computed(() => {
-  const order = stream.pendingApproval.value?.requiredApprovers ?? []
-  return order.length > 1 ? order.map((r) => roleLabel[r]).join(' → ') : ''
-})
+
+// 진행 이벤트 로그. TOKEN은 답변으로 모이므로 로그에서 뺀다.
+const log = computed(() =>
+  stream.events.value
+    .filter((e) => e.type !== 'TOKEN')
+    .map((e) => ({
+      seq: e.seq,
+      type: e.type,
+      text:
+        e.type === 'TOOL_START' || e.type === 'TOOL_END'
+          ? `${e.tool?.label ?? e.tool?.name ?? ''}${e.type === 'TOOL_END' ? (e.tool?.ok ? ' ✓' : ' ✗') : ''}`
+          : e.type === 'APPROVAL_REQUIRED'
+            ? `승인 요청: ${e.approval?.summary ?? ''}`
+            : e.type === 'FAILED'
+              ? (e.error ?? '실패')
+              : '완료',
+    })),
+)
 
 async function refresh() {
   const { data } = await api.GET('/api/ai/tasks', { params: { query: { size: 20 } } })
@@ -48,17 +64,20 @@ async function create() {
   await refresh()
 }
 
-async function decide(approvalId: string, decision: Schemas['ApprovalDecision']['decision']) {
+async function decide(body: ApprovalDecision) {
   if (!selected.value) return
   deciding.value = true
   decisionError.value = ''
   const { error } = await api.POST('/api/ai/tasks/{taskId}/approval', {
     params: { path: { taskId: selected.value } },
-    body: { approvalId, decision },
+    body,
   })
   deciding.value = false
   if (error) decisionError.value = problemMessage(error)
 }
+
+// 다른 작업을 고르면 지난 결정 오류를 지운다
+watch(selected, () => (decisionError.value = ''))
 
 watch(stream.state, (s) => {
   if (s === 'done') refresh()
@@ -114,27 +133,14 @@ const statusLabel: Record<Schemas['TaskStatus'], string> = {
         <p v-if="stream.activeTool.value" class="tool">⏳ {{ stream.activeTool.value.label }}</p>
         <p class="answer">{{ stream.answer.value }}</p>
 
-        <div v-if="stream.pendingApproval.value" class="approval">
-          <h3>{{ stream.pendingApproval.value.summary }}</h3>
-          <p class="muted">
-            승인 주체: {{ roleLabel[stream.pendingApproval.value.approver] }}
-            <template v-if="stream.pendingApproval.value.truckId"> · {{ stream.pendingApproval.value.truckId }}</template>
-            <template v-if="stream.pendingApproval.value.grade"> · {{ stream.pendingApproval.value.grade }}</template>
-          </p>
-          <p v-if="approvalOrder" class="muted">승인 순서: {{ approvalOrder }}</p>
-          <ul>
-            <li v-for="r in stream.pendingApproval.value.reasons" :key="r">{{ r }}</li>
-          </ul>
-          <p v-if="decisionError" class="error">{{ decisionError }}</p>
-          <button :disabled="deciding" @click="decide(stream.pendingApproval.value.approvalId, 'APPROVE')">승인</button>
-          <button
-            class="ghost"
-            :disabled="deciding"
-            @click="decide(stream.pendingApproval.value.approvalId, 'REJECT')"
-          >
-            거절
-          </button>
-        </div>
+        <ApprovalCard
+          v-if="stream.pendingApproval.value"
+          :card="stream.pendingApproval.value"
+          :user="auth.user"
+          :busy="deciding"
+          :error="decisionError"
+          @decide="decide"
+        />
 
         <p v-if="stream.error.value" class="error">{{ stream.error.value }}</p>
         <div v-if="stream.sources.value.length" class="sources">
@@ -143,7 +149,22 @@ const statusLabel: Record<Schemas['TaskStatus'], string> = {
             <li v-for="s in stream.sources.value" :key="s.title">{{ s.title }} <span class="muted">{{ s.uri }}</span></li>
           </ul>
         </div>
+
+        <details v-if="log.length" class="log" open>
+          <summary>진행 이벤트 {{ log.length }}건</summary>
+          <ol>
+            <li v-for="e in log" :key="e.seq">
+              <span :class="['badge', e.type === 'DONE' ? 'DONE' : e.type === 'FAILED' ? 'FAILED' : '']">{{ e.type }}</span>
+              {{ e.text }}
+            </li>
+          </ol>
+        </details>
       </template>
     </section>
   </div>
 </template>
+
+<style scoped>
+.log { margin-top: 12px; font-size: 13px; }
+.log ol { padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+</style>
