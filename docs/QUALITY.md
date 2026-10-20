@@ -195,7 +195,7 @@ PRD의 FR·NFR을 ISO/IEC 25010:2023 제품 품질 모델의 9개 특성과 부�
 | --- | --- | --- | --- |
 | 시나리오 평가셋 | SC-01–08, FT-01–07 통과 여부와 채점 결과 | `agent/evaluation/scenarios.py`(원본), trace는 LangSmith 프로젝트 `seoul-bike-eval` | 2 |
 | 평가 결과표 | 프롬프트·한도·모델 변경 전후 비교 | `docs/eval/YYYY-MM-DD-{변경}.md` | 2 |
-| Harness 동작 테스트 | 8요소별 동작 36개 (등급별 승인 카드·마스킹·인자 검증·기사 범위·한도·재시도·작업별 스레드·계약 스키마·LangSmith 업로드 마스킹 등) | `agent/tests/test_harness.py`, 실행법 [agent/README](../agent/README.md) | 2 |
+| Harness 동작 테스트 | 8요소별 동작 38개 (승인 순서 카드·마스킹·인자 검증·기사 범위·한도·재시도·작업별 스레드·계약 스키마·LangSmith 업로드 마스킹 등) | `agent/tests/test_harness.py`, 실행법 [agent/README](../agent/README.md) | 2 |
 | LangSmith 운영 지표 | 작업별 지연, 입력·출력 토큰, 비용, 오류율, `fallback` 메타데이터 | 프로젝트 `seoul-bike` | 2 |
 | 시뮬레이터 지표 | 빈 대여소-분, 과적재 대여소-분, 트럭-시간당 해소 대수, 제안 수락률, 재경로·초안 시간 | 시뮬레이터 실행 결과 | 6 |
 | 감사 로그 | 계획 버전, 승인·거절, 현장 보고 (append-only) | backend DB | 4 |

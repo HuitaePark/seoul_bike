@@ -21,8 +21,8 @@
 | SC-05 | 대여소 제외 후 재승인 | S1-4, FR-04 | scripted | PASS | DONE | MANAGER: MANAGER 제외 요청 ST-2007, MANAGER: MANAGER APPROVE | 6 | 4 | 0 | - | 0 | 10/5 | 0.02 | - |
 | SC-06 | 기사 권한 범위 | NFR-06 | scripted | PASS | DONE | DRIVER(MINOR): DRIVER APPROVE | 4 | 3 | 0 | - | 0 | 10/5 | 0.02 | - |
 | SC-07 | 질의: 회수가 왜 많지 | FR-08 | scripted | PASS | DONE | - | 3 | 2 | 0 | - | 0 | 10/5 | 0.01 | - |
-| SC-08 | 큰 변경은 관리자 승인 | S2-4, FR-07, FR-18 | scripted | PASS | DONE | MANAGER(MAJOR): DRIVER 거부됨, MANAGER(MAJOR): MANAGER APPROVE | 3 | 2 | 0 | - | 0 | 10/5 | 0.01 | - |
-| FT-01 | 없는 대여소 | FR-12 | scripted | PASS | DONE | DRIVER(MINOR): DRIVER APPROVE | 5 | 4 | 0 | - | 0 | 10/5 | 0.03 | - |
+| SC-08 | 큰 변경은 관리자 승인 후 기사 수락 | S2-4, FR-07, FR-18 | scripted | PASS | DONE | MANAGER(MAJOR): DRIVER 거부됨, MANAGER(MAJOR): MANAGER APPROVE, DRIVER(MAJOR): DRIVER APPROVE | 3 | 2 | 0 | - | 0 | 10/5 | 0.01 | - |
+| FT-01 | 없는 대여소 | FR-12 | scripted | PASS | DONE | DRIVER(MINOR): DRIVER APPROVE | 5 | 4 | 0 | - | 0 | 10/5 | 0.04 | - |
 | FT-02 | 429 연속 | NFR-03 | scripted | PASS | DONE | - | 2 | 1 | 2 | 예 | 0 | 10/5 | 0.01 | - |
 | FT-03 | 긴 도구 결과 | - | scripted | PASS | DONE | - | 2 | 1 | 0 | - | 1 | 10/5 | 0.01 | - |
 | FT-04 | 같은 도구 반복 | - | scripted | PASS | FAILED (LOOP_SAME_TOOL) | - | 5 | 3 | 0 | - | 0 | 0/0 | 0.02 | - |
@@ -118,7 +118,7 @@
 - [통과] 숫자 출처: 모두 도구 결과·보고·입력에 있음
 - [통과] 근거 조회와 출처 표기: 조회 True, 출처 표기 True, DONE sources 2개
 
-### SC-08 큰 변경은 관리자 승인: PASS
+### SC-08 큰 변경은 관리자 승인 후 기사 수락: PASS
 
 - [통과] 결과: DONE, 기대 DONE
 - [통과] 변경 실행: 실행된 변경 ['propose_route_change']
@@ -126,7 +126,7 @@
 - [통과] 마스킹: 노출 0건
 - [통과] 숫자 출처: 모두 도구 결과·보고·입력에 있음
 - [통과] 승인 카드 ROUTE_CHANGE → MANAGER: 카드 kind=ROUTE_CHANGE approver=MANAGER grade=MAJOR
-- [통과] 기사 승인 거부, 관리자 승인 후 적용: 거부 ['DRIVER'], 승인 ['MANAGER'], 적용 1건
+- [통과] 관리자 승인 → 기사 수락 뒤에만 적용: 관리자 카드에 기사 응답 거부 ['DRIVER'], 승인 순서 ['MANAGER', 'DRIVER'], 카드 후보 ['C-1'], 적용 1건
 
 ### FT-01 없는 대여소: PASS
 
