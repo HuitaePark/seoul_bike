@@ -1,1 +1,5 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Python dependencies for the OR-Tools rebalancing example.
+
 ortools>=9.10

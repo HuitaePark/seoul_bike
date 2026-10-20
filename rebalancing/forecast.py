@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Demand prediction interface plus a heuristic mock to be replaced by the team's AI model.
+
 """Demand forecasting layer.
 
 The team's real model (e.g. LSTM / XGBoost on rental history + weather) plugs in

@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Keeps the virtualenv and Python caches out of version control.
+
 .venv/
 __pycache__/
 *.pyc

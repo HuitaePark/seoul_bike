@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Nearest-neighbour greedy dispatcher used as a yardstick for the OR-Tools plan.
+
 """Nearest-neighbour greedy dispatcher: what a human dispatcher would roughly do.
 
 Exists only as a yardstick so the value of the OR-Tools plan can be quantified.
