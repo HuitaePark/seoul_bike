@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.4.0-draft
+  version: 0.5.0-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
-    **초안 v0.4.** MCP·에이전트 담당 확인 전이다.
+    **초안 v0.5.** MCP·에이전트 담당 확인 전이다.
 
+    - v0.5: `get_audit` → `GET /internal/shifts/{shiftId}/audit`, `AuditEvent` (ISS-06).
     - v0.4: 서비스 토큰 규칙, 현장 보고 조회·제약 추가 구현 범위(재시도 시 같은 제약), 400 `INVALID_REQUEST`.
     - v0.3: `FieldReport`에 `loaded`·`unloaded`, `issue` 값 목록. 같은 모양이 `ai.tasks` FIELD_REPORT 명령의 `report`로도 간다.
     - v0.2: 경로 변경 승인 순서. 후보(`PlanCandidate`)에 `requiredApprovers`, 적용 API의 확인 규칙.
@@ -27,6 +28,7 @@ info:
     | get_current_plan | GET /internal/shifts/{shiftId}/plan |
     | get_truck_status | GET /internal/shifts/{shiftId}/trucks |
     | get_field_reports | GET /internal/shifts/{shiftId}/reports |
+    | get_audit | GET /internal/shifts/{shiftId}/audit |
     | request_route_plan | POST /internal/plans/solve |
     | add_constraint (변경) | POST /internal/constraints |
     | submit_plan (변경) | POST /internal/plans/{planId}/activate |
@@ -152,6 +154,7 @@ paths:
         - $ref: '#/components/parameters/ShiftId'
         - name: since
           in: query
+          description: 이 시각 **뒤**의 보고만 (그 시각은 뺀다)
           schema: { type: string, format: date-time }
       responses:
         '200':
@@ -162,6 +165,28 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/FieldReport' }
         '404': { $ref: '#/components/responses/ShiftNotFound' }
+
+  /internal/shifts/{shiftId}/audit:
+    get:
+      operationId: getAudit
+      summary: 근무조 감사 기록
+      description: |
+        승인·거절, 현장 보고, 제약 추가(계획 활성화·경로 적용은 그 API가 생기면) 순서대로. FR-08 질의의 근거, FR-18의 증거다.
+        기록은 append-only라 고치거나 지울 수 없다. 제약 추가의 행위자는 승인한 관리자다.
+      parameters:
+        - $ref: '#/components/parameters/ShiftId'
+        - name: since
+          in: query
+          description: 이 시각 **뒤**의 기록만 (그 시각은 빼서, 마지막으로 받은 시각을 다시 넣어도 중복이 없다)
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: 감사 기록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuditEvent' }
 
   /internal/plans/solve:
     post:
@@ -397,6 +422,26 @@ components:
         issue: { type: [string, 'null'], enum: [BLOCKED, CONSTRUCTION, INVENTORY_MISMATCH, OTHER, null] }
         memo: { type: [string, 'null'] }
         reportedAt: { type: string, format: date-time }
+
+    AuditEvent:
+      type: object
+      description: 감사 기록 한 줄 (append-only). 사람 이름 대신 역할로 가린 표시만 나간다
+      required: [auditId, occurredAt, type, actor, targetId, detail]
+      properties:
+        auditId: { type: string, examples: [AU-5501] }
+        occurredAt: { type: string, format: date-time }
+        type:
+          type: string
+          enum: [APPROVAL_APPROVED, APPROVAL_REJECTED, APPROVAL_REOPENED, FIELD_REPORT, CONSTRAINT_ADDED, PLAN_ACTIVATED, ROUTE_CHANGED]
+          description: APPROVAL_REOPENED는 재개 명령을 못 보내 backend가 결정을 되돌린 것
+        actor:
+          type: object
+          required: [role, display]
+          properties:
+            role: { type: string, enum: [MANAGER, DRIVER, EXECUTIVE, SYSTEM] }
+            display: { type: string, examples: [관리자, truck-1 기사] }
+        targetId: { type: string, description: approvalId · reportId · constraintId 등 }
+        detail: { type: string }
 
     SolveRequest:
       type: object

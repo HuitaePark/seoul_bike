@@ -1,6 +1,7 @@
 package com.seoulbike.backend.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,6 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -36,6 +39,9 @@ class InternalApiTest {
 	@Autowired
 	JsonMapper json;
 
+	@Autowired
+	JdbcClient jdbc;
+
 	private final HttpClient http = HttpClient.newHttpClient();
 
 	@Test
@@ -46,6 +52,46 @@ class InternalApiTest {
 		// 사용자 JWT로는 열리지 않는다.
 		assertThat(call("GET", path, login("manager"), null, null).statusCode()).isEqualTo(401);
 		assertThat(call("GET", path, null, TOKEN, null).statusCode()).isEqualTo(200);
+	}
+
+	/** 보고·승인·제약이 한 줄씩 남고, 사람은 역할로만 보이며, 기록은 고치거나 지울 수 없다 (FR-18). */
+	@Test
+	void auditShowsWhoDidWhatAndCannotBeChanged() throws Exception {
+		String shift = "S05:2026-11-08:AM";
+		report(login("driver2"), shift, "BLOCKED");
+		String manager = login("manager");
+		var created = call("POST", "/api/ai/tasks", manager, null,
+				"{\"type\":\"REQUEST\",\"shiftId\":\"" + shift + "\",\"text\":\"행사로 ST-201 반납 중지\"}");
+		UUID taskId = UUID.fromString(json.readTree(created.body()).path("taskId").asString());
+		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), manager, null)) {
+			UUID approvalId = UUID.fromString(nextCard(stream).path("approvalId").asString());
+			assertThat(call("POST", "/api/ai/tasks/" + taskId + "/approval", manager, null,
+					"{\"approvalId\":\"" + approvalId + "\",\"decision\":\"APPROVE\"}").statusCode()).isEqualTo(202);
+			var body = (ObjectNode) json.readTree(constraint(approvalId, taskId, "STATION_SUSPENDED", null));
+			body.put("shiftId", shift);
+			assertThat(call("POST", "/internal/constraints", null, TOKEN, json.writeValueAsString(body)).statusCode()).isEqualTo(201);
+			assertThat(call("POST", "/internal/constraints", null, TOKEN, json.writeValueAsString(body)).statusCode()).isEqualTo(201);
+		}
+
+		var res = call("GET", "/internal/shifts/" + shift + "/audit", null, TOKEN, null);
+		JsonNode events = json.readTree(res.body());
+		assertThat(events.valueStream().map(e -> e.path("type").asString()))
+			.containsExactly("FIELD_REPORT", "APPROVAL_APPROVED", "CONSTRAINT_ADDED");
+		assertThat(events.valueStream().map(e -> e.path("actor").path("display").asString()))
+			.containsExactly("truck-2 기사", "관리자", "관리자");
+		assertThat(events.get(0).path("detail").asString()).contains("재경로");
+		assertThat(events.get(1).path("targetId").asString()).isNotBlank();
+		assertThat(res.body()).doesNotContain("u-manager", "u-driver-2", "관제 관리자");
+		// since는 그 시각을 뺀다: 마지막 기록의 시각을 넣으면 새 기록만 (지금은 없음).
+		String last = events.get(2).path("occurredAt").asString().replace("+", "%2B");
+		assertThat(json.readTree(call("GET", "/internal/shifts/" + shift + "/audit?since=" + last, null, TOKEN, null).body()))
+			.isEmpty();
+
+		assertThatThrownBy(() -> jdbc.sql("update audit_events set detail = 'x' where shift_id = :s").param("s", shift).update())
+			.isInstanceOf(DataAccessException.class);
+		assertThatThrownBy(() -> jdbc.sql("delete from audit_events where shift_id = :s").param("s", shift).update())
+			.isInstanceOf(DataAccessException.class);
+		assertThatThrownBy(() -> jdbc.sql("truncate audit_events").update()).isInstanceOf(DataAccessException.class);
 	}
 
 	@Test
