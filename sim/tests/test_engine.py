@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 
 from sim.engine import Day, replay
 from sim.latent import poisson_arrivals
-from sim.policies import CurrentOps, NoRebalancing, SimpleRule
-from rebalancing.models import Station
+from sim.policies import Agent, CurrentOps, NoRebalancing, SimpleRule
+from rebalancing.models import Forecast, Station
 
 T0 = datetime(2025, 6, 11)
 
@@ -54,6 +54,38 @@ class ReplayTest(unittest.TestCase):
                  (at(9), 1, None, None)]       # 억눌린 수요: A가 비어 실패
         r = replay(Day(T0, stations, trips, (37.5, 127.0), n_recorded=1), NoRebalancing())
         self.assertEqual((r.rentals, r.latent, r.failed, r.failed_latent), (2, 1, 1, 1))
+
+    def test_agent_fills_station_that_will_empty_and_keeps_bikes_that_will_leave(self):
+        # A: 재고 1, 3시간 동안 시간당 4대씩 빠질 예정 → 배치. B: 고정 회수 대여소, 재고 30(거치대 10), 반납이 계속 들어옴 → 회수.
+        # C: 고정 회수 대여소지만 3시간 동안 시간당 9대씩 빠질 예정 → 빼면 부족하므로 회수하지 않는다. D: 넘치지만 고정 회수 대여소가 아니다
+        class Fake:
+            demand = {1: (4.0, 0.0), 2: (0.0, 3.0), 3: (9.0, 0.0), 4: (0.0, 3.0)}
+
+            def predict(self, st, start, horizon_h):
+                rent, ret = self.demand[st.id]
+                return Forecast(start, (rent,) * horizon_h, (ret,) * horizon_h, "fake")
+
+        stations = [Station(1, "A", 37.500, 127.000, 10, 1), Station(2, "B", 37.501, 127.001, 10, 30),
+                    Station(3, "C", 37.502, 127.002, 10, 29), Station(4, "D", 37.503, 127.003, 10, 30)]
+        plan = Agent(Fake(), frozenset({2, 3}), z=0, time_limit_s=1).plan(at(7), stations, (37.501, 127.001), 1, 15)
+        stops = {s.station_id: (s.action, s.bikes) for r in plan.routes for s in r.stops}
+        self.assertEqual(stops.get(1), ("dropoff", 13))        # 최저 1 − 12 = −11 → 2대까지 13대
+        self.assertEqual(stops.get(2, ("pickup",))[0], "pickup")
+        self.assertNotIn(3, stops)
+        self.assertNotIn(4, stops)
+
+    def test_hourly_replan_does_not_mix_loads_when_old_route_returns_on_the_hour(self):
+        # 07시 경로: B 배치 → A 회수 → 멀리 있는 C에서 끊겨 08시 정각에 거점으로 돌아온다(귀환 처리).
+        # D는 07시대 대여로 08시에 비어, 08시 새 경로가 D에 들른다. 예전에는 정각 귀환이 새 경로의 적재량을 지워 KeyError가 났다
+        class Hourly(SimpleRule):
+            replan_h = 1
+
+        stations = {1: Station(1, "A", 37.500, 127.0, 10, 22), 2: Station(2, "B", 37.545, 127.0, 10, 0),
+                    3: Station(3, "C", 37.700, 127.0, 10, 0), 4: Station(4, "D", 37.473, 127.0, 10, 5)}
+        trips = [(at(7, 10 + 8 * i), 4, None, None) for i in range(5)]
+        r = replay(Day(T0, stations, trips, (37.500, 127.0)), Hourly(frozenset({1})), trucks=1)
+        self.assertEqual(r.stock[2], 5)   # 07시 경로가 B를 채웠다
+        self.assertEqual(r.stock[1], 10)  # A에서 거치대 수까지 뺐다
 
 
 class LatentTest(unittest.TestCase):

@@ -39,6 +39,7 @@ class Day:
     trips: list[tuple[datetime | None, int | None, datetime | None, int | None]]  # (대여 시각, 대여소, 반납 시각, 반납소). 구역 밖·하루 밖이면 None
     depot: tuple[float, float]  # 트럭 거점(구역 대여소의 중심)
     fixed_pickup: frozenset[int] = frozenset()  # 고정 회수 대여소 (stations.csv role, 단순 규칙이 쓴다)
+    pickup_sources: frozenset[int] = frozenset()  # 전해 4~10월 역산에서 트럭이 꾸준히 빼 간 대여소 (본 시스템의 공급처)
     visits: list[tuple[datetime, int, int]] = field(default_factory=list)  # 역산 트럭 방문 (시각, 대여소, ±대수). 회수는 음수
     n_recorded: int | None = None  # trips 중 앞의 n개가 기록된 대여, 나머지는 억눌린 수요(latent.py). None이면 모두 기록
 
@@ -92,15 +93,17 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
             q.append((rt, 0, "rent", i))
         if ut is not None and us in stock:
             q.append((ut, 1, "return", i))
+    step = getattr(policy, "replan_h", None)  # 있으면 근무조 안에서 이 간격마다 다시 계획한다
     for h0, h1 in SHIFTS:
-        q.append((day.start + timedelta(hours=h0), 2, "plan", day.start + timedelta(hours=h1)))
+        for h in range(h0, h1, step or h1 - h0):
+            q.append((day.start + timedelta(hours=h), 2, "plan", day.start + timedelta(hours=min(h + (step or h1 - h0), h1))))
     ops = [(t, s, dx) for t, s, dx in policy.events(day) if s in stock and day.start <= t < end]
     q += [(t, 2, "ops", (s, dx)) for t, s, dx in ops]
     if ops:  # 경로가 없는 정책(현행 운영 재현)은 트럭이 근무조 내내 움직였다고 본다
         res.truck_h = trucks * sum(h1 - h0 for h0, h1 in SHIFTS)
     heapq.heapify(q)
     failed_trips: set[int] = set()
-    load: dict[int, int] = {}  # 트럭별 적재량
+    load: dict[tuple, int] = {}  # 경로별 적재량. 키는 (트럭, 계획 시각): 다시 계획한 정각에 이전 경로의 귀환과 겹쳐도 섞이지 않게
 
     while q:
         now, _, kind, v = heapq.heappop(q)
@@ -127,30 +130,31 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
             for r in plan.routes:
                 start_load = min(r.start_load, depot_bikes)
                 depot_bikes -= start_load
-                load[r.truck_id] = start_load
+                rk = (r.truck_id, now)
+                load[rk] = start_load
                 t, pos = now, day.depot
                 for stop in r.stops:
                     st = day.stations[stop.station_id]
                     t = t + timedelta(minutes=leg_minutes(pos, (st.lat, st.lon)))
                     if t >= v:  # 근무조가 끝나면 남은 정류장은 버린다
                         break
-                    heapq.heappush(q, (t, 2, "stop", (r.truck_id, stop.station_id, stop.action, stop.bikes)))
+                    heapq.heappush(q, (t, 2, "stop", (rk, stop.station_id, stop.action, stop.bikes)))
                     t += timedelta(minutes=stop_minutes(stop.bikes))
                     pos = (st.lat, st.lon)
                 back = min(t + timedelta(minutes=leg_minutes(pos, day.depot)), v)
                 res.truck_h += (back - now).total_seconds() / 3600
-                heapq.heappush(q, (back, 3, "unload", r.truck_id))
+                heapq.heappush(q, (back, 3, "unload", rk))
         elif kind == "stop":
-            truck, s, action, bikes = v
+            rk, s, action, bikes = v
             if action == "pickup":
-                n = min(bikes, stock[s], truck_capacity - load[truck])
-                load[truck] += n
+                n = min(bikes, stock[s], truck_capacity - load[rk])
+                load[rk] += n
                 res.moved += n
                 res.pick_short += bikes - n
                 change(s, now, -n)
             else:
-                n = min(bikes, load[truck])
-                load[truck] -= n
+                n = min(bikes, load[rk])
+                load[rk] -= n
                 change(s, now, +n)
         elif kind == "unload":
             depot_bikes += load.pop(v)
@@ -219,4 +223,9 @@ def load_day(terr: str, d: date, latent: bool = True) -> Day:
         SELECT lo + (hi - lo) / 2 AS m, st, kind, n::INT FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet'
         WHERE lo + (hi - lo) / 2 >= $a AND lo + (hi - lo) / 2 < $b ORDER BY m""", {"a": t0, "b": t1}).fetchall()
               if st in stations]
-    return Day(t0, stations, trips, (lat, lon), fixed, visits, n_recorded)
+    # 공급처: 전해 4~10월(성수기) 역산 방문에서 하루 평균 회수 − 배치가 2대 이상인 대여소. 재생하는 해의 자료는 쓰지 않는다
+    y = d.year - 1
+    sources = frozenset(r[0] for r in c.execute(f"""
+        SELECT st FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet' WHERE lo >= '{y}-04-01' AND lo < '{y}-11-01'
+        GROUP BY st HAVING sum(CASE WHEN kind = 'pick' THEN n ELSE -n END) / 214.0 >= 2""").fetchall()) & stations.keys()
+    return Day(t0, stations, trips, (lat, lon), fixed, sources, visits, n_recorded)

@@ -15,7 +15,7 @@ lgbm.py와 달리 그 시각의 관측 날씨를 쓰지 않는다(운영할 때�
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import duckdb
 import lightgbm as lgb
@@ -86,8 +86,19 @@ class NowcastPredictor:
 
     def predict(self, station: Station, start: datetime, horizon_h: int) -> Forecast:
         assert horizon_h <= max(LEADS), f"최대 {max(LEADS)}시간까지 예측한다"
-        vals = [self.pred[(station.id, start + timedelta(hours=i), i + 1)] for i in range(horizon_h)]
+        # 피처 표에 없는 대여소(예측 기간에 대여 기록이 없던 신설 등)는 수요 0으로 본다
+        vals = [self.pred.get((station.id, start + timedelta(hours=i), i + 1), (0.0, 0.0)) for i in range(horizon_h)]
         return Forecast(start=start, rentals_h=tuple(v[0] for v in vals), returns_h=tuple(v[1] for v in vals), model_version=self.version)
+
+
+def load_predictor(terr: str, d: date, model_terr: str | None = None) -> NowcastPredictor:
+    """d일 하루를 예측할 수 있게 terr의 피처를 만들고, 저장된 모형(data/models/nowcast_<model_terr>_rent·ret.txt)을 불러온다.
+    model_terr를 주면 다른 구역에서 학습한 모형을 옮겨 쓴다. 모형은 2025-02까지로 학습했으므로 그 뒤의 날만 미래를 보지 않는다."""
+    df = with_lags(features(terr, d - timedelta(days=1), d + timedelta(days=1)))
+    df = df[df.h >= datetime.combine(d, time())]
+    mt = model_terr or terr
+    m = {n: lgb.Booster(model_file=str(ROOT / f"data/models/nowcast_{mt}_{n}.txt")) for n in ("rent", "ret")}
+    return NowcastPredictor(m["rent"], m["ret"], stack(df, forecast_weather(df.h), 1.0), f"nowcast-{mt}")
 
 
 def at_shift_start(s: pd.DataFrame) -> pd.DataFrame:
@@ -96,10 +107,27 @@ def at_shift_start(s: pd.DataFrame) -> pd.DataFrame:
     return s[s.hh.map(lead) == s.lead]
 
 
+def transfer(terr: str, model_terr: str) -> None:
+    """학습하지 않고 model_terr에서 학습해 저장한 모형으로 terr의 검증 기간(2025-04~06)을 채점한다(옮겨 쓰기 확인)."""
+    df = with_lags(features(terr, date(2025, 3, 31), date(2025, 7, 1)))
+    valid = df[df.h >= "2025-04-01"]
+    s_val = stack(valid, forecast_weather(valid.h), 1.0)
+    for n in ("rent", "ret"):
+        s_val[f"now_{n}"] = lgb.Booster(model_file=str(ROOT / f"data/models/nowcast_{model_terr}_{n}.txt")).predict(s_val[FEATS_N])
+    names = {"베이스라인 4주": ("base_ret", "plain_rent"), f"{model_terr} 모형": ("now_ret", "now_rent")}
+    sv = at_shift_start(s_val)
+    print(f"{terr}를 {model_terr} 모형으로 채점 (검증 2025-04~06)")
+    print("\n== 근무조에 빌 대여소 맞히기\n" + stockout(sv, shift_start_stock(sv), names).to_string())
+    print("\n== 구역 전체 시간별 대여 수 가중 오차율\n" + zone_wape(sv, {k: v[1] for k, v in names.items()}).to_string())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--terr", default="강남-05")
+    ap.add_argument("--model", help="주면 학습하지 않고 이 구역의 저장된 모형으로 --terr를 채점한다(옮겨 쓰기 확인)")
     args = ap.parse_args()
+    if args.model:
+        return transfer(args.terr, args.model)
 
     df = with_lags(features(args.terr, date(2024, 1, 31), date(2025, 7, 1)))
     df = df[df.h >= "2024-02-01"]
@@ -110,9 +138,12 @@ def main() -> None:
     ok = lambda x: x[x.empty_min < EMPTY_MAX]  # noqa: E731
     print(f"{args.terr}  학습 {len(s_tr):,}행(lead 5개 × {SAMPLE:.0%})  검증 {len(s_val):,}행  예보 없는 행 {s_val.f_temp.isna().mean():.1%}")
 
-    old = {n: lgb.Booster(model_file=str(ROOT / f"data/models/lgbm_{args.terr}_{n}.txt")) for n in ("rent", "ret")}
-    obs = valid.set_index(["st", "h"])[FEATS]
-    s_val = s_val.join(pd.DataFrame({"obs_rent": old["rent"].predict(obs), "obs_ret": old["ret"].predict(obs)}, index=obs.index), on=["st", "h"])
+    names = {"베이스라인 4주": ("base_ret", "plain_rent")}
+    if (ROOT / f"data/models/lgbm_{args.terr}_rent.txt").exists():  # 관측 날씨 모형(lgbm.py)은 참고용이라 있을 때만 비교한다
+        old = {n: lgb.Booster(model_file=str(ROOT / f"data/models/lgbm_{args.terr}_{n}.txt")) for n in ("rent", "ret")}
+        obs = valid.set_index(["st", "h"])[FEATS]
+        s_val = s_val.join(pd.DataFrame({"obs_rent": old["rent"].predict(obs), "obs_ret": old["ret"].predict(obs)}, index=obs.index), on=["st", "h"])
+        names["관측 날씨(참고)"] = ("obs_ret", "obs_rent")
     for name, feats in (("fc", FEATS_F), ("now", FEATS_N)):
         m_rent, m_ret = fit(ok(s_tr), ok(s_stop), "rent", feats), fit(s_tr, s_stop, "ret", feats)
         s_val[f"{name}_rent"], s_val[f"{name}_ret"] = m_rent.predict(s_val[feats]), m_ret.predict(s_val[feats])
@@ -123,8 +154,7 @@ def main() -> None:
             m_ret.save_model(str(out / f"nowcast_{args.terr}_ret.txt"))
             imp = pd.Series(m_rent.feature_importance("gain"), index=feats).sort_values(ascending=False)
 
-    names = {"베이스라인 4주": ("base_ret", "plain_rent"), "관측 날씨(참고)": ("obs_ret", "obs_rent"),
-             "예보 날씨": ("fc_ret", "fc_rent"), "예보 + 오늘 정보": ("now_ret", "now_rent")}
+    names |= {"예보 날씨": ("fc_ret", "fc_rent"), "예보 + 오늘 정보": ("now_ret", "now_rent")}
     sv = at_shift_start(s_val)
     print("\n== 근무조 시작에 예측: 근무조에 빌 대여소 맞히기")
     print(stockout(sv, shift_start_stock(sv), names).to_string())
@@ -137,7 +167,7 @@ def main() -> None:
     rows = {}
     for k in LEADS:
         sk = s_val[(s_val.lead == k) & s_val.hh.between(7, 21)]
-        z = sk.groupby("h")[["rent", "plain_rent", "obs_rent", "fc_rent", "now_rent"]].sum()
+        z = sk.groupby("h")[["rent", "plain_rent", "fc_rent", "now_rent"]].sum()
         u = ok(sk)
         rows[f"{k}시간 뒤"] = {**{f"구역 {n}": np.abs(z[c] - z.rent).sum() / z.rent.sum() for n, c in
                                (("베이스라인", "plain_rent"), ("예보", "fc_rent"), ("예보+오늘", "now_rent"))},
