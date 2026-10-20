@@ -29,9 +29,10 @@ services:
       args: {MCP_PACKAGE: rag-mcp}
     command: [python, -m, rag_mcp]
     environment:
+      RAG_STORE: memory
       RAG_DOCS_DIR: /data/docs
       MCP_HOST: 0.0.0.0
       MCP_PORT: "9102"
     ports: ["127.0.0.1:${RAG_MCP_PORT:-19102}:9102"]
-    volumes: ["../../docs/rag:/data/docs:ro"]
+    volumes: ["../../docs/evidence:/data/docs:ro"]
     healthcheck: *healthcheck

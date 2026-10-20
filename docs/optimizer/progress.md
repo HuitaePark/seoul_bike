@@ -1,22 +1,24 @@
-# 역할 5 진행 정리 — 2026-10-20
+# 역할 5 진행 정리 — 2026-10-21
 
 ## 확인 기준
 
-- 최초 확인 origin/main: 221caf5. 현재 1ecdb7a의 공개 API v0.4·내부 API v0.2·Kafka v0.3까지 반영했다.
+- 최초 확인 origin/main: 221caf5. 현재 94d86d1의 공개 API v0.5·내부 API v0.5·Kafka v0.4까지 반영했다.
 - 개인 브랜치: `feat/optimizer-core`.
 - 기존 원격 작업: `aeaa62c`(최적화 코어), `e0d3d36`(실행 안내·명세 초안).
 - `9460226`에서 최신 main을 개인 브랜치에 충돌 없이 병합했다.
 - OSRM 후속 구현은 로컬 `8c38ee1`로 저장했고, 이후 추가된 공통 명세도 병합했다.
 - acf3556까지 개인 브랜치 원격 push를 완료했다.
 - 242819a에서 최신 main 1ecdb7a를 병합했다. 이번 MCP·S05 후속 개발은 로컬에 저장한다.
+- 이후 MCP·S05 개발을 1c9b645로 저장했고, 2026-10-21 main 94d86d1을 병합했다. 개인 브랜치 원격 push는 아직 acf3556까지다.
 - 명세 PR은 docs/specs의 역할 명세·목록·예시 5개 파일로 분리하고, 구현은 별도 PR로 제출할 계획이다.
 
 ## 최신 main의 상태
 
 Spring Boot 백엔드는 backend/로 이동했고 Vue 공통 뼈대는 frontend/에 있다.
 로그인·회원가입·계정 관리·작업 API·SSE·승인·ai.tasks 발행·ai.events 소비가 구현됐다.
-agent 자리는 설정으로 켜는 가짜 에이전트가 대신하며 retry/DLQ는 후속 단계다.
-대여소·계획·현장 보고·성과 API와 /internal/**·solve.*는 아직 계약 단계다.
+agent 자리는 설정으로 켜는 가짜 에이전트가 대신하며 ai.events 소비의 retry/DLQ가 구현됐다.
+현장 보고 생성, 내부 서비스 토큰, 현장 보고 조회·제약 추가·감사 로그가 구현됐다.
+대여소·계획·성과 API, 나머지 내부 API와 backend의 solve.* 연결은 아직 계약 단계다.
 경로 변경은 backend가 정한 requiredApprovers 순서로 승인한다. MINOR는 기사, MAJOR는 관리자 → 기사다.
 변경 등급·승인 순서 검사와 Harness의 공통 계약 대응도 반영했다.
 기존 최적화 코어와 이번 OSRM 변경은 개인 브랜치에 있으며 main에는 아직 없다.
@@ -34,7 +36,7 @@ agent 자리는 설정으로 켜는 가짜 에이전트가 대신하며 retry/DL
 | 이번 독립 인프라 | 고정 OSRM 이미지, CH 전처리, 로컬 Compose, 최적화 컨테이너, CI 구성 검사 | 구성·스크립트 검사 통과. OSRM 실구동 미검증 |
 | Kafka 실행기 | solve 요청 소비·결과 발행, shiftId 키, trace 전달, ACK 후 offset commit, 파일 상태로 완료 결과 재사용 | 실제 독립 브로커·재시작 검증. 단일 worker·동일 상태 볼륨 전제 |
 | Kafka 개발 인프라 | 개발용 브로커·solve 토픽 초기화·worker Compose, 필수 requestId별 실행 설정 | 실제 이미지 빌드·컨테이너 구동 검증. 운영 backend 미연결 |
-| MCP 개발 인프라 | 역할 3의 4dd5305 소스를 가져와 독립 컨테이너·고정 의존성·읽기 전용 문서 마운트·클라이언트 예시 구성 | 기존 MCP 테스트와 실제 Streamable HTTP 검증. fake backend 모드 |
+| MCP 개발 인프라 | 최신 main의 MCP 소스에 독립 컨테이너·고정 의존성·docs/evidence 읽기 전용 마운트·클라이언트 예시 구성 | 기존 MCP 테스트와 실제 Streamable HTTP 검증. fake backend·RAG memory 모드 |
 | S05 참조 입력 | 역할 6의 ad17528에서 196곳·권역 행 추출, 원본/추출 해시, ID 대응·좌표·개수 검증 | 추출 해시·오류 시나리오 검증. 재고·필요량 생성 없음 |
 | 문서 | docs/specs/optimizer.md와 공통 요청·결과 예시 추가. 예전 독자 명세 정리 | 공통 YAML 변경 없음 |
 

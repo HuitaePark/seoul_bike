@@ -1,14 +1,19 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.2.0-draft
+  version: 0.5.0-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
-    **초안 v0.2.** MCP·에이전트 담당 확인 전이다.
+    **초안 v0.5.** MCP·에이전트 담당 확인 전이다.
 
+    - v0.5: `get_audit` → `GET /internal/shifts/{shiftId}/audit`, `AuditEvent` (ISS-06).
+    - v0.4: 서비스 토큰 규칙, 현장 보고 조회·제약 추가 구현 범위(재시도 시 같은 제약), 400 `INVALID_REQUEST`.
+    - v0.3: `FieldReport`에 `loaded`·`unloaded`, `issue` 값 목록. 같은 모양이 `ai.tasks` FIELD_REPORT 명령의 `report`로도 간다.
     - v0.2: 경로 변경 승인 순서. 후보(`PlanCandidate`)에 `requiredApprovers`, 적용 API의 확인 규칙.
 
-    - docker network 안에서만 열린다. 화면과 외부에서는 호출하지 않는다.
+    - 공개 주소(화면 nginx)로는 열리지 않는다. 서버 안의 backend 포트(tailnet)에서는 **서비스 토큰이 유일한 보호**다.
+    - **모든 요청에 `X-Internal-Token`이 있어야 한다.** 없거나 틀리면 401 `UNAUTHORIZED`. 사용자 JWT로는 열리지 않는다.
+      backend에 토큰이 설정돼 있지 않으면 모두 401이다.
     - 업무 규칙(변경 등급, 승인 주체)은 backend에만 있다. business-mcp는 규칙을 복제하지 않고 이 API를 부른다.
     - **변경 API 3개는 필요한 승인이 모두 `APPROVED`가 아니면 403을 돌려준다.** 에이전트 interrupt와 별개로
       backend가 한 번 더 막는다 (UR-18 "사람 승인 없이 바꾸지 않음").
@@ -23,6 +28,7 @@ info:
     | get_current_plan | GET /internal/shifts/{shiftId}/plan |
     | get_truck_status | GET /internal/shifts/{shiftId}/trucks |
     | get_field_reports | GET /internal/shifts/{shiftId}/reports |
+    | get_audit | GET /internal/shifts/{shiftId}/audit |
     | request_route_plan | POST /internal/plans/solve |
     | add_constraint (변경) | POST /internal/constraints |
     | submit_plan (변경) | POST /internal/plans/{planId}/activate |
@@ -141,11 +147,14 @@ paths:
     get:
       operationId: getFieldReports
       summary: 근무조 현장 보고
-      description: 기사 이름·연락처는 마스킹해서 돌려준다 (Harness Guardrails).
+      description: |
+        보고 순서대로 돌려준다. 기사 이름 대신 `driver`는 `"{truckId} 기사"`로 가린다 (Harness Guardrails, agent에 개인정보를 보내지 않는다).
+        근무조 표가 생기기 전(M3)에는 없는 근무조도 404 대신 빈 목록이다.
       parameters:
         - $ref: '#/components/parameters/ShiftId'
         - name: since
           in: query
+          description: 이 시각 **뒤**의 보고만 (그 시각은 뺀다)
           schema: { type: string, format: date-time }
       responses:
         '200':
@@ -156,6 +165,28 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/FieldReport' }
         '404': { $ref: '#/components/responses/ShiftNotFound' }
+
+  /internal/shifts/{shiftId}/audit:
+    get:
+      operationId: getAudit
+      summary: 근무조 감사 기록
+      description: |
+        승인·거절, 현장 보고, 제약 추가(계획 활성화·경로 적용은 그 API가 생기면) 순서대로. FR-08 질의의 근거, FR-18의 증거다.
+        기록은 append-only라 고치거나 지울 수 없다. 제약 추가의 행위자는 승인한 관리자다.
+      parameters:
+        - $ref: '#/components/parameters/ShiftId'
+        - name: since
+          in: query
+          description: 이 시각 **뒤**의 기록만 (그 시각은 빼서, 마지막으로 받은 시각을 다시 넣어도 중복이 없다)
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: 감사 기록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuditEvent' }
 
   /internal/plans/solve:
     post:
@@ -182,6 +213,12 @@ paths:
     post:
       operationId: addConstraint
       summary: 제약 추가 (변경, 승인 필요)
+      description: |
+        이 작업(`taskId`)의 **ADD_CONSTRAINT 카드를 관리자가 승인**했어야 하고, `shiftId`가 그 작업의 근무조여야 한다
+        (아니면 403 `APPROVAL_REQUIRED`, 이유를 문장에 적는다).
+        **같은 `approvalId`로 같은 내용을 다시 부르면 처음 만든 제약을 그대로 돌려준다** (agent 재시도에 안전). 내용이 다르면 409.
+        `validTo`가 `validFrom`보다 앞이거나, `TARGET_ADJUST`·`INVENTORY_OVERRIDE`에 `value`가 없거나,
+        `INVENTORY_OVERRIDE`의 `value`가 음수면 400 `INVALID_REQUEST`. 대여소가 있는지(404)는 대여소 데이터가 들어오면(M3) 확인한다.
       requestBody:
         required: true
         content:
@@ -189,12 +226,22 @@ paths:
             schema: { $ref: '#/components/schemas/ConstraintRequest' }
       responses:
         '201':
-          description: 추가됨
+          description: 추가됨 (재시도면 처음 만든 제약)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Constraint' }
+        '400':
+          description: 입력 오류 (INVALID_REQUEST)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ToolProblem' }
         '403': { $ref: '#/components/responses/ApprovalRequired' }
         '404': { $ref: '#/components/responses/StationNotFound' }
+        '409':
+          description: 같은 `approvalId`로 이미 다른 내용의 제약을 넣었다 (APPROVAL_ALREADY_USED). 새 제약은 새 승인을 받는다
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ToolProblem' }
 
   /internal/plans/{planId}/activate:
     post:
@@ -370,9 +417,31 @@ components:
         driver: { type: string, description: 마스킹된 표시 (예 기사 A) }
         stationId: { type: string }
         actualBikes: { type: integer }
-        issue: { type: [string, 'null'] }
+        loaded: { type: [integer, 'null'], description: 이 정류장에서 실은 대수 }
+        unloaded: { type: [integer, 'null'], description: 이 정류장에서 내린 대수 }
+        issue: { type: [string, 'null'], enum: [BLOCKED, CONSTRUCTION, INVENTORY_MISMATCH, OTHER, null] }
         memo: { type: [string, 'null'] }
         reportedAt: { type: string, format: date-time }
+
+    AuditEvent:
+      type: object
+      description: 감사 기록 한 줄 (append-only). 사람 이름 대신 역할로 가린 표시만 나간다
+      required: [auditId, occurredAt, type, actor, targetId, detail]
+      properties:
+        auditId: { type: string, examples: [AU-5501] }
+        occurredAt: { type: string, format: date-time }
+        type:
+          type: string
+          enum: [APPROVAL_APPROVED, APPROVAL_REJECTED, APPROVAL_REOPENED, FIELD_REPORT, CONSTRAINT_ADDED, PLAN_ACTIVATED, ROUTE_CHANGED]
+          description: APPROVAL_REOPENED는 재개 명령을 못 보내 backend가 결정을 되돌린 것
+        actor:
+          type: object
+          required: [role, display]
+          properties:
+            role: { type: string, enum: [MANAGER, DRIVER, EXECUTIVE, SYSTEM] }
+            display: { type: string, examples: [관리자, truck-1 기사] }
+        targetId: { type: string, description: approvalId · reportId · constraintId 등 }
+        detail: { type: string }
 
     SolveRequest:
       type: object

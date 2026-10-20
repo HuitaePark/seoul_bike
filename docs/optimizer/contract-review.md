@@ -1,6 +1,6 @@
 # 공통 solve 명세 대응 기록
 
-기준 main: 1ecdb7a. 공개 API 0.4.0-draft, 내부 API 0.2.0-draft·Kafka 0.3.0-draft를 따른다.
+기준 main: 94d86d1. 공개 API 0.5.0-draft, 내부 API 0.5.0-draft·Kafka 0.4.0-draft를 따른다.
 공유 YAML을 유지하고 개인 브랜치의 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
@@ -28,6 +28,8 @@ retry/DLQ·운영 상태 저장·배포 정책은 담당자와 연결해야 한�
 
 공통 문서 버전은 올라갔지만 Envelope·SolveStation·SolveTruck·SolveRequest·SolveResult와
 공개 Route·Stop·Unserved 모델은 이전 검토와 동일하다. 입력·결과 변환 동작은 유지한다.
+내부 SolveRequest·PlanCandidate도 동일하다. 이번 main의 현장 보고·내부 인증·감사 로그와
+ai.events 재시도/DLQ는 backend 변경이며 solve.* 실행기에 재시도/DLQ가 추가된 것은 아니다.
 경로 변경 승인 순서는 backend의 requiredApprovers를 따르며 optimizer가 결정하지 않는다.
 작업 threadId는 backend가 정하는 작업 단위 값이며 optimizer의 메시지 키는 계속 shiftId다.
 새 TaskEvent.code를 SolveResult에 추가하지 않는다.

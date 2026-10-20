@@ -36,6 +36,8 @@ services:
       SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-}
       # 기본은 꺼짐. 진짜 agent 없이 시연할 때만 .env에서 true로 켠다 (켠 채로 agent를 붙이면 이벤트가 두 번 나간다).
       FAKE_AGENT_ENABLED: ${FAKE_AGENT_ENABLED:-false}
+      # business-mcp와 같은 값. 비우면 /internal/** 는 모두 401이다.
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
     ports:
       # 공개 포트. 서버에서는 Tailscale 주소로 접근한다.
       - "8080:8080"
@@ -82,6 +84,59 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
+
+  business-mcp:
+    # 재배치 도구 서버 (docs/MCP.md). agent가 http://business-mcp:9101/mcp 로 붙는다. 외부 포트는 열지 않는다.
+    build:
+      context: ../business-mcp
+    environment:
+      # backend가 /internal/**를 열기 전(M3)까지는 계약 형식의 가짜 응답(fake)으로 돈다. 연결할 때 .env에서 http로 바꾼다.
+      INTERNAL_MODE: ${MCP_INTERNAL_MODE:-fake}
+      BACKEND_URL: http://backend:8080
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9101), 2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  rag-indexer:
+    # 근거 문서(docs/evidence)를 임베딩해 vectordb(pgvector)에 색인하고 끝난다. 문서·모델이 그대로면 건너뛴다.
+    build: &rag-build
+      context: ../rag-mcp
+      additional_contexts:
+        evidence: ../docs/evidence
+    image: seoul-bike-rag-mcp:local
+    command: ["rag-indexer"]
+    environment: &rag-env
+      PGHOST: vectordb
+      PGDATABASE: ${VECTOR_DB:-seoulbike_vector}
+      PGUSER: ${VECTOR_USER:-seoulbike}
+      PGPASSWORD: ${VECTOR_PASSWORD:?VECTOR_PASSWORD가 .env에 필요하다}
+    depends_on:
+      vectordb:
+        condition: service_healthy
+    restart: "no"
+
+  rag-mcp:
+    # 근거 문서 검색 서버 (docs/MCP.md 4절). agent가 http://rag-mcp:9102/mcp 로 붙는다. 임베딩 모델이 메모리 약 1.6GB를 쓴다.
+    build: *rag-build
+    image: seoul-bike-rag-mcp:local
+    command: ["rag-mcp"]
+    environment:
+      <<: *rag-env
+      RAG_STORE: pgvector
+    depends_on:
+      rag-indexer:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9102), 2)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 10
     restart: unless-stopped
 
   redpanda:

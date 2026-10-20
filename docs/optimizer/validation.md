@@ -144,6 +144,24 @@ backend/·frontend/ 폴더와 CI 변경은 main에서 가져왔다. 이번 후�
 임시 MCP 컨테이너·네트워크는 검증 후 정리했다. MCP 업무 서버는 fake 모드로 동작하므로
 실제 backend→Kafka→optimizer와 이어진 전체 통합 결과는 아니다.
 
+## 2026-10-21 main 94d86d1 병합 검증
+
+- 1c9b645의 기존 최적화·Kafka·S05 개발을 유지하고 최신 main을 개인 브랜치에 병합했다.
+  MCP에서 발생한 add/add 충돌 9개는 main의 최신 소스·테스트·문서로 해결했다.
+- 공통 YAML 3개, 운영 Compose와 MCP 소스·테스트·docs/evidence는 main과 바이트가 같다.
+  공개 API v0.5·내부 API v0.5·Kafka v0.4의 최적화 관련 스키마 11개가 이전 기준과 동일함을 확인했다.
+- 최적화 코드를 바꾸지 않았으며 **178개·24개 subtest 통과**, 실제 Kafka 검사는 1개 생략했다.
+- 최신 MCP 소스를 설치한 Python 3.12 환경에서 **46개 통과·4개 생략**.
+  생략은 실제 pgvector 3개·임베딩 모델 1개다. 루트에서 두 패키지를 함께 실행할 때 RAG 전용 마커 경고 4건이 있다.
+- 새 RAG 의존성을 포함해 고정 목록을 갱신했다. 임시 Python 환경과 두 개발 컨테이너에서
+  설치 의존성 검사를 통과했다.
+- RAG_STORE=memory와 docs/evidence 읽기 전용 마운트로 개발 환경을 맞췄다.
+  두 이미지를 빌드·기동한 뒤 실제 Streamable HTTP 검사 **3개 통과**, UID 10001·문서 읽기 전용 상태도 확인했다.
+- 운영·OSRM·Kafka·MCP Compose 구성과 OSRM 준비 스크립트 구문 검사를 통과했다.
+  backend·frontend 전체 실행과 운영 배포는 이번 병합에서 검증하지 않았다.
+- 임시 MCP 컨테이너·네트워크는 검증 후 정리했다. backend의 ai.events retry/DLQ가
+  optimizer의 solve.* retry/DLQ 구현을 의미하지는 않는다.
+
 ## 아직 검증하지 않은 범위
 
 운영 backend의 실제 solve 요청/응답, retry/DLQ·분산 중복 방지·볼륨 유실 복구,

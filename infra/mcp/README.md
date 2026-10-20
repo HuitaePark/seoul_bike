@@ -2,7 +2,7 @@
 
 역할 3의 business-mcp·rag-mcp를 개인 브랜치에서 컨테이너로 검증하는 역할 5의 구성이다.
 업무 서버는 **fake 모드**이며 실제 backend·optimizer·Kafka·DB에는 연결하지 않는다.
-서버 소스·테스트는 [출처](SOURCES.md)의 커밋에서 가져왔고 업무 규칙은 수정하지 않았다.
+서버 소스·테스트는 최신 main을 따르며 [출처](SOURCES.md)에 반영 기준을 기록했다.
 
 ## 실행
 
@@ -20,7 +20,8 @@ http://rag-mcp:9102/mcp다. 실제 에이전트 컨테이너는 이 구성에 �
 
 포트가 겹치면 BUSINESS_MCP_PORT=19111 RAG_MCP_PORT=19112를 Compose 명령에 지정하고
 클라이언트 URL도 바꾼다. 모든 호스트 포트는 127.0.0.1에만 열린다.
-서버는 UID 10001로 실행하며, RAG 근거 문서는 docs/rag/를 읽기 전용으로 마운트한다.
+서버는 UID 10001로 실행하며, RAG 근거 문서는 main의 docs/evidence/를 읽기 전용으로 마운트한다.
+RAG_STORE=memory를 명시해 DB·임베딩 모델 없이 BM25 검색을 검증한다.
 문서를 바꾸면 rag-mcp를 재시작해 메모리 색인을 다시 읽는다.
 헬스체크는 포트 준비 확인이며 실제 MCP 프로토콜은 아래 테스트에서 확인한다.
 
@@ -76,7 +77,7 @@ uv pip compile --python-version 3.12 --universal business-mcp/pyproject.toml rag
 ~~~
 
 - 가짜 계산은 OR-Tools·Kafka 결과가 아니다. 실제 경로 계산 검증은 [Kafka 개발 환경](../optimizer/KAFKA.md)과 별개다.
-- get_audit는 소스에 있으나 현재 main 내부 API 계약에는 없다. 역할 3·4가 확정하기 전 운영 기능으로 취급하지 않는다.
+- main의 내부 API v0.5에는 서비스 토큰·현장 보고 조회·제약 추가·감사 조회가 구현됐다. 이 독립 환경은 계속 fake 모드이며 실제 API 연결 검증은 별도다.
 - 최신 MCP는 대문자 권역 ID·camelCase 결과·Harness 승인 인자를 수용한다. 데이터의 숫자 대여소 ID와 ST-형식 ID의 최종 선택은 아직 별도 합의다.
 - 임베딩·pgvector·실제 LLM·에이전트 그래프·승인 카드 UI·전체 서비스 배포는 이번 검증에 포함하지 않는다.
 
