@@ -5,7 +5,7 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import com.seoulbike.backend.auth.CurrentUser;
@@ -25,12 +25,15 @@ class TaskService {
 	private final ApprovalRepository approvals;
 	private final TaskCommandPublisher publisher;
 	private final JsonMapper json;
+	private final TransactionTemplate tx;
 
-	TaskService(TaskRepository tasks, ApprovalRepository approvals, TaskCommandPublisher publisher, JsonMapper json) {
+	TaskService(TaskRepository tasks, ApprovalRepository approvals, TaskCommandPublisher publisher, JsonMapper json,
+			TransactionTemplate tx) {
 		this.tasks = tasks;
 		this.approvals = approvals;
 		this.publisher = publisher;
 		this.json = json;
+		this.tx = tx;
 	}
 
 	/**
@@ -69,10 +72,24 @@ class TaskService {
 
 	/**
 	 * 승인 주체만 결정할 수 있다: 계획·제약은 관리자, 경로 변경은 해당 트럭 기사.
-	 * 기록을 남긴 뒤 같은 thread_id로 에이전트를 재개한다 (UR-18).
+	 * 결정을 커밋한 뒤 같은 thread_id로 에이전트를 재개한다 (UR-18). 커밋 전에 보내면 재개한 에이전트가
+	 * 변경 API를 부를 때 아직 승인이 안 보여 403을 받는다. 재개를 못 보내면 결정을 되돌리고 503을 돌려준다.
 	 */
-	@Transactional
 	void decide(CurrentUser user, UUID taskId, ApprovalDecision decision) {
+		Task task = tx.execute(s -> record(user, taskId, decision));
+		try {
+			publisher.resume(taskId, task.shiftId(), task.traceId(), decision.approvalId(), decision, user);
+		}
+		catch (ApiException e) {
+			tx.executeWithoutResult(s -> {
+				approvals.reopen(decision.approvalId());
+				tasks.waitForApproval(taskId, decision.approvalId());
+			});
+			throw e;
+		}
+	}
+
+	private Task record(CurrentUser user, UUID taskId, ApprovalDecision decision) {
 		Task task = get(user, taskId);
 		var approval = approvals.find(decision.approvalId(), taskId)
 			.orElseThrow(() -> ApiException.notFound("APPROVAL_NOT_FOUND", "이 작업에 승인 요청 " + decision.approvalId() + "가 없다"));
@@ -94,7 +111,7 @@ class TaskService {
 		if (!tasks.resume(taskId, approval.approvalId())) {
 			throw ApiException.conflict("APPROVAL_SUPERSEDED", "작업이 이 승인 요청을 더 기다리지 않는다");
 		}
-		publisher.resume(taskId, task.shiftId(), task.traceId(), approval.approvalId(), decision, user);
+		return task;
 	}
 
 	private static Set<TaskType> allowedTypes(Role role) {

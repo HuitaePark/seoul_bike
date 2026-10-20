@@ -107,9 +107,10 @@ class TaskEventStore {
 				JsonNode approval = payload.path("approval");
 				UUID approvalId = UUID.fromString(approval.path("approvalId").asString());
 				approvals.supersedePending(taskId);
-				approvals.insertPending(approvalId, taskId, approval.path("kind").asString(),
-						approval.path("approver").asString(), approval.path("truckId").asString(null),
-						json.writeValueAsString(approval));
+				approvals.insertPending(new ApprovalRepository.NewApproval(approvalId, taskId,
+						approval.path("kind").asString(), approval.path("approver").asString(),
+						approval.path("truckId").asString(null), approval.path("candidateId").asString(null),
+						approval.path("grade").asString(null), json.writeValueAsString(approval)));
 				tasks.waitForApproval(taskId, approvalId);
 			}
 			case "DONE" -> {

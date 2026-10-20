@@ -1,27 +1,31 @@
 # Author: Cheon Seonghun
 # Date: 20OCT2026
-# Purpose: Validates model-written tool arguments against Pydantic schemas, known IDs, number sources, and ranges.
+# Purpose: Validates model-written tool arguments against the internal API contract, known IDs, number sources,
+#          ranges, and driver scope before any tool runs or any human is asked to approve.
 
 """Argument validation (docs/HARNESS.md section 3.6, PRD 6.8-3, NFR-06, NFR-07).
 
-Every call to a tool that carries constraints or changes something is checked before it runs and before any
-human is asked to approve it:
+Tool arguments follow docs/specs internal-api (snake_case). Every call to a tool that computes or changes
+something is checked before it runs and before an approval card is sent:
 
-1. schema: argument names, types, enums, and formats (unknown fields are rejected);
+1. schema: names, types, enums, formats; unknown fields are rejected (the model cannot pass `approval_id`);
 2. IDs: station IDs must have appeared in an earlier successful tool result or in the structured report;
-3. numbers: a bike count in a constraint must equal the count in the structured driver report (NFR-07);
-4. range: a bike count may not exceed the station's dock capacity when a tool result stated it;
-5. scope: a driver may only propose changes for their own truck (NFR-06).
+   candidates and plans must come from an earlier `request_route_plan` result;
+3. numbers: a constraint `value` must appear in the user's text, the structured report, or a tool result for
+   that station (NFR-07), and a bike count may not exceed the station's docks;
+4. scope: a driver may only recompute and change their own truck (NFR-06);
+5. one change per turn: at most one approval-gated call per model response, so one RESUME answers one card.
 
-A rejected call goes back to the model once with the reasons; a second rejection ends the task with
+A rejected response goes back to the model once with the reasons; a second rejection ends the task with
 OUTPUT_INVALID.
 """
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Awaitable, Callable, Iterator
-from typing import Annotated, Any, Literal
+from collections.abc import Awaitable, Callable, Iterable, Iterator
+from datetime import datetime
+from typing import Any, Literal
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
@@ -30,49 +34,33 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .errors import FailureCode, HarnessFailure
 from .task import HarnessContext
 
-PERIOD = r"^(\d{4}-\d{2}-\d{2} )?\d{2}:\d{2}~\d{2}:\d{2}$"
+TRUCK_ID = r"^TR-\d+$"
+NUMBER = re.compile(r"\d+")
 
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Blocked(_Strict):
-    type: Literal["blocked"]
-    station_id: str
-
-
-class Suspended(_Strict):
-    type: Literal["suspended"]
-    station_ids: list[str] = Field(min_length=1)
-
-
-class Excluded(_Strict):
-    """Stations a manager removed from the plan (FR-04 '거점 제외 후 승인')."""
-
-    type: Literal["excluded"]
-    station_ids: list[str] = Field(min_length=1)
-
-
-class ActualBikes(_Strict):
-    type: Literal["actual_bikes"]
-    station_id: str
-    bikes: int = Field(ge=0)
-
-
-Constraint = Annotated[Blocked | Suspended | Excluded | ActualBikes, Field(discriminator="type")]
-
-
 class RoutePlanArgs(_Strict):
+    """internal-api SolveRequest."""
+
     shift_id: str
-    constraints: list[Constraint] = Field(default_factory=list)
+    kind: Literal["PLAN", "REPLAN"]
+    truck_ids: list[str] = Field(default_factory=list)
+    exclude_station_ids: list[str] = Field(default_factory=list)
 
 
 class AddConstraintArgs(_Strict):
-    type: Literal["suspended", "blocked"]
+    """internal-api ConstraintRequest (approval_id, task_id are filled by Harness)."""
+
+    shift_id: str
+    type: Literal["TARGET_ADJUST", "STATION_SUSPENDED", "STATION_BLOCKED", "INVENTORY_OVERRIDE", "PRIORITY_BOOST"]
     station_ids: list[str] = Field(min_length=1)
-    period: str = Field(pattern=PERIOD)
+    valid_from: datetime
+    valid_to: datetime
     reason: str = Field(min_length=1)
+    value: int | None = None
 
 
 class SubmitPlanArgs(_Strict):
@@ -80,8 +68,10 @@ class SubmitPlanArgs(_Strict):
 
 
 class ProposeRouteArgs(_Strict):
-    truck_id: str = Field(pattern=r"^TR-\d+$")
-    route: list[str]
+    """internal-api applyRouteChange: apply one truck's route from a computed candidate."""
+
+    truck_id: str = Field(pattern=TRUCK_ID)
+    candidate_id: str = Field(min_length=1)
 
 
 SCHEMAS: dict[str, type[_Strict]] = {
@@ -92,22 +82,24 @@ SCHEMAS: dict[str, type[_Strict]] = {
 }
 
 
-def _json_objects(value: Any) -> Iterator[dict[str, Any]]:
+def _objects(value: Any) -> Iterator[dict[str, Any]]:
     if isinstance(value, dict):
         yield value
         for v in value.values():
-            yield from _json_objects(v)
+            yield from _objects(v)
     elif isinstance(value, list):
         for v in value:
-            yield from _json_objects(v)
+            yield from _objects(v)
 
 
 class _Facts:
-    """What the model may legitimately refer to: IDs and capacities from successful tool results."""
+    """What the model may legitimately refer to, collected from successful tool results and the task."""
 
     def __init__(self, history: list[BaseMessage], id_pattern: re.Pattern[str], ctx: HarnessContext) -> None:
         self.ids: set[str] = set()
-        self.capacity: dict[str, int] = {}
+        self.docks: dict[str, int] = {}
+        self.counts: dict[str, set[int]] = {}  # station -> bike counts stated by tools or the report
+        self.candidates: dict[str, dict[str, Any]] = {}
         for m in history:
             if not isinstance(m, ToolMessage) or m.status == "error":
                 continue
@@ -117,11 +109,23 @@ class _Facts:
                 parsed = json.loads(text)
             except json.JSONDecodeError:
                 continue
-            for obj in _json_objects(parsed):
-                if isinstance(obj.get("station_id"), str) and isinstance(obj.get("capacity"), int):
-                    self.capacity[obj["station_id"]] = obj["capacity"]
-        if ctx.task.report:
-            self.ids.add(ctx.task.report.station_id)
+            for obj in _objects(parsed):
+                if "candidateId" in obj:
+                    self.candidates[obj["candidateId"]] = obj
+                station = obj.get("stationId")
+                if not isinstance(station, str):
+                    continue
+                if isinstance(obj.get("docks"), int):
+                    self.docks[station] = obj["docks"]
+                for key in ("bikes", "actualBikes"):
+                    if isinstance(obj.get(key), int):
+                        self.counts.setdefault(station, set()).add(obj[key])
+        report = ctx.task.report
+        if report:
+            self.ids.add(report.station_id)
+            self.counts.setdefault(report.station_id, set()).add(report.actual_bikes)
+        self.input_numbers = {int(n) for n in NUMBER.findall(ctx.task.input)}
+        self.plan_ids = {c.get("plan", {}).get("planId") for c in self.candidates.values()}
 
 
 def _last_ai(response: ModelResponse | AIMessage) -> AIMessage | None:
@@ -133,9 +137,10 @@ def _last_ai(response: ModelResponse | AIMessage) -> AIMessage | None:
 class ArgumentValidationMiddleware(AgentMiddleware):
     """Runs inside LoopGuard and before the approval interrupt (see module docstring)."""
 
-    def __init__(self, validated_tools: set[str], id_pattern: str) -> None:
+    def __init__(self, validated_tools: set[str], id_pattern: str, gated: Iterable[str]) -> None:
         super().__init__()
         self.validated = frozenset(validated_tools) & SCHEMAS.keys()
+        self.gated = frozenset(gated)
         self.id_pattern = re.compile(id_pattern)
 
     async def awrap_model_call(
@@ -164,16 +169,18 @@ class ArgumentValidationMiddleware(AgentMiddleware):
         return retry
 
     def problems(self, ai: AIMessage | None, history: list[BaseMessage], ctx: HarnessContext) -> dict[str, str]:
-        if ai is None:
+        if ai is None or not ai.tool_calls:
             return {}
-        calls = [tc for tc in ai.tool_calls if tc["name"] in self.validated]
+        found: dict[str, str] = {}
+        gated_calls = [tc for tc in ai.tool_calls if tc["name"] in self.gated]
+        for tc in gated_calls[1:]:
+            found[tc["id"]] = f"{tc['name']} 거부: 변경 도구는 한 번에 하나만 부른다. 앞의 변경이 승인된 뒤 다시 부른다"
+        calls = [tc for tc in ai.tool_calls if tc["name"] in self.validated and tc["id"] not in found]
         if not calls:
-            return {}
+            return found
         facts = _Facts(history, self.id_pattern, ctx)
-        found = {}
         for tc in calls:
-            reasons = self._check(tc["name"], tc["args"], facts, ctx)
-            if reasons:
+            if reasons := self._check(tc["name"], tc["args"], facts, ctx):
                 found[tc["id"]] = f"{tc['name']} 거부: " + " / ".join(reasons)
         return found
 
@@ -186,27 +193,59 @@ class ArgumentValidationMiddleware(AgentMiddleware):
         used = set(self.id_pattern.findall(json.dumps(args, ensure_ascii=False)))
         if unknown := sorted(used - facts.ids):
             reasons.append(f"조회 결과에 없는 대여소 ID {', '.join(unknown)}. 조회 도구로 먼저 확인한 ID만 쓴다")
-        if isinstance(parsed, RoutePlanArgs):
-            reasons += self._bike_counts(parsed, facts, ctx)
-        if isinstance(parsed, ProposeRouteArgs) and ctx.task.requester.role == "driver":
-            if parsed.truck_id != ctx.task.requester.truck_id:
-                reasons.append(f"기사는 자기 트럭({ctx.task.requester.truck_id})의 경로만 제안할 수 있다")
+        requester = ctx.task.requester
+        own = requester.truck_id if requester.role == "driver" else None
+        if isinstance(parsed, RoutePlanArgs) and own:
+            if parsed.kind != "REPLAN" or parsed.truck_ids != [own]:
+                reasons.append(f"기사는 자기 트럭만 다시 계산한다: kind=REPLAN, truck_ids=[{own}]")
+        if isinstance(parsed, AddConstraintArgs):
+            reasons += self._constraint(parsed, facts)
+        if isinstance(parsed, SubmitPlanArgs) and parsed.plan_id not in facts.plan_ids:
+            reasons.append(f"계산 결과에 없는 계획 {parsed.plan_id}. request_route_plan 결과의 planId만 제출한다")
+        if isinstance(parsed, ProposeRouteArgs):
+            reasons += self._route_change(parsed, facts, own)
         return reasons
 
     @staticmethod
-    def _bike_counts(args: RoutePlanArgs, facts: _Facts, ctx: HarnessContext) -> list[str]:
+    def _constraint(args: AddConstraintArgs, facts: _Facts) -> list[str]:
         reasons = []
-        report = ctx.task.report
-        for c in args.constraints:
-            if not isinstance(c, ActualBikes):
-                continue
-            if report is None or report.actual_bikes is None:
-                reasons.append("실제 재고 숫자는 기사 보고 데이터에서만 온다. 이 작업에는 보고된 재고가 없다")
-            elif (c.station_id, c.bikes) != (report.station_id, report.actual_bikes):
+        if args.valid_to <= args.valid_from:
+            reasons.append("valid_to는 valid_from보다 뒤여야 한다")
+        needs_value = args.type in {"TARGET_ADJUST", "INVENTORY_OVERRIDE"}
+        if needs_value and args.value is None:
+            reasons.append(f"{args.type}에는 value가 필요하다")
+        if not needs_value and args.value is not None:
+            reasons.append(f"{args.type}에는 value를 쓰지 않는다")
+        if args.value is None or not needs_value:
+            return reasons
+        if args.type == "INVENTORY_OVERRIDE":
+            if len(args.station_ids) != 1:
+                reasons.append("INVENTORY_OVERRIDE는 대여소 하나에만 쓴다")
+            station = args.station_ids[0]
+            stated = facts.counts.get(station, set()) | facts.input_numbers
+            if args.value not in stated:
                 reasons.append(
-                    f"보고 데이터와 다르다: 보고는 {report.station_id} {report.actual_bikes}대, "
-                    f"제약은 {c.station_id} {c.bikes}대. 보고 값을 그대로 쓴다"
+                    f"재고 {args.value}대의 출처가 없다. 보고·조회 결과·요청 문장에 있는 값만 쓴다 "
+                    f"({station}: {sorted(facts.counts.get(station, set())) or '없음'})"
                 )
-            if (cap := facts.capacity.get(c.station_id)) is not None and c.bikes > cap:
-                reasons.append(f"{c.station_id} 거치대 수 {cap}대를 넘는 재고 {c.bikes}대")
+        elif abs(args.value) not in facts.input_numbers:
+            reasons.append(f"조정 대수 {args.value}대의 출처가 없다. 요청 문장에 있는 값만 쓴다")
+        for station in args.station_ids:
+            if (docks := facts.docks.get(station)) is not None and abs(args.value) > docks:
+                reasons.append(f"{station} 거치대 수 {docks}대를 넘는 값 {args.value}대")
+        return reasons
+
+    @staticmethod
+    def _route_change(args: ProposeRouteArgs, facts: _Facts, own: str | None) -> list[str]:
+        candidate = facts.candidates.get(args.candidate_id)
+        if candidate is None:
+            return [f"계산 결과에 없는 후보 {args.candidate_id}. request_route_plan 결과의 candidateId만 쓴다"]
+        reasons = []
+        trucks = {r.get("truckId") for r in candidate.get("plan", {}).get("routes", [])}
+        if args.truck_id not in trucks:
+            reasons.append(f"후보 {args.candidate_id}에 {args.truck_id} 경로가 없다")
+        if candidate.get("grade") == "NONE" or not candidate.get("requiredApprovers"):
+            reasons.append("변경 등급 NONE(승인 순서 없음): 바뀐 것이 없어 적용하지 않는다")
+        if own and args.truck_id != own:
+            reasons.append(f"기사는 자기 트럭({own})의 경로만 바꿀 수 있다")
         return reasons
