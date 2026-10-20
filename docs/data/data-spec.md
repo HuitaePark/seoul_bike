@@ -24,7 +24,9 @@
 .venv/bin/python analysis/export_region.py 강남-05     # 공유 묶음
 .venv/bin/python -m sim --terr 강남-05 --date 2025-06-11       # 정책별 지표
 .venv/bin/python -m forecast --terr 강남-05 --month 2025-06    # 베이스라인 채점
-.venv/bin/python -m forecast.lgbm --terr 강남-05               # LightGBM 학습·검증 (약 2분)
+.venv/bin/python -m forecast.lgbm --terr 강남-05               # LightGBM 학습·검증 (약 2분, 관측 날씨, 참고용)
+.venv/bin/python analysis/weather_fcst.py                       # 기상청 과거 단기예보 정리 (data/shared/weather_fcst.parquet)
+.venv/bin/python -m forecast.nowcast --terr 강남-05             # 예측 시점 기준 LightGBM, lead 1~5시간 (약 10분)
 ```
 
 시험: `.venv/bin/python -m unittest sim.tests.test_engine forecast.tests.test_baseline forecast.tests.test_lgbm`, `(cd or-tools && ../.venv/bin/python -m unittest discover -s tests -t .)`, `(cd analysis/collect && /usr/bin/python3 -m unittest test_bikelist)`.
@@ -111,7 +113,7 @@
 
 ## 4. 날씨 `weather_hourly.parquet`
 
-서울(108) ASOS 시간자료. 빠진 시간의 기온·습도·풍속은 앞 값으로, 강수는 0으로 채웠다. 학습에는 관측값을 쓰지만 운영할 때는 예보만 있으므로, 예측 모델 평가 때 이 차이를 따로 확인한다.
+서울(108) ASOS 시간자료. 빠진 시간의 기온·습도·풍속은 앞 값으로, 강수는 0으로 채웠다. 운영할 때는 예보만 있으므로 예측 시점 기준 모델(`forecast/nowcast.py`)은 관측 대신 `data/shared/weather_fcst.parquet`(기상청 단기예보, 종로 격자 60·127, 발표 시각 `issue`·대상 시각 `target`·기온 `temp`·1시간 강수량 `pcp`·강수확률 `pop`)에서 예측 시점보다 1시간 이상 앞서 발표된 최신 예보를 쓴다. 2025-04~06 예보는 관측과 비교해 기온 오차 0.95℃, 비 옴·안 옴 일치 92.4%였다.
 
 | 열 | 단위 | 설명 |
 | --- | --- | --- |

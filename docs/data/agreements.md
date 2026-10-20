@@ -14,7 +14,7 @@
 | 2 | 구역 ID `regionId` | 활동 구역 17개를 **`N01`~`N08`(강북), `S01`~`S09`(강남)**. 화면에는 이름(`강남-05`)을 따로 보여 준다 | `gangnam-05`처럼 영문 이름, 한글 그대로(`강남-05`. URL·Kafka 키에 불편) | `openapi` `/api/regions/{regionId}`, `/api/kpi`, 근무조 ID, `ref_regions.csv` | 제안 |
 | 3 | 근무조 ID와 시각 | `{regionId}:{yyyy-MM-dd}:{AM\|PM\|EVE}` (팀 명세 그대로). **AM 07:00–10:00, PM 13:00–16:00, EVE 19:00–21:00**, 계획 초안은 30분 전 (PRD 7.4) | EVE를 19:00–20:00로 (PRD 표기 "19–20시"를 끝 시각으로 읽기) | 근무조 ID, LangGraph `thread_id`, `SolveTruck.availableUntil`, 시뮬레이터 `SHIFTS` | 제안 |
 | 4 | 시각 표기 | 데이터 파일은 KST이고 시간대 표기가 없다. **API의 `date-time`은 `+09:00`을 붙인다** (`2026-10-21T07:00:00+09:00`) | UTC(`Z`)로 통일 | 모든 API·Kafka 메시지의 시각 필드 | 제안 |
-| 29 | 예측 구간 `horizonH` | 최대 **5시간**, 기본 3시간(PRD FR-01 그대로). 선행 연구가 5시간까지 예측했고, 예측기는 1~5시간 뒤를 따로 학습해 시간별 정확도를 낸다 | 지금 명세의 최대 6시간 유지 | `openapi` `/api/regions/{regionId}/stations`, `internal-api` `/internal/stations/risk`·`/internal/forecasts`, `get_forecast` 도구 | 제안 |
+| 29 | 예측 구간 `horizonH` | 최대 **5시간**, 기본 3시간(PRD FR-01 그대로). 선행 연구가 5시간까지 예측했다. 예측 시점 기준 모델의 구역 수요 오차율은 1시간 뒤 10.7%에서 5시간 뒤 15.4%로 완만하게 나빠지며, 5시간 뒤도 베이스라인(28.3%)보다 낫다 | 지금 명세의 최대 6시간 유지 | `openapi` `/api/regions/{regionId}/stations`, `internal-api` `/internal/stations/risk`·`/internal/forecasts`, `get_forecast` 도구 | 제안 |
 | 5 | 이름 바꾸는 규칙 | 데이터 파일·DB 열은 snake_case, API는 camelCase. 같은 뜻은 같은 단어를 쓴다 (`docks` ↔ 거치대 수, `elevation_m` ↔ `elevationM`, `model_version` ↔ `modelVersion`) | | 시드, 예측, 시뮬레이터 결과 | 제안 |
 
 ## 백엔드 (4)
