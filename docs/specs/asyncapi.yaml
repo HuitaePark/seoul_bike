@@ -1,9 +1,9 @@
 asyncapi: 3.0.0
 info:
   title: 따릉이 재배치 에이전트 · Kafka 메시지
-  version: 0.1.0-draft
+  version: 0.2.0-draft
   description: |
-    **초안 v0.1.** 에이전트·최적화 담당 확인 전이다.
+    **초안 v0.2.** 에이전트·최적화 담당 확인 전이다. (v0.2: 경로 변경 승인 카드 순서, `TaskEventMessage` 설명)
 
     공통 규칙
     - **키는 `shiftId`.** 한 근무조의 메시지는 같은 파티션에 들어가 순서대로 처리된다.
@@ -187,10 +187,33 @@ components:
                   enum: [MANAGER, DRIVER, EXECUTIVE]
 
     TaskEventMessage:
-      description: SSE data와 같은 형식에 봉투 필드를 더한다
+      description: |
+        SSE data(openapi TaskEvent)에서 `seq`를 뺀 형식에 봉투 필드를 더한다.
+        **`seq`는 agent가 보내지 않는다.** backend가 저장할 때 작업마다 1부터 매기고 SSE `id`로 쓴다.
+
+        경로 변경(ROUTE_CHANGE)은 후보의 `requiredApprovers` 순서대로 `APPROVAL_REQUIRED`를 보낸다.
+        MAJOR면 관리자 카드 → `RESUME`(승인) → 기사 카드 → `RESUME`(승인) → 적용 순서다.
+        앞 카드가 거절되면 뒤 카드는 보내지 않고 기존 경로를 유지한다.
       allOf:
         - $ref: '#/components/schemas/Envelope'
-        - $ref: 'openapi.yaml#/components/schemas/TaskEvent'
+        - type: object
+          required: [taskId, type]
+          properties:
+            taskId: { type: string, format: uuid }
+            type: { $ref: 'openapi.yaml#/components/schemas/TaskEventType' }
+            token: { type: string }
+            tool:
+              type: object
+              properties:
+                name: { type: string }
+                label: { type: string }
+                ok: { type: boolean }
+            approval: { $ref: 'openapi.yaml#/components/schemas/ApprovalRequest' }
+            answer: { type: string }
+            sources:
+              type: array
+              items: { $ref: 'openapi.yaml#/components/schemas/Source' }
+            error: { type: string }
 
     SolveStation:
       type: object

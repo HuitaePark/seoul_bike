@@ -1,14 +1,16 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.1.0-draft
+  version: 0.2.0-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
-    **초안 v0.1.** MCP·에이전트 담당 확인 전이다.
+    **초안 v0.2.** MCP·에이전트 담당 확인 전이다.
+
+    - v0.2: 경로 변경 승인 순서. 후보(`PlanCandidate`)에 `requiredApprovers`, 적용 API의 확인 규칙.
 
     - docker network 안에서만 열린다. 화면과 외부에서는 호출하지 않는다.
     - 업무 규칙(변경 등급, 승인 주체)은 backend에만 있다. business-mcp는 규칙을 복제하지 않고 이 API를 부른다.
-    - **변경 API 3개는 `approvalId`가 `APPROVED`가 아니면 403을 돌려준다.** 에이전트 interrupt와 별개로
+    - **변경 API 3개는 필요한 승인이 모두 `APPROVED`가 아니면 403을 돌려준다.** 에이전트 interrupt와 별개로
       backend가 한 번 더 막는다 (UR-18 "사람 승인 없이 바꾸지 않음").
     - 오류 메시지는 MCP `ToolError`로 그대로 전달되므로, 모델이 다시 호출할 수 있는 정보를 담는다
       (예 없는 대여소면 권역 안의 비슷한 대여소 목록).
@@ -220,7 +222,11 @@ paths:
   /internal/routes/{truckId}/apply:
     post:
       operationId: applyRouteChange
-      summary: 트럭 경로 변경 적용 (변경, 기사 또는 관리자 승인 필요)
+      summary: 트럭 경로 변경 적용 (변경, 후보의 requiredApprovers 승인 필요)
+      description: |
+        `approvalId`는 이 후보의 마지막 카드(기사 수락)다. backend는 같은 작업에서 이 후보(`candidateId`)의
+        `requiredApprovers`가 순서대로 모두 APPROVED인지 확인하고, 하나라도 없으면 403을 돌려준다.
+        기사 승인은 이 트럭 기사의 것이어야 한다. 등급이 NONE이면 바꿀 것이 없어 호출하지 않는다.
       parameters:
         - name: truckId
           in: path
@@ -401,7 +407,13 @@ components:
         grade:
           type: [string, 'null']
           enum: [NONE, MINOR, MAJOR, null]
-          description: 활성 계획 대비 변경 등급. backend 업무 규칙으로 계산
+          description: 활성 계획 대비 변경 등급. backend 업무 규칙(PRD 6.6, 기준은 설정으로 조정)으로 계산
+        requiredApprovers:
+          type: array
+          items: { type: string, enum: [MANAGER, DRIVER] }
+          description: |
+            grade에 따라 backend가 정한 승인 순서. NONE은 `[]`, MINOR는 `[DRIVER]`, MAJOR는 `[MANAGER, DRIVER]`.
+            에이전트는 등급으로 승인자를 직접 정하지 않고, 이 순서대로 승인 카드(APPROVAL_REQUIRED)를 보낸다.
         diffs:
           type: array
           items: { $ref: 'openapi.yaml#/components/schemas/RouteDiff' }
