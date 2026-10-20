@@ -1,0 +1,25 @@
+[project]
+name = "business-mcp"
+version = "0.1.0"
+description = "재배치 조회·계산·변경 도구 서버 (FastMCP). 백엔드 /internal/** 만 호출한다."
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=4.1,<5",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+business-mcp = "business_mcp.__main__:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/business_mcp"]
