@@ -145,9 +145,9 @@ def render(results: list[Result], config: HarnessConfig, label: str, model_name:
         "",
     ]
     for r in results:
-        lines.append(f"### {r.scenario.id} {r.scenario.title} — {'PASS' if r.passed else 'FAIL'}")
+        lines.append(f"### {r.scenario.id} {r.scenario.title}: {'PASS' if r.passed else 'FAIL'}")
         lines.append("")
-        lines += [f"- {'✓' if c.passed else '✗'} {c.name}: {c.detail}" for c in r.checks]
+        lines += [f"- [{'통과' if c.passed else '실패'}] {c.name}: {c.detail}" for c in r.checks]
         lines.append("")
     return "\n".join(lines)
 

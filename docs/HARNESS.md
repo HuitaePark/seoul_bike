@@ -211,7 +211,7 @@ sequenceDiagram
 | 스키마 | Pydantic. 모르는 필드 거부. 제약 `type`은 `blocked`·`suspended`·`excluded`·`actual_bikes`, `period`는 `[YYYY-MM-DD ]HH:MM~HH:MM`, `truck_id`는 `TR-숫자`, 대수 ≥ 0 |
 | ID | 대여소 ID는 앞선 성공한 도구 결과나 `report.station_id`에 나온 것만 |
 | 숫자 출처 | `actual_bikes`의 대여소·대수는 `report`와 같아야 한다. `report`가 없으면 `actual_bikes`를 쓸 수 없다 |
-| 범위 | 도구 결과에 거치대 수가 있으면 대수 ≤ 거치대 수 |
+| 범위 | 도구 결과에 거치대 수가 있으면 대수는 거치대 수 이하 |
 | 기사 범위 | 기사 작업의 `propose_route_change`는 자기 트럭만 |
 
 **측정:** 무승인 변경 **0** (PRD 9.2), 마스킹 노출 0, SC-06, FT-05, FT-07, 테스트. **코드:** `harness/guardrails.py`, `harness/validation.py`
