@@ -154,6 +154,7 @@ paths:
         - $ref: '#/components/parameters/ShiftId'
         - name: since
           in: query
+          description: 이 시각 **뒤**의 보고만 (그 시각은 뺀다)
           schema: { type: string, format: date-time }
       responses:
         '200':
@@ -176,6 +177,7 @@ paths:
         - $ref: '#/components/parameters/ShiftId'
         - name: since
           in: query
+          description: 이 시각 **뒤**의 기록만 (그 시각은 빼서, 마지막으로 받은 시각을 다시 넣어도 중복이 없다)
           schema: { type: string, format: date-time }
       responses:
         '200':

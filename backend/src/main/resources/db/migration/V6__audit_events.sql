@@ -26,3 +26,8 @@ $$;
 create trigger audit_events_no_change
     before update or delete on audit_events
     for each row execute function audit_events_append_only();
+
+-- 행 단위 트리거는 TRUNCATE를 막지 못한다. 표 전체를 비우는 것도 막는다.
+create trigger audit_events_no_truncate
+    before truncate on audit_events
+    for each statement execute function audit_events_append_only();

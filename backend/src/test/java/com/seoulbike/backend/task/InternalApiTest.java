@@ -58,7 +58,7 @@ class InternalApiTest {
 	@Test
 	void auditShowsWhoDidWhatAndCannotBeChanged() throws Exception {
 		String shift = "S05:2026-11-08:AM";
-		report(login("driver2"), shift, null);
+		report(login("driver2"), shift, "BLOCKED");
 		String manager = login("manager");
 		var created = call("POST", "/api/ai/tasks", manager, null,
 				"{\"type\":\"REQUEST\",\"shiftId\":\"" + shift + "\",\"text\":\"행사로 ST-201 반납 중지\"}");
@@ -79,13 +79,19 @@ class InternalApiTest {
 			.containsExactly("FIELD_REPORT", "APPROVAL_APPROVED", "CONSTRAINT_ADDED");
 		assertThat(events.valueStream().map(e -> e.path("actor").path("display").asString()))
 			.containsExactly("truck-2 기사", "관리자", "관리자");
+		assertThat(events.get(0).path("detail").asString()).contains("재경로");
 		assertThat(events.get(1).path("targetId").asString()).isNotBlank();
 		assertThat(res.body()).doesNotContain("u-manager", "u-driver-2", "관제 관리자");
+		// since는 그 시각을 뺀다: 마지막 기록의 시각을 넣으면 새 기록만 (지금은 없음).
+		String last = events.get(2).path("occurredAt").asString().replace("+", "%2B");
+		assertThat(json.readTree(call("GET", "/internal/shifts/" + shift + "/audit?since=" + last, null, TOKEN, null).body()))
+			.isEmpty();
 
 		assertThatThrownBy(() -> jdbc.sql("update audit_events set detail = 'x' where shift_id = :s").param("s", shift).update())
 			.isInstanceOf(DataAccessException.class);
 		assertThatThrownBy(() -> jdbc.sql("delete from audit_events where shift_id = :s").param("s", shift).update())
 			.isInstanceOf(DataAccessException.class);
+		assertThatThrownBy(() -> jdbc.sql("truncate audit_events").update()).isInstanceOf(DataAccessException.class);
 	}
 
 	@Test

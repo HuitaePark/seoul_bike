@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -26,27 +27,32 @@ class FieldReportService {
 	private final TaskService tasks;
 	private final AuditLog audit;
 	private final JsonMapper json;
+	private final TransactionTemplate tx;
 
-	FieldReportService(FieldReportRepository reports, TaskService tasks, AuditLog audit, JsonMapper json) {
+	FieldReportService(FieldReportRepository reports, TaskService tasks, AuditLog audit, JsonMapper json,
+			TransactionTemplate tx) {
 		this.reports = reports;
 		this.tasks = tasks;
 		this.audit = audit;
 		this.json = json;
+		this.tx = tx;
 	}
 
+	/**
+	 * 감사 기록은 보고가 확정되는 마지막 단계와 같은 트랜잭션에 남긴다.
+	 * issue가 없으면 저장과 함께, 있으면 재경로 작업을 큐에 넣은 뒤 보고에 작업을 잇는 단계와 함께.
+	 */
 	Accepted report(CurrentUser driver, FieldReportController.FieldReportRequest req) {
 		var report = new NewReport(UUID.randomUUID(), req.shiftId(), driver.truckId(), req.stationId(), req.actualBikes(),
 				req.loaded(), req.unloaded(), req.issue(), req.memo(), driver.id(), Instant.now());
+		if (report.issue() == null) {
+			tx.executeWithoutResult(s -> {
+				reports.insert(report);
+				audit(driver, report, null);
+			});
+			return new Accepted(report.reportId(), null);
+		}
 		reports.insert(report);
-		UUID taskId = report.issue() == null ? null : startReroute(driver, report);
-		// 메모는 개인정보가 섞일 수 있어 감사 기록에 남기지 않는다.
-		audit.record(report.shiftId(), AuditLog.Type.FIELD_REPORT, AuditLog.Actor.of(driver), report.reportId().toString(),
-				taskId, report.stationId() + " 실제 재고 " + report.actualBikes() + "대"
-						+ (report.issue() == null ? "" : " · " + report.issue() + " → 재경로 작업"));
-		return new Accepted(report.reportId(), taskId);
-	}
-
-	private UUID startReroute(CurrentUser driver, NewReport report) {
 		UUID taskId;
 		try {
 			taskId = tasks.startFieldReport(driver, report.shiftId(), contract(report));
@@ -56,8 +62,18 @@ class FieldReportService {
 			reports.delete(report.reportId());
 			throw e;
 		}
-		reports.linkTask(report.reportId(), taskId);
-		return taskId;
+		tx.executeWithoutResult(s -> {
+			reports.linkTask(report.reportId(), taskId);
+			audit(driver, report, taskId);
+		});
+		return new Accepted(report.reportId(), taskId);
+	}
+
+	/** 메모는 개인정보가 섞일 수 있어 감사 기록에 남기지 않는다. */
+	private void audit(CurrentUser driver, NewReport report, UUID taskId) {
+		audit.record(report.shiftId(), AuditLog.Type.FIELD_REPORT, AuditLog.Actor.of(driver), report.reportId().toString(),
+				taskId, report.stationId() + " 실제 재고 " + report.actualBikes() + "대"
+						+ (report.issue() == null ? "" : " · " + report.issue() + " → 재경로 작업"));
 	}
 
 	private ObjectNode contract(NewReport r) {
