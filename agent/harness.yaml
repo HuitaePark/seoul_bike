@@ -1,0 +1,78 @@
+# Author: Cheon Seonghun
+# Date: 20OCT2026
+# Purpose: Every Harness limit in one place. Changing a value requires an entry in docs/HARNESS.md section 8.
+
+models:
+  primary: openai:gpt-4.1-mini      # 초기값. 팀 결정 전
+  fallback: openai:gpt-4.1-nano     # 초기값. 주 모델과 다른 공급사 권장
+
+tools:
+  result_max_chars: 4000            # 초기값
+  rag_top_k: 5
+  rag_tool: rag_search_docs
+  read_only_tasks: [qa]             # 이 작업에는 destructiveHint 도구를 절대 주지 않는다
+  allow:
+    plan_draft:
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - rag_search_docs
+      - business_request_route_plan
+      - business_submit_plan
+    field_report:
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - business_request_route_plan
+      - business_propose_route_change
+    manager_request:
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - rag_search_docs
+      - business_request_route_plan
+      - business_add_constraint
+    qa:
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - rag_search_docs
+
+context:
+  token_budget: 16000               # 초기값
+  keep_tokens: 8000                 # 요약 후 남길 최근 메시지 토큰
+
+loop:
+  max_turns: 8
+  max_seconds: 120
+  max_same_tool_calls: 3
+
+recovery:
+  model_retries: 2
+  backoff_seconds: [1, 4]           # 초기값
+  retry_status: [429, 503]
+
+guardrails:
+  approver:                         # 승인 주체. by_grade = backend 변경 등급 규칙(minor 기사, major 관리자)
+    business_submit_plan: manager
+    business_add_constraint: manager
+    business_propose_route_change: by_grade
+  mask_keys: [driver_name, driver_phone, phone, driver_location, truck_position]
+  id_pattern: 'ST-\d+'              # 변경 도구 인자의 대여소 ID는 앞선 도구 결과에 나온 것만 허용
+
+observability:
+  project: seoul-bike
+  eval_project: seoul-bike-eval
+  trace_header: X-Trace-Id
