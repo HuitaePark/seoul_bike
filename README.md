@@ -7,20 +7,34 @@
 
 ![아키텍처 구성도](docs/images/architecture.png)
 
-자체 서버 한 대에서 Docker Compose로 운영한다. 서비스끼리는 Redpanda(Kafka 호환)로 이벤트를 주고받고, 상태의 원본은 PostgreSQL이다.
+Docker Compose로 운영하며, 공개 포트는 frontend(:80)와 backend(:8080)뿐이다. 업무 규칙과 데이터 변경은 Spring Boot 한 곳에서만 일어나고, Agent는 MCP 도구로 조회·계산·변경을 요청한다. 변경 도구는 사람이 승인하기 전까지 멈춘다.
 
 | 계층 | 스택 |
 | --- | --- |
-| 에이전트 | LangGraph (근무조 그래프, 사람 승인 `interrupt`) |
-| 최적화 | OR-Tools (트럭 경로·회수·배치 대수) |
-| 백엔드 | Python 3.12, FastAPI |
-| 메시징 | Redpanda |
-| 저장 | PostgreSQL + PostGIS, Parquet + DuckDB |
-| 이동 시간 | OSRM |
-| 웹 | Next.js (관제 대시보드, 기사 PWA) |
+| 화면 | Vue 3 (관제 대시보드, 기사 PWA, 성과 리포트) |
+| 업무·작업 API | Spring Boot 3 (업무 API, 작업 API 202, SSE 중계, 인증 JWT, `/internal/**`) |
+| Agent | FastAPI, LangGraph 1.x, LangChain 1.x, Harness, LangSmith |
+| Tool | FastMCP (`business-mcp`, `rag-mcp`) |
+| 계산 | OR-Tools, 수요 예측 (Python `optimizer`), OSRM |
+| 대기열 | Kafka (Redpanda): `ai.*`, `solve.*`, 재시도·DLQ |
+| 저장 | PostgreSQL 16 + PostGIS (업무 데이터, checkpointer), pgvector (문서 임베딩), Parquet + DuckDB |
+
+### 아키텍처 뷰
+
+| 뷰 | 답하는 질문 |
+| --- | --- |
+| [01 전체 구성도](docs/images/views/01-container.png) | 어떤 서비스가 있고 무엇과 연결되는가 |
+| [02 논리 뷰](docs/images/views/02-logical.png) | 책임을 어느 계층에 두고 누가 누구를 호출하는가 |
+| [03a 계획 승인](docs/images/views/03a-runtime-plan.png) · [03b 현장 보고](docs/images/views/03b-runtime-report.png) | 메시지가 어떤 순서로 오가는가 |
+| [04 배포 뷰](docs/images/views/04-deployment.png) | 무엇이 어느 tier와 경계 안에서 실행되는가 |
+| [05 연결 뷰](docs/images/views/05-mcp-connection.png) | 도구와 근거 문서는 어디에서 오는가 |
+| [06 Harness](docs/images/views/06-harness.png) | 모델을 감싼 코드는 무엇으로 구성되는가 |
+
+모든 그림은 같은 이름의 `.svg`가 원본이다. Figma로 가져와 수정할 수 있다.
 
 ## 문서
 
+- [역할 분담 (6인)](docs/ROLES.md): 역할별 작업, 완료 기준, 1주차 계약, 단계
 - [PRD](docs/PRD.md): 문제 정의, 요구사항, 에이전트 설계
 - [아키텍처](docs/ARCHITECTURE.md): 스택, 모듈 구조, 메시징, 컨테이너 구성
 - [OR-Tools 파이프라인 가이드](docs/or-tools/README.md)
