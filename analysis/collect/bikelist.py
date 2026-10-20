@@ -37,11 +37,12 @@ def api_key():
     raise SystemExit("SEOUL_API_KEY가 .env에 없다")
 
 
-def get_page(key, a, b, service="bikeList"):
-    """서울 열린데이터광장 API의 a~b번째 행을 받는다. 네트워크 오류는 3번까지 다시 시도한다. 반환: 행 목록(데이터 없음이면 빈 목록)"""
+def get_page(key, a, b, service="bikeList", params=()):
+    """서울 열린데이터광장 API의 a~b번째 행을 받는다. params는 주소 뒤에 붙는 값(예: 날짜, 시).
+    네트워크 오류는 3번까지 다시 시도한다. 반환: 행 목록(데이터 없음이면 빈 목록)"""
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(URL.format(key=key, service=service, a=a, b=b), timeout=30) as r:
+            with urllib.request.urlopen(URL.format(key=key, service=service, a=a, b=b) + "/".join(params), timeout=30) as r:
                 js = json.load(r)
             break
         except Exception as e:  # 연결 오류, 키 오류 등으로 온 XML(JSON 해석 실패)
