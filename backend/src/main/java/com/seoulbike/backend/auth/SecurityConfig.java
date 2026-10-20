@@ -55,6 +55,7 @@ class SecurityConfig {
 				.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
 				.requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/signup").permitAll()
 				.requestMatchers("/api/admin/**").hasRole(Role.MANAGER.name())
+				.requestMatchers(HttpMethod.POST, "/api/reports").hasRole(Role.DRIVER.name())
 				.requestMatchers(HttpMethod.GET, "/", "/index.html", "/swagger", "/swagger/**", "/specs/**",
 						"/webjars/**", "/actuator/health/**", "/api/system/status")
 				.permitAll()

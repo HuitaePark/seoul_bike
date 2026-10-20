@@ -1,10 +1,10 @@
 asyncapi: 3.0.0
 info:
   title: 따릉이 재배치 에이전트 · Kafka 메시지
-  version: 0.3.0-draft
+  version: 0.4.0-draft
   description: |
-    **초안 v0.3.** 에이전트·최적화 담당 확인 전이다.
-    (v0.3: `threadId` 작업 단위, `requestedBy.truckId`, 이벤트 `code`, 계약 밖 필드는 전달하지 않음 · v0.2: 경로 변경 승인 카드 순서)
+    **초안 v0.4.** 에이전트·최적화 담당 확인 전이다.
+    (v0.4: FIELD_REPORT 명령에 `reportId`·`report` 필수 · v0.3: `threadId` 작업 단위, `requestedBy.truckId`, 이벤트 `code`, 계약 밖 필드는 전달하지 않음 · v0.2: 경로 변경 승인 카드 순서)
 
     공통 규칙
     - **키는 `shiftId`.** 한 근무조의 메시지는 같은 파티션에 들어가 순서대로 처리된다.
@@ -143,6 +143,10 @@ components:
         - $ref: '#/components/schemas/Envelope'
         - type: object
           required: [taskId, threadId, type, requestedBy]
+          if:
+            properties: { type: { const: FIELD_REPORT } }
+          then:
+            required: [reportId, report]
           properties:
             taskId: { type: string, format: uuid }
             threadId:
@@ -158,7 +162,12 @@ components:
               description: REQUEST·QUESTION 자연어
             reportId:
               type: string
-              description: FIELD_REPORT일 때
+              description: FIELD_REPORT일 때 (필수)
+            report:
+              $ref: 'internal-api.yaml#/components/schemas/FieldReport'
+              description: |
+                FIELD_REPORT일 때 (필수). 보고 값을 같이 실어 agent가 `get_field_reports`로 다시 읽지 않게 한다 (재경로 10초).
+                FIELD_REPORT 작업은 기사의 `POST /api/reports`로만 생기므로 `requestedBy`는 그 기사다.
             resume:
               type: object
               description: RESUME일 때. backend가 승인 기록을 남긴 뒤 보낸다

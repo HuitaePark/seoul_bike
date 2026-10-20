@@ -107,9 +107,8 @@ class TaskFlowTest {
 	@Test
 	void routeChangeCanOnlyBeApprovedByThatTrucksDriver() throws Exception {
 		String manager = login("manager");
-		var created = call("POST", "/api/ai/tasks", manager,
-				"{\"type\":\"FIELD_REPORT\",\"shiftId\":\"gwangjin-seongdong:2026-11-03:PM\"}");
-		String taskId = json.readTree(created.body()).path("taskId").asString();
+		var reported = report(login("driver1"), "gwangjin-seongdong:2026-11-03:PM", "BLOCKED");
+		String taskId = json.readTree(reported.body()).path("taskId").asString();
 
 		String approvalId;
 		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), manager, null)) {
@@ -130,12 +129,61 @@ class TaskFlowTest {
 		assertThat(call("POST", "/api/ai/tasks/" + taskId + "/approval", driver1, body).statusCode()).isEqualTo(202);
 	}
 
+	/** 보고한 기사의 트럭(JWT)이 명령의 requestedBy.truckId로 가서, 그 트럭 경로 카드가 그 기사에게 온다. */
+	@Test
+	void fieldReportReroutesTheReportersTruck() throws Exception {
+		String driver2 = login("driver2");
+		var reported = report(driver2, "gwangjin-seongdong:2026-11-06:AM", "CONSTRUCTION");
+		assertThat(reported.statusCode()).isEqualTo(202);
+		JsonNode accepted = json.readTree(reported.body());
+		assertThat(accepted.path("reportId").asString()).isNotBlank();
+		UUID taskId = UUID.fromString(accepted.path("taskId").asString());
+
+		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), driver2, null)) {
+			JsonNode card = nextCard(stream);
+			assertThat(card.path("approver").asString()).isEqualTo("DRIVER");
+			assertThat(card.path("truckId").asString()).isEqualTo("truck-2");
+			assertThat(decide(taskId, driver2, card)).isEqualTo(202);
+			assertThat(stream.readUntil(e -> e.type().equals("DONE") || e.type().equals("FAILED")).getLast().type())
+				.isEqualTo("DONE");
+		}
+	}
+
+	/** 보고는 기사만, issue가 있을 때만 재경로 작업. 현장 보고 작업을 작업 API로 만들 수는 없다 (G13). */
+	@Test
+	void reportsAreForDriversAndOnlyIssuesStartReroutes() throws Exception {
+		String manager = login("manager");
+		var progressOnly = report(login("driver1"), "gwangjin-seongdong:2026-11-06:PM", null);
+		assertThat(progressOnly.statusCode()).isEqualTo(202);
+		assertThat(json.readTree(progressOnly.body()).path("taskId").isNull()).isTrue();
+
+		assertThat(report(manager, "gwangjin-seongdong:2026-11-06:PM", "BLOCKED").statusCode()).isEqualTo(403);
+		var viaTasks = call("POST", "/api/ai/tasks", manager,
+				"{\"type\":\"FIELD_REPORT\",\"shiftId\":\"gwangjin-seongdong:2026-11-06:PM\"}");
+		assertThat(viaTasks.statusCode()).isEqualTo(400);
+		assertThat(json.readTree(viaTasks.body()).path("code").asString()).isEqualTo("USE_REPORTS_API");
+
+		var negative = call("POST", "/api/reports", login("driver1"),
+				"{\"shiftId\":\"s\",\"stationId\":\"ST-1\",\"actualBikes\":-1}");
+		assertThat(negative.statusCode()).isEqualTo(400);
+	}
+
 	@Test
 	void driverCannotCreatePlanTasks() throws Exception {
 		var res = call("POST", "/api/ai/tasks", login("driver1"),
 				"{\"type\":\"PLAN_DRAFT\",\"shiftId\":\"gwangjin-seongdong:2026-11-03:AM\"}");
 		assertThat(res.statusCode()).isEqualTo(403);
 		assertThat(json.readTree(res.body()).path("code").asString()).isEqualTo("TASK_TYPE_NOT_ALLOWED");
+	}
+
+	private HttpResponse<String> report(String token, String shiftId, String issue) throws Exception {
+		ObjectNode body = json.createObjectNode()
+			.put("shiftId", shiftId)
+			.put("stationId", "ST-102")
+			.put("actualBikes", 0)
+			.put("issue", issue)
+			.put("memo", "입구 공사로 진입 불가");
+		return call("POST", "/api/reports", token, json.writeValueAsString(body));
 	}
 
 	/**
@@ -231,9 +279,8 @@ class TaskFlowTest {
 	@Test
 	void applyCheckFollowsBackendGradeAndTruck() throws Exception {
 		String manager = login("manager");
-		var created = call("POST", "/api/ai/tasks", manager,
-				"{\"type\":\"FIELD_REPORT\",\"shiftId\":\"gwangjin-seongdong:2026-11-05:PM\"}");
-		UUID taskId = UUID.fromString(json.readTree(created.body()).path("taskId").asString());
+		var reported = report(login("driver1"), "gwangjin-seongdong:2026-11-05:PM", "BLOCKED");
+		UUID taskId = UUID.fromString(json.readTree(reported.body()).path("taskId").asString());
 
 		JsonNode driverCard;
 		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), manager, null)) {
