@@ -2,13 +2,13 @@
 
 ## 확인 기준
 
-- 최초 확인 origin/main: 221caf5. 현재 18e11a3의 공개 API v0.3·내부 API/Kafka v0.2까지 반영했다.
+- 최초 확인 origin/main: 221caf5. 현재 3428c52의 공개 API v0.3·내부 API/Kafka v0.2까지 반영했다.
 - 개인 브랜치: `feat/optimizer-core`.
 - 기존 원격 작업: `aeaa62c`(최적화 코어), `e0d3d36`(실행 안내·명세 초안).
 - `9460226`에서 최신 main을 개인 브랜치에 충돌 없이 병합했다.
 - OSRM 후속 구현은 로컬 `8c38ee1`로 저장했고, 이후 추가된 공통 명세도 병합했다.
-- 4009edf까지 개인 브랜치 원격 push를 완료했다.
-- 이번 명세 갱신은 3c621bd에서 최신 main 병합 후 진행하며 로컬에 저장한다.
+- f7c1f89까지 개인 브랜치 원격 push를 완료했다.
+- a147ba3에서 최신 main 3428c52를 병합했다. 이번 Kafka 실행기 후속 개발은 로컬에 저장한다.
 - 명세 PR은 docs/specs의 역할 명세·목록·예시 5개 파일로 분리하고, 구현은 별도 PR로 제출할 계획이다.
 
 ## 최신 main의 상태
@@ -18,6 +18,7 @@ Spring Boot 백엔드는 backend/로 이동했고 Vue 공통 뼈대는 frontend/
 agent 자리는 설정으로 켜는 가짜 에이전트가 대신하며 retry/DLQ는 후속 단계다.
 대여소·계획·현장 보고·성과 API와 /internal/**·solve.*는 아직 계약 단계다.
 경로 변경은 backend가 정한 requiredApprovers 순서로 승인한다. MINOR는 기사, MAJOR는 관리자 → 기사다.
+변경 등급·승인 순서 검사와 Harness의 공통 계약 대응도 반영했다.
 기존 최적화 코어와 이번 OSRM 변경은 개인 브랜치에 있으며 main에는 아직 없다.
 
 ## 내가 진행한 구현
@@ -30,19 +31,22 @@ agent 자리는 설정으로 켜는 가짜 에이전트가 대신하며 retry/DL
 | 차량 배정 제한 | fixedStationIds를 두 정책에 반영. 불가능하면 미처리 | 다른 차량 이동 방지·용량 부족 검증 |
 | 이번 도로 연결 | OSRM 거리·시간, 좌표 변환·중복 제거, 100개 한도 분할, 비대칭 행렬, 오류 분류 | 테스트용 HTTP·201개 고유 좌표 분할 검증 |
 | 이번 캐시 | 순서·좌표·지도 버전별 메모리/디스크 캐시, 만료·손상 복구, 파일 수 제한 | 다른 프로세스 재사용·오류 시나리오 검증 |
-| 이번 독립 인프라 | 고정 OSRM 이미지, CH 전처리, 로컬 Compose, 최적화 컨테이너, CI 구성 검사 | 구성·스크립트 검사 통과. 컨테이너 실구동 미검증 |
+| 이번 독립 인프라 | 고정 OSRM 이미지, CH 전처리, 로컬 Compose, 최적화 컨테이너, CI 구성 검사 | 구성·스크립트 검사 통과. OSRM 실구동 미검증 |
+| Kafka 실행기 | solve 요청 소비·결과 발행, shiftId 키, trace 전달, ACK 후 offset commit, 파일 상태로 완료 결과 재사용 | 실제 독립 브로커·재시작 검증. 단일 worker·동일 상태 볼륨 전제 |
+| Kafka 개발 인프라 | 개발용 브로커·solve 토픽 초기화·worker Compose, 필수 requestId별 실행 설정 | 실제 이미지 빌드·컨테이너 구동 검증. 운영 backend 미연결 |
 | 문서 | docs/specs/optimizer.md와 공통 요청·결과 예시 추가. 예전 독자 명세 정리 | 공통 YAML 변경 없음 |
 
 DB 직접 접근과 LLM 호출은 없다. 기존 CLI는 가상 대여소·예측 데모다.
 별도 contract.solve_request()는 공통 메시지의 계산된 neededBikes를 받으며,
-명시적 SolveContext와 이동 공급자가 필요하다. Kafka 수신은 아직 구현하지 않았다.
+명시적 SolveContext와 이동 공급자가 필요하다. 별도 worker는 외부 runtime 파일에서
+requestId별 설정을 받고 Kafka를 처리한다. 실제 backend 요청 생성·결과 소비는 아직 연결하지 않았다.
 
 ## 협의·연결이 필요한 항목
 
-1. **실행 설정·Kafka 연결:** [공통 대응 명세](../specs/optimizer.md)를 기준으로
-   호출자가 차고지·고정 기준 시각·도로 공급자를 제공하는 경로와
-   승인 전후 처리·eventId/requestId 영속 중복 반영의 책임을 담당자와 확인한다.
-   이후 `solve.requests/results`, 재시도·DLQ, topics-init을 연결한다.
+1. **운영 설정·backend 연결:** [공통 대응 명세](../specs/optimizer.md)를 기준으로
+   권역·스냅샷의 차고지·기준 시각을 자동 공급하는 경로를 담당자와 확인한다.
+   로컬 worker는 저장 결과를 재사용하지만 발행 직후 장애에서는 동일 결과 eventId가 재전달될 수 있다.
+   backend 결과 소비 중복 제거·운영 저장소·보존·재시도/DLQ 정책을 확정하고 실제 흐름에 연결한다.
 2. **역할 6과 권역·정책 확정:** 도로 파일 범위와 버전, 운영 상한, 우선순위,
    근무시간·작업시간을 확정한다. 그 입력으로 실제 도로의 200곳·5대 성능을 측정한다.
 3. **준비된 Vue 공통 뼈대 사용:** frontend/src/features/plan-map/의 지도·계획 검토 설계를 진행할 수 있다.

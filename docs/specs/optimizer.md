@@ -1,7 +1,7 @@
 # 최적화 · 인프라 명세
 
-상태: **명세 검토용, 계산 구현은 개인 브랜치에 있으며 Kafka 미연결**. 담당: 역할 5.
-기준 main: `18e11a3`.
+상태: **명세 검토용, 계산·Kafka 실행기는 개인 브랜치에 있으며 운영 backend 미연결**. 담당: 역할 5.
+기준 main: `3428c52`.
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
@@ -30,8 +30,9 @@ NONE은 적용하지 않고, MINOR는 기사 승인, MAJOR는 관리자 → 기�
 optimizer는 grade·requiredApprovers·승인 카드를 생성하지 않는다.
 TaskEventMessage의 seq는 backend가 부여하는 작업 이벤트 정보이며 SolveResult에 추가하지 않는다.
 
-`contract.solve_request()`는 변환·계산·결과 생성 함수다. Kafka 소비·발행, offset commit,
-영속 중복 제거, retry/DLQ와 topics-init은 후속 연결 범위다. 현재 함수는 결과를 저장하지 않는다.
+`contract.solve_request()`는 변환·계산·결과 생성 함수이며 자체 저장·전송은 하지 않는다.
+별도 worker가 Kafka 소비·발행, 결과 파일 저장·중복 제거, offset commit을 맡는다.
+독립 개발용 solve 토픽 초기화도 제공한다. 운영 backend·배포 연결과 retry/DLQ는 후속 범위다.
 
 ## 공통 요청 대응
 
@@ -67,6 +68,10 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
 현재 AsyncAPI 0.2.0-draft의 SolveRequest에도 차고지와 입력 스냅샷 기준 시각 필드가 없다. 호출자가
 `SolveContext(depot, as_of)`와 `travel_time` 공급자를 명시한다.
 실행기는 권역 설정·입력 스냅샷 메타데이터에서 이를 제공해야 한다. 해당 연결은 아직 남아 있다.
+
+현재 worker는 requestId별 shiftId·depot·asOf를 명시한 외부 runtime JSON을 시작 시 읽는다.
+설정이 없는 요청은 미완료로 두고 중단한다. 이 파일은 Kafka 메시지 스키마가 아니며
+운영 메타데이터를 자동으로 제공하는 연결은 아직 없다.
 
 - depot: 권역 복귀 차고지 (위도, 경도). 근무시간에 복귀 이동을 포함한다.
 - as_of: 고정 계산 기준 시각. 남은 근무시간과 ETA가 모두 같은 기준을 사용한다.
@@ -110,8 +115,22 @@ OSRM 도로 거리·시간을 조회하며 중복 제거·요청 분할·순서 
 정적 car 프로필은 실시간 교통·트럭 높이/중량을 보장하지 않는다.
 
 [개인 브랜치의 독립 개발 환경](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
-운영 Compose·topics-init·Kafka 연결·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
+운영 Compose·backend 연결·retry/DLQ·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
 구현 브랜치의 CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
+
+## Kafka 실행기
+
+[개인 브랜치 실행 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/optimizer/KAFKA.md)를 따른다.
+키 shiftId 검증, traceId·traceparent 전달, 발행 ACK 후 해당 입력 offset의 동기 commit을 수행한다.
+eventId와 requestId의 저장 기록을 확인하며, 같은 requestId의 완료 결과를 새로 생성하지 않는다.
+계산 입력이 달라진 ID 재사용은 중단한다. 결과 파일은 업무 DB와 별개인 실행기 전용 상태다.
+
+동일한 상태 볼륨의 단일 worker가 전제다. 발행 ACK 직후 상태 저장 전 장애에서는
+**같은 결과 eventId가 재전달될 수 있으므로 backend도 eventId 중복 제거가 필요하다.**
+분산 exactly-once·수평 확장·상태 볼륨 유실 복구를 보장하지 않는다.
+잘못된 봉투·설정 누락·상태 손상·전송 실패는 미완료 입력을 commit하지 않고 중단한다.
+FAILED·TIMEOUT도 같은 requestId의 최종 계산 결과이며, 새 계산은 새 requestId를 쓴다.
+자동 retry/DLQ의 횟수·간격·독성 메시지 처리는 담당자 합의 후 연결한다.
 
 ## 예시와 단독 호출
 

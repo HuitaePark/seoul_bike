@@ -1,7 +1,8 @@
 # 최적화 코어 개발 안내
 
 역할 5의 독립 작업 범위다. 코드 위치는 기존 `or-tools/`를 유지한다.
-공통 모듈 이전, Kafka 연결, 운영 배포 구성은 이 변경에 포함하지 않는다.
+공통 모듈 이전과 운영 배포 연결은 포함하지 않는다.
+공통 메시지를 처리하는 [독립 Kafka 실행기](../../infra/optimizer/KAFKA.md)는 별도로 제공한다.
 독립 실행용 [OSRM 개발 환경](../../infra/optimizer/README.md)은 별도로 제공한다.
 
 ## 실행
@@ -72,7 +73,8 @@ cd or-tools
 
 실행 예시와 지도 파일 준비는 [독립 개발 환경](../../infra/optimizer/README.md)을 따른다.
 공통 메시지는 [AsyncAPI](../specs/asyncapi.yaml)를 따른다. 변환·계산 함수와 실행 설정은
-[역할 5 명세](../specs/optimizer.md)에 있다. Kafka 전송·중복 제거 실행기는 후속 작업이다.
+[역할 5 명세](../specs/optimizer.md)에 있다. Kafka 실행기는 전용 파일 상태로 결과를 재사용하며,
+실제 backend 연결·운영 중복 방지 저장소·retry/DLQ는 후속 작업이다.
 
 ## 미처리 사유
 

@@ -17,9 +17,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt -r or-tools/requirements-dev.txt
+      - run: pip install -r requirements.txt -r or-tools/requirements-worker.txt -r or-tools/requirements-dev.txt
       - run: python -m pytest -q
         working-directory: or-tools
+      - name: 독립 Kafka 브로커 시작
+        run: docker compose -f infra/optimizer/compose.kafka.yaml up -d --wait broker
+      - name: 최적화 Kafka 송수신·재시작 검증
+        working-directory: or-tools
+        env:
+          OPTIMIZER_KAFKA_BOOTSTRAP: 127.0.0.1:19092
+        run: python -m pytest -q tests/integration/test_kafka_live.py
+      - name: 독립 Kafka 테스트 환경 정리
+        if: always()
+        run: docker compose -f infra/optimizer/compose.kafka.yaml down --volumes
 
   backend:
     runs-on: ubuntu-latest
@@ -75,3 +85,4 @@ jobs:
         run: |
           sh -n infra/optimizer/prepare-osrm.sh
           docker compose -f infra/optimizer/compose.dev.yaml --profile prepare --profile tools config -q
+          docker compose -f infra/optimizer/compose.kafka.yaml config -q

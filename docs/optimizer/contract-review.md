@@ -1,6 +1,6 @@
 # 공통 solve 명세 대응 기록
 
-기준 main: 18e11a3. 공개 API 0.3.0-draft, 내부 API·Kafka 0.2.0-draft를 따른다.
+기준 main: 3428c52. 공개 API 0.3.0-draft, 내부 API·Kafka 0.2.0-draft를 따른다.
 공유 YAML을 유지하고 개인 브랜치의 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
@@ -17,8 +17,9 @@
 
 차고지·스냅샷 기준 시각은 SolveContext, 도로 공급자는 travel_time으로 호출자가 명시한다.
 Kafka 실행기가 권역·스냅샷 메타데이터에서 이 설정을 얻는 연결은 남아 있다.
-영속 중복 제거·결과 발행·offset commit·retry/DLQ도 실행기 연결 단계에서 담당자와 구현한다.
-현재 함수는 중복 결과를 저장하지 않는다.
+독립 worker는 Kafka 결과 발행·offset commit과 단일 상태 볼륨의 파일 중복 방지를 구현했다.
+발행 직후 장애에서는 같은 결과 eventId가 재전달될 수 있어 backend 소비자 중복 제거도 필요하다.
+retry/DLQ·운영 상태 저장·배포 정책은 담당자와 연결해야 한다. 순수 계산 함수 자체는 저장하지 않는다.
 
 테스트는 공통 YAML을 직접 읽어 정상·부분 처리·오류·타임아웃 결과를 검증한다.
 실제 도로 품질·서버 배포·전체 응답시간 완료를 의미하지 않는다.
