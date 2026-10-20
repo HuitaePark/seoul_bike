@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Checks plan feasibility (load limits, no duplicate visits) and OR-Tools vs greedy cost.
+
 import unittest
 
 from rebalancing.baseline import plan_greedy

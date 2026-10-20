@@ -1,3 +1,9 @@
+<!--
+Author: Jung Minkyu
+Date: 20OCT2026
+Purpose: Explains the OR-Tools rebalancing architecture, model, results and their meaning.
+-->
+
 # OR-Tools로 따릉이 재배치(Rebalancing) 최적화하기
 
 ## 1. OR-Tools가 뭐고, 왜 이 프로젝트에 맞나

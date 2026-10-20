@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Entry point that runs the mock pipeline and compares greedy vs OR-Tools plans.
+
 """Run the end-to-end mock pipeline:  python -m rebalancing --hour 8 --trucks 3"""
 from __future__ import annotations
 

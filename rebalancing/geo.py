@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Haversine distance helpers that build the integer distance matrix OR-Tools needs.
+
 from __future__ import annotations
 
 from math import asin, cos, radians, sin, sqrt

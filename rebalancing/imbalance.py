@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Converts demand forecasts into per-station pickup/dropoff quantities.
+
 """Turns forecasts into the per-station pickup/dropoff quantities the solver needs."""
 from __future__ import annotations
 

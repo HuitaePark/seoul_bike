@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Generates synthetic Seoul stations and trucks until the real API feed is connected.
+
 """Synthetic Seoul stations. Replace with the real Seoul Open Data API feed later."""
 from __future__ import annotations
 

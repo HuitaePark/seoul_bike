@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Solves truck routing as a capacitated VRP with pickups/dropoffs using Google OR-Tools.
+
 """Truck routing with Google OR-Tools.
 
 Model: a vehicle-routing problem where every station is a node with a *signed

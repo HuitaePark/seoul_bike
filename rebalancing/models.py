@@ -1,3 +1,7 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: Dataclasses shared by every layer of the rebalancing pipeline.
+
 """Domain models shared by every layer of the rebalancing pipeline."""
 from __future__ import annotations
 
