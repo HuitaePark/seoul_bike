@@ -187,10 +187,29 @@ components:
                   enum: [MANAGER, DRIVER, EXECUTIVE]
 
     TaskEventMessage:
-      description: SSE data와 같은 형식에 봉투 필드를 더한다
+      description: |
+        SSE data(openapi TaskEvent)에서 `seq`를 뺀 형식에 봉투 필드를 더한다.
+        **`seq`는 agent가 보내지 않는다.** backend가 저장할 때 작업마다 1부터 매기고 SSE `id`로 쓴다.
       allOf:
         - $ref: '#/components/schemas/Envelope'
-        - $ref: 'openapi.yaml#/components/schemas/TaskEvent'
+        - type: object
+          required: [taskId, type]
+          properties:
+            taskId: { type: string, format: uuid }
+            type: { $ref: 'openapi.yaml#/components/schemas/TaskEventType' }
+            token: { type: string }
+            tool:
+              type: object
+              properties:
+                name: { type: string }
+                label: { type: string }
+                ok: { type: boolean }
+            approval: { $ref: 'openapi.yaml#/components/schemas/ApprovalRequest' }
+            answer: { type: string }
+            sources:
+              type: array
+              items: { $ref: 'openapi.yaml#/components/schemas/Source' }
+            error: { type: string }
 
     SolveStation:
       type: object
