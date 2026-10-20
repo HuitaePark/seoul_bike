@@ -14,7 +14,7 @@ flowchart LR
 
 | 파일 | 역할 |
 | --- | --- |
-| `infra/compose.yaml` | 서비스 정의. 지금은 postgres(PostGIS), vectordb(pgvector), redpanda |
+| `infra/compose.yaml` | 서비스 정의. 지금은 backend(Spring Boot, :8080 공개), postgres(PostGIS), vectordb(pgvector), redpanda |
 | `infra/.env.example` | 서버 `.env` 양식 |
 | `infra/runner/install-macos.sh` | 서버에 러너 설치 + launchd 서비스 등록 |
 | `.github/workflows/ci.yml` | PR·main 검사 (GitHub 호스팅 러너) |
@@ -42,6 +42,8 @@ flowchart LR
 5. 잠자기 방지: `pmset`에 `disablesleep 1`과 전원 연결 시 `sleep 0`이 설정돼 있어 **덮개를 닫아도 잠들지 않는다.** 보조로 `~/Library/LaunchAgents/com.seoulbike.caffeinate.plist`가 `caffeinate -s`를 상시 실행한다. 덮개를 닫은 채 부하가 크면 발열이 커지므로 통풍되는 곳에 둔다.
 
 같은 서버에서 Ollama(`com.baki.ollama-server`, `100.109.172.112:11434`)도 돈다. 모델을 올리면 메모리를 쓰므로 Colima 메모리(8GB)와 합이 16GB를 넘지 않게 본다.
+
+접속 확인: `http://baki-macbookpro.tail3286a4.ts.net:8080` (시스템 상태 페이지, Tailscale 네트워크 안에서만).
 
 ## 배포하기
 
