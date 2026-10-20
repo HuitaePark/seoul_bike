@@ -7,13 +7,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import com.seoulbike.backend.auth.CurrentUser;
 import com.seoulbike.backend.auth.Role;
 import com.seoulbike.backend.common.ApiException;
 
 @Service
-class TaskService {
+public class TaskService {
 
 	record CreateTask(TaskType type, String shiftId, String text) {
 	}
@@ -36,11 +37,11 @@ class TaskService {
 		this.tx = tx;
 	}
 
-	/**
-	 * 작업을 먼저 커밋하고 큐에 넣는다. 반대로 하면 에이전트 이벤트가 커밋보다 먼저 와서 "모르는 작업"으로 버려진다.
-	 * 큐에 못 넣으면 작업을 지우고 503을 돌려준다.
-	 */
 	TaskAccepted create(CurrentUser user, CreateTask req) {
+		// 현장 보고는 보고 기록과 함께 /api/reports가 만든다. 여기로 오면 reportId 없는 명령이 된다 (G13).
+		if (req.type() == TaskType.FIELD_REPORT) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "USE_REPORTS_API", "현장 보고 작업은 POST /api/reports로 만든다");
+		}
 		if (!allowedTypes(user.role()).contains(req.type())) {
 			throw ApiException.forbidden("TASK_TYPE_NOT_ALLOWED", user.role() + " 역할은 " + req.type() + " 작업을 만들 수 없다");
 		}
@@ -48,11 +49,27 @@ class TaskService {
 				&& (req.text() == null || req.text().isBlank())) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "TEXT_REQUIRED", req.type() + " 작업은 text가 필요하다");
 		}
+		return start(user, req.type(), req.shiftId(), req.text(), null);
+	}
+
+	/**
+	 * 현장 보고(POST /api/reports)가 재경로 작업을 만든다. 보고 값(계약 FieldReport)은 명령에 실어
+	 * agent가 다시 읽지 않게 한다. 큐에 못 넣으면 503 ApiException이고 작업은 남지 않는다.
+	 */
+	public UUID startFieldReport(CurrentUser driver, String shiftId, ObjectNode report) {
+		return start(driver, TaskType.FIELD_REPORT, shiftId, null, report).taskId();
+	}
+
+	/**
+	 * 작업을 먼저 커밋하고 큐에 넣는다. 반대로 하면 에이전트 이벤트가 커밋보다 먼저 와서 "모르는 작업"으로 버려진다.
+	 * 큐에 못 넣으면 작업을 지우고 503을 돌려준다.
+	 */
+	private TaskAccepted start(CurrentUser user, TaskType type, String shiftId, String text, ObjectNode report) {
 		UUID taskId = UUID.randomUUID();
 		String traceId = UUID.randomUUID().toString().replace("-", "");
-		tasks.insert(taskId, req.type(), req.shiftId(), req.text(), user.id(), traceId);
+		tasks.insert(taskId, type, shiftId, text, user.id(), traceId);
 		try {
-			publisher.newTask(taskId, req.type(), req.shiftId(), req.text(), traceId, user);
+			publisher.newTask(taskId, type, shiftId, text, traceId, user, report);
 		}
 		catch (ApiException e) {
 			tasks.delete(taskId);
@@ -116,7 +133,7 @@ class TaskService {
 
 	private static Set<TaskType> allowedTypes(Role role) {
 		return switch (role) {
-			case MANAGER -> Set.of(TaskType.values());
+			case MANAGER -> Set.of(TaskType.PLAN_DRAFT, TaskType.REQUEST, TaskType.QUESTION);
 			case DRIVER, EXECUTIVE -> Set.of(TaskType.QUESTION);
 		};
 	}

@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.2.0-draft
+  version: 0.3.0-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
-    **초안 v0.2.** MCP·에이전트 담당 확인 전이다.
+    **초안 v0.3.** MCP·에이전트 담당 확인 전이다.
 
+    - v0.3: `FieldReport`에 `loaded`·`unloaded`, `issue` 값 목록. 같은 모양이 `ai.tasks` FIELD_REPORT 명령의 `report`로도 간다.
     - v0.2: 경로 변경 승인 순서. 후보(`PlanCandidate`)에 `requiredApprovers`, 적용 API의 확인 규칙.
 
     - docker network 안에서만 열린다. 화면과 외부에서는 호출하지 않는다.
@@ -370,7 +371,9 @@ components:
         driver: { type: string, description: 마스킹된 표시 (예 기사 A) }
         stationId: { type: string }
         actualBikes: { type: integer }
-        issue: { type: [string, 'null'] }
+        loaded: { type: [integer, 'null'], description: 이 정류장에서 실은 대수 }
+        unloaded: { type: [integer, 'null'], description: 이 정류장에서 내린 대수 }
+        issue: { type: [string, 'null'], enum: [BLOCKED, CONSTRUCTION, INVENTORY_MISMATCH, OTHER, null] }
         memo: { type: [string, 'null'] }
         reportedAt: { type: string, format: date-time }
 

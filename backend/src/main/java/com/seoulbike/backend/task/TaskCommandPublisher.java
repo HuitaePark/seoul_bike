@@ -33,10 +33,16 @@ class TaskCommandPublisher {
 		this.json = json;
 	}
 
-	void newTask(UUID taskId, TaskType type, String shiftId, String text, String traceId, CurrentUser by) {
+	/** @param report FIELD_REPORT일 때 계약 FieldReport. 명령의 reportId·report가 된다. 아니면 null */
+	void newTask(UUID taskId, TaskType type, String shiftId, String text, String traceId, CurrentUser by,
+			ObjectNode report) {
 		ObjectNode cmd = envelope(taskId, shiftId, traceId, type.name(), by);
 		if (text != null) {
 			cmd.put("text", text);
+		}
+		if (report != null) {
+			cmd.put("reportId", report.path("reportId").asString());
+			cmd.set("report", report);
 		}
 		send(shiftId, cmd);
 	}

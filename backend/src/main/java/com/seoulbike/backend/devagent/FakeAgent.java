@@ -47,9 +47,9 @@ class FakeAgent {
 	private static final List<Stop> ROUTE = List.of(new Stop("ST-101", Action.PICKUP, 5),
 			new Stop("ST-102", Action.PICKUP, 3), new Stop("ST-103", Action.DROPOFF, 6), new Stop("ST-104", Action.DROPOFF, 2));
 
-	/** 현장 보고: ST-102 진입 불가로 한 곳이 빠지고 4분 늘어난다 → 작은 변경. */
-	private static final RouteDiff FIELD_REPORT_DIFF = new RouteDiff(TRUCK, ROUTE, List.of(ROUTE.get(0),
-			new Stop("ST-103", Action.DROPOFF, 3), ROUTE.get(3)), 4);
+	/** 현장 보고: ST-102 진입 불가로 한 곳이 빠지고 4분 늘어난다 → 작은 변경. 트럭은 보고한 기사의 트럭이다. */
+	private static final List<Stop> FIELD_REPORT_AFTER = List.of(ROUTE.get(0), new Stop("ST-103", Action.DROPOFF, 3),
+			ROUTE.get(3));
 
 	/** 관리자 요청: 행사장 근처 ST-201에 4대를 더 놓는다 → 관리자 요청에서 비롯된 큰 변경. */
 	private static final RouteDiff REQUEST_DIFF = new RouteDiff(TRUCK, ROUTE, List.of(ROUTE.get(0), ROUTE.get(1),
@@ -101,8 +101,12 @@ class FakeAgent {
 				});
 			}
 			case "FIELD_REPORT" -> {
-				tokens(cmd, "현장 보고를 반영해 " + TRUCK + "의 남은 경로를 다시 짰다. 정류장 1곳이 빠지고 4분 늘어난다.");
-				proposeRoute(cmd, FIELD_REPORT_DIFF, RouteDiff.Origin.FIELD_REPORT);
+				// 보고한 기사의 트럭 경로를 바꾼다. 명령에 보고 값(report)이 같이 온다 (계약 v0.4).
+				String truck = cmd.path("requestedBy").path("truckId").asString(TRUCK);
+				JsonNode report = cmd.path("report");
+				tokens(cmd, "현장 보고(" + report.path("stationId").asString("?") + " " + report.path("issue").asString("")
+						+ ")를 반영해 " + truck + "의 남은 경로를 다시 짰다. 정류장 1곳이 빠지고 4분 늘어난다.");
+				proposeRoute(cmd, new RouteDiff(truck, ROUTE, FIELD_REPORT_AFTER, 4), RouteDiff.Origin.FIELD_REPORT);
 			}
 			default -> {
 				tokens(cmd, "질문에 대한 답이다: " + cmd.path("text").asString("") + " → 실제 답변은 진짜 agent가 만든다.");
