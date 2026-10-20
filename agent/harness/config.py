@@ -56,8 +56,21 @@ class RecoverySettings:
 
 
 @dataclass(frozen=True)
+class ApprovalRule:
+    """How a destructive tool's approval cards look (docs/specs openapi ApprovalRequest).
+
+    `approver` is fixed for plans and constraints. For route changes it is None: the backend decides the approval
+    order per candidate (`PlanCandidate.requiredApprovers`) and the agent follows it, never the grade itself.
+    """
+
+    kind: str  # SUBMIT_PLAN | ADD_CONSTRAINT | ROUTE_CHANGE
+    approver: str | None = None  # MANAGER | DRIVER
+
+
+@dataclass(frozen=True)
 class GuardrailSettings:
-    approver: dict[str, str]
+    approval: dict[str, ApprovalRule]
+    injected_args: tuple[str, ...]
     mask_keys: frozenset[str]
     id_pattern: str
 
@@ -67,6 +80,7 @@ class ObservabilitySettings:
     project: str
     eval_project: str
     trace_header: str
+    tool_labels: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -128,10 +142,16 @@ def load_config(path: Path | str = DEFAULT_CONFIG, prompts_dir: Path | str = DEF
             retry_status=frozenset(int(s) for s in r["retry_status"]),
         ),
         guardrails=GuardrailSettings(
-            approver=dict(g["approver"]), mask_keys=frozenset(g["mask_keys"]), id_pattern=g["id_pattern"]
+            approval={name: ApprovalRule(**rule) for name, rule in g["approval"].items()},
+            injected_args=tuple(g["injected_args"]),
+            mask_keys=frozenset(g["mask_keys"]),
+            id_pattern=g["id_pattern"],
         ),
         observability=ObservabilitySettings(
-            project=o["project"], eval_project=o["eval_project"], trace_header=o["trace_header"]
+            project=o["project"],
+            eval_project=o["eval_project"],
+            trace_header=o["trace_header"],
+            tool_labels=dict(o.get("tool_labels") or {}),
         ),
         prompts_dir=Path(prompts_dir),
     )

@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .events import EventSink
+from .events import EventSink, EventType, ProgressEvent
 from .guardrails import Masker
 
 TaskType = Literal["plan_draft", "field_report", "manager_request", "qa"]
@@ -21,7 +21,7 @@ TaskType = Literal["plan_draft", "field_report", "manager_request", "qa"]
 class Requester:
     """Who created the task (from the backend's authenticated user, never from model output)."""
 
-    role: Literal["manager", "driver", "scheduler"]
+    role: Literal["manager", "driver", "executive", "scheduler"]
     truck_id: str | None = None  # 기사면 필수: 기사는 자기 트럭만 조회·제안한다 (NFR-06)
 
     def __post_init__(self) -> None:
@@ -31,21 +31,35 @@ class Requester:
 
 @dataclass(frozen=True)
 class FieldReport:
-    """Structured part of a driver report (PRD 6.5 `field_report`). Numbers here come from the driver app,
-    so they are the only bike counts a model may put into constraints (NFR-07)."""
+    """A driver report as the backend stores it (docs/specs internal-api `FieldReport`). Bike counts come from
+    the driver app, so they are the only counts a model may use for an inventory constraint (NFR-07)."""
 
+    report_id: str
     truck_id: str
     station_id: str
-    actual_bikes: int | None = None
+    actual_bikes: int
     loaded: int = 0
     unloaded: int = 0
-    issue: Literal["blocked", "construction", "other"] | None = None
+    issue: Literal["BLOCKED", "CONSTRUCTION", "INVENTORY_MISMATCH", "OTHER"] | None = None
+    memo: str | None = None
+
+    @classmethod
+    def from_contract(cls, data: dict) -> FieldReport:
+        return cls(
+            report_id=data["reportId"],
+            truck_id=data["truckId"],
+            station_id=data["stationId"],
+            actual_bikes=int(data["actualBikes"]),
+            loaded=int(data.get("loaded") or 0),
+            unloaded=int(data.get("unloaded") or 0),
+            issue=data.get("issue"),
+            memo=data.get("memo"),
+        )
 
     def render(self) -> str:
-        parts = [f"트럭 {self.truck_id}", f"대여소 {self.station_id}"]
-        if self.actual_bikes is not None:
-            parts.append(f"실제 재고 {self.actual_bikes}대")
-        parts += [f"싣기 {self.loaded}대", f"내리기 {self.unloaded}대"]
+        """Code-written facts for the model. The free-text memo is passed separately as untrusted input."""
+        parts = [f"보고 {self.report_id}", f"트럭 {self.truck_id}", f"대여소 {self.station_id}"]
+        parts += [f"실제 재고 {self.actual_bikes}대", f"싣기 {self.loaded}대", f"내리기 {self.unloaded}대"]
         if self.issue:
             parts.append(f"사정 {self.issue}")
         return ", ".join(parts)
@@ -103,6 +117,13 @@ class HarnessContext:
     def elapsed(self) -> float:
         return self.clock() - self.stats.started_at
 
+    def emit(self, type_: EventType, body: dict | None = None, harness: dict | None = None) -> None:
+        """`body` holds contract fields (docs/specs TaskEvent); `harness` holds extensions not in the contract."""
+        t = self.task
+        self.sink.emit(
+            ProgressEvent(type_, t.task_id, t.trace_id, t.shift_id, body or {}, harness or {})
+        )
+
 
 Status = Literal["DONE", "APPROVAL_REQUIRED", "FAILED"]
 
@@ -116,6 +137,6 @@ class Outcome:
     answer: str = ""
     code: str | None = None
     message: str | None = None
-    approvals: list[dict] = field(default_factory=list)  # APPROVAL_REQUIRED일 때 승인할 도구 호출
+    approval: dict | None = None  # APPROVAL_REQUIRED: 계약 ApprovalRequest (승인 카드)
     rejected: bool = False
     stats: SegmentStats | None = None

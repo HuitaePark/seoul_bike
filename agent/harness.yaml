@@ -50,7 +50,6 @@ tools:
       - business_get_current_plan
       - business_get_truck_status
       - business_get_field_reports
-      - business_get_audit             # PRD 6.7 get_audit. 05 뷰에 없음: 3 MCP · RAG와 계약 필요
       - rag_search_docs
 
 context:
@@ -71,14 +70,28 @@ recovery:
   retry_status: [429, 503]
 
 guardrails:
-  approver:                         # 승인 주체. by_grade = backend 변경 등급 규칙(minor 기사, major 관리자)
-    business_submit_plan: manager
-    business_add_constraint: manager
-    business_propose_route_change: by_grade
-  mask_keys: [driver_name, driver_phone, phone, driver_location, truck_position]
-  id_pattern: 'ST-\d+'              # 변경 도구 인자의 대여소 ID는 앞선 도구 결과에 나온 것만 허용
+  approval:                         # 승인 카드 (docs/specs openapi ApprovalRequest). 승인이 곧 수락이다
+    business_submit_plan: {kind: SUBMIT_PLAN, approver: MANAGER}
+    business_add_constraint: {kind: ADD_CONSTRAINT, approver: MANAGER}
+    business_propose_route_change:  # 승인자는 후보의 requiredApprovers 순서 (backend가 정함: MINOR 기사, MAJOR 관리자 → 기사)
+      kind: ROUTE_CHANGE
+  injected_args: [approval_id, task_id]   # 모델에게 숨기고 Harness가 채운다 (internal-api ApprovedChange)
+  mask_keys: [driver, driver_name, driverName, driver_phone, driverPhone, phone, lat, lon]
+  id_pattern: 'ST-\d+'              # 변경·계산 도구 인자의 대여소 ID는 앞선 도구 결과에 나온 것만 허용
 
 observability:
   project: seoul-bike
   eval_project: seoul-bike-eval
   trace_header: X-Trace-Id
+  tool_labels:                      # TOOL_START·TOOL_END 이벤트의 tool.label (화면 진행 표시)
+    business_get_risk_stations: 위험 대여소 조회 중
+    business_get_station_detail: 대여소 상세 조회 중
+    business_get_forecast: 수요 예측 조회 중
+    business_get_current_plan: 현재 계획 조회 중
+    business_get_truck_status: 트럭 상태 조회 중
+    business_get_field_reports: 현장 보고 조회 중
+    business_request_route_plan: 경로 계산 중
+    business_add_constraint: 제약 추가 중
+    business_submit_plan: 계획 활성화 중
+    business_propose_route_change: 경로 변경 적용 중
+    rag_search_docs: 근거 문서 검색 중
