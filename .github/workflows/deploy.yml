@@ -6,11 +6,15 @@ on:
   push:
     branches: [main]
     paths:
+      # compose가 빌드하는 폴더 전부. 새 서비스를 compose에 넣으면 여기에도 넣는다.
       - "infra/**"
       - "backend/**"
-      - "packages/**"
-      - "docs/specs/**"
       - "frontend/**"
+      - "agent/**"
+      - "business-mcp/**"
+      - "rag-mcp/**"
+      - "docs/specs/**"
+      - "docs/evidence/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
