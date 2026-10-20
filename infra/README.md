@@ -39,7 +39,7 @@ flowchart LR
    curl -fsSL https://raw.githubusercontent.com/HuitaePark/skala_seoul_bike/main/infra/runner/install-macos.sh | bash -s -- <등록 토큰>
    ```
 4. 비밀값 파일: `~/seoul-bike/.env` (권한 600). 양식은 `infra/.env.example`, 비밀번호는 `openssl rand -hex 24`로 만든다.
-5. 잠자기 방지: `~/Library/LaunchAgents/com.seoulbike.caffeinate.plist`가 `caffeinate -s`를 상시 실행한다 (전원 연결 시 잠자기 차단, 관리자 비밀번호 불필요). **노트북 덮개는 열어 둔다.** 덮개를 닫으면 잠든다.
+5. 잠자기 방지: `pmset`에 `disablesleep 1`과 전원 연결 시 `sleep 0`이 설정돼 있어 **덮개를 닫아도 잠들지 않는다.** 보조로 `~/Library/LaunchAgents/com.seoulbike.caffeinate.plist`가 `caffeinate -s`를 상시 실행한다. 덮개를 닫은 채 부하가 크면 발열이 커지므로 통풍되는 곳에 둔다.
 
 같은 서버에서 Ollama(`com.baki.ollama-server`, `100.109.172.112:11434`)도 돈다. 모델을 올리면 메모리를 쓰므로 Colima 메모리(8GB)와 합이 16GB를 넘지 않게 본다.
 
