@@ -8,6 +8,8 @@
 | `DemandPredictor.predict()` ([predict.md](predict.md)) | 대여소별 시간별 예상 대여·반납 | forecast → optimizer, 내부 API `/internal/forecasts` | 데이터 + 최적화 |
 | 실시간 재고 `data/realtime/bikelist/` | 5분 간격 대여소 재고 (3절) | 수집기 → 데이터(역산 검증). M4부터 backend 수집으로 넘김 | 데이터 → 백엔드 |
 | 시뮬레이터 결과 → `PolicyKpi` (`/api/kpi`) | 정책별 지표 (7절) | sim → backend → 성과 리포트 화면 | 데이터 + 백엔드 |
+| `analysis/out/ref_stations.csv`, `ref_regions.csv` | `ref.stations`·`ref.regions` 시드. API 이름을 snake_case로 (agreements.md 6·7번) | 데이터 → backend | 데이터 + 백엔드 |
+| [docs/evidence/rebal-summary.md](../evidence/rebal-summary.md) | 역산 분석 요약 (RAG 근거 문서) | 데이터 → rag-indexer | 데이터 + MCP |
 | 공유 묶음 `data/shared/<구역>/` | 대여이력, 날씨, 공휴일, 역산 방문 (2, 4~6절). 깃 밖, 데이터 내부용 | 데이터 | 데이터 |
 
 ## 만드는 법
@@ -17,6 +19,8 @@
 ```bash
 /usr/bin/python3 analysis/collect/stations_api.py      # 대여소 정보 API 원본 (주 1회)
 .venv/bin/python analysis/stations.py                  # 대여소 마스터
+.venv/bin/python analysis/seed.py                      # ref 시드 (운영 중 대여소, 구역 17개)
+.venv/bin/python analysis/validate_stock.py            # 역산 재고 검증 (stock-validation.md)
 .venv/bin/python analysis/export_region.py 강남-05     # 공유 묶음
 .venv/bin/python -m sim --terr 강남-05 --date 2025-06-11       # 정책별 지표
 .venv/bin/python -m forecast --terr 강남-05 --month 2025-06    # 예측기 채점
@@ -44,16 +48,7 @@
 
 ## 확인이 필요한 것 (담당자에게)
 
-| 질문 | 누구 |
-| --- | --- |
-| `stationId`에 대여소번호 문자열(`"108"`)을 쓰는가. `ST-xxx`를 쓰면 시드와 대여이력이 맞지 않는다 | 백엔드, MCP |
-| `regionId`를 활동 구역의 영문 ID로 정한다. 제안: 강북 `N01`~`N08`, 강남 `S01`~`S09`, 이름(`강남-05`)은 따로 둔다. 지금 OpenAPI 예시는 `gwangjin-seongdong`이고, 근무조 ID `{regionId}:{yyyy-MM-dd}:{AM\|PM\|EVE}`에 들어간다 | 백엔드, 에이전트 |
-| 내부 API `Forecast`에 시간별 값 `rentalsH`·`returnsH`(배열, 선택)를 추가한다. 합계만 있으면 3시간 중간에 비는 대여소를 놓친다 | 백엔드, MCP, 최적화 |
-| `/internal/forecasts`의 값을 누가 계산하는가: optimizer 컨테이너 안의 예측기를 부르는가, 데이터가 미리 계산해 저장하는가 | 백엔드, 최적화 |
-| `PolicyKpi`에 `failedRentals`(재고가 없어 실패한 대여 수)를 추가한다. 빈 대여소-분과 방향이 다를 수 있다 (7절) | 백엔드, 화면 |
-| `predict()` 시그니처와 `Forecast` 모양, 가짜 예측기 변경(`or-tools/`) | 최적화 |
-| 가장 큰 구역의 운영 대여소가 265곳(강북-01)이라 NFR-01 기준(200곳)을 넘는다 | 최적화, 기획 리드 |
-| 실시간 재고를 backend 수집으로 넘길 때의 테이블 열 (3절) | 백엔드 |
+이름·형식을 맞출 것은 [agreements.md](agreements.md)에 상대 역할별로 모았다. 대여소 ID(`stationId`), 구역 ID(`regionId`), 근무조 시각, 시각 표기, 시드 열, 예측 필드, 성과 지표가 들어 있다.
 
 ---
 
