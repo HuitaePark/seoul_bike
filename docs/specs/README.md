@@ -41,7 +41,8 @@
 
 - 작업 API 경로와 이름은 과제 레퍼런스(표 5-8)를 그대로 따른다.
 - 진행 이벤트는 `TOKEN`, `TOOL_START`, `TOOL_END`, `APPROVAL_REQUIRED`, `DONE`, `FAILED` 여섯 가지다. SSE `data`와 Kafka `ai.events` 메시지는 같은 형식이다.
-- **변경 API 3개(`/internal/constraints`, `/plans/{id}/activate`, `/routes/{truckId}/apply`)는 `approvalId`가 승인되지 않았으면 403**을 돌려준다. 에이전트 interrupt와 별개로 backend가 한 번 더 막는다.
+- **변경 API 3개(`/internal/constraints`, `/plans/{id}/activate`, `/routes/{truckId}/apply`)는 필요한 승인이 모두 `APPROVED`가 아니면 403**을 돌려준다. 에이전트 interrupt와 별개로 backend가 한 번 더 막는다.
+- **`propose_route_change`의 도구 앞 승인이 곧 기사 수락이다** (HARNESS.md 10절 (나)). 따로 수락 흐름을 두지 않아 같은 변경을 두 번 누르지 않는다. 작은 변경(MINOR)은 기사 카드 한 장, 큰 변경(MAJOR)은 관리자 → 기사 카드 두 장을 같은 작업에서 순서대로 보낸다. 누구에게 보낼지는 backend가 후보의 `requiredApprovers`로 정하고, 에이전트는 등급으로 판단하지 않는다.
 - Kafka 메시지 키는 `shiftId`, 모든 메시지에 `eventId`(중복 제거), `traceId`(관측)를 넣는다. 실패하면 `<토픽>.retry` → `<토픽>.dlq`.
 - 근무조 ID `{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}`를 LangGraph `thread_id`로 그대로 쓴다.
 

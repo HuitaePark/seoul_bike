@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.2.0-draft
+  version: 0.3.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
-    **초안 v0.2.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
+    **초안 v0.3.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.3: 경로 변경 승인 카드에 `candidateId`·`requiredApprovers`. 큰 변경(MAJOR)은 관리자 → 기사 카드 두 장.
     - v0.2: 회원가입(`/api/auth/signup`, 승인 대기)과 관리자 계정 관리(`/api/admin/users`) 추가.
 
     - 작업 API 5개는 과제 레퍼런스(표 5-8)를 그대로 따른다. 경로와 이름을 바꾸지 않는다.
@@ -711,7 +712,9 @@ components:
 
     ApprovalRequest:
       type: object
-      description: 변경 도구 앞에서 에이전트가 멈췄을 때의 승인 카드
+      description: |
+        변경 도구 앞에서 에이전트가 멈췄을 때의 승인 카드. 승인하면 그 변경을 받아들인 것이다.
+        경로 변경은 **이 카드의 승인이 곧 기사 수락**이다. 따로 수락 단계를 두지 않는다 (FR-13).
       required: [approvalId, kind, approver, summary]
       properties:
         approvalId: { type: string, format: uuid }
@@ -721,10 +724,21 @@ components:
         approver:
           type: string
           enum: [MANAGER, DRIVER]
+          description: |
+            이 카드를 결정할 사람. SUBMIT_PLAN·ADD_CONSTRAINT는 MANAGER.
+            ROUTE_CHANGE는 후보의 `requiredApprovers` 순서를 따른다. MINOR는 그 트럭 기사(DRIVER) 카드 한 장,
+            MAJOR는 관리자(MANAGER) 카드가 승인된 뒤 같은 작업에서 기사 카드를 한 장 더 보낸다.
         grade:
           type: [string, 'null']
           enum: [MINOR, MAJOR, null]
-          description: ROUTE_CHANGE만
+          description: ROUTE_CHANGE만. backend가 계산한 변경 등급 (PRD 6.6)
+        candidateId:
+          type: [string, 'null']
+          description: ROUTE_CHANGE만. 어떤 후보 경로에 대한 카드인지. MAJOR의 두 카드는 같은 값을 쓴다
+        requiredApprovers:
+          type: array
+          items: { type: string, enum: [MANAGER, DRIVER] }
+          description: ROUTE_CHANGE만. 이 후보에 필요한 승인 순서. 화면이 "관리자 승인 → 기사 수락" 진행을 보여 줄 때 쓴다
         truckId: { type: [string, 'null'] }
         summary: { type: string, description: 승인 카드 제목 }
         reasons:
