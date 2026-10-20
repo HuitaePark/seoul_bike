@@ -40,6 +40,7 @@ class Day:
     depot: tuple[float, float]  # 트럭 거점(구역 대여소의 중심)
     fixed_pickup: frozenset[int] = frozenset()  # 고정 회수 대여소 (stations.csv role, 단순 규칙이 쓴다)
     visits: list[tuple[datetime, int, int]] = field(default_factory=list)  # 역산 트럭 방문 (시각, 대여소, ±대수). 회수는 음수
+    n_recorded: int | None = None  # trips 중 앞의 n개가 기록된 대여, 나머지는 억눌린 수요(latent.py). None이면 모두 기록
 
 
 @dataclass
@@ -47,6 +48,8 @@ class Result:
     rentals: int = 0  # 시도한 대여
     failed: int = 0  # 재고가 0이라 실패한 대여
     failed_at: Counter = field(default_factory=Counter)  # 대여소별 실패 대여
+    latent: int = 0  # 시도한 대여 중 억눌린 수요
+    failed_latent: int = 0  # 실패한 대여 중 억눌린 수요
     empty_min: float = 0.0  # 빈 대여소-분 (주 지표)
     over_min: float = 0.0  # 과적재 대여소-분 (재고 > 거치대 수)
     moved: int = 0  # 트럭이 실제로 옮긴 대수(회수 기준)
@@ -105,11 +108,14 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
             break
         if kind == "rent":
             s = day.trips[v][1]
+            is_latent = day.n_recorded is not None and v >= day.n_recorded
             res.rentals += 1
+            res.latent += is_latent
             if stock[s] > 0:
                 change(s, now, -1)
             else:
                 res.failed += 1
+                res.failed_latent += is_latent
                 res.failed_at[s] += 1
                 failed_trips.add(v)
         elif kind == "return":
@@ -161,8 +167,8 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
     return res
 
 
-def load_day(terr: str, d: date) -> Day:
-    """구역 terr의 d일 하루를 파일에서 만든다.
+def load_day(terr: str, d: date, latent: bool = True) -> Day:
+    """구역 terr의 d일 하루를 파일에서 만든다. latent이면 실제로 비어 있던 시간의 억눌린 수요를 trips 뒤에 더한다.
 
     입력: analysis/out/stations.csv, data/shared/<구역>/trips.parquet (export_region.py),
           analysis/rebal/out/gaps_2025.parquet·bike_pick·bike_drop (초기 재고 복원. 2025년만 있다)
@@ -192,11 +198,19 @@ def load_day(terr: str, d: date) -> Day:
       SELECT rent_st FROM tr WHERE rent_dt >= $a AND rent_dt < $b UNION SELECT rtn_st FROM tr WHERE rtn_dt >= $a AND rtn_dt < $b)
     ORDER BY st_no""", {"a": t0 - timedelta(days=3), "b": t1 + timedelta(days=3)}).fetchall()
     stations = {no: Station(no, name, lat, lon, cap, stock0.get(no, 0)) for no, name, lat, lon, cap in rows}
+    raw = c.execute("""SELECT rent_dt, rent_st, rtn_dt, rtn_st FROM tr
+                       WHERE (rent_dt >= $a AND rent_dt < $b) OR (rtn_dt >= $a AND rtn_dt < $b) ORDER BY rent_dt""",
+                    {"a": t0, "b": t1}).fetchall()
+    n_recorded = None
+    if latent:
+        from .latent import latent_trips
+
+        holidays = {r[0] for r in c.execute(f"SELECT date::DATE FROM read_csv('{ROOT}/data/shared/{terr}/holidays.csv')").fetchall()}
+        n_recorded = len(raw)
+        raw += latent_trips(c, reb, t0, holidays, set(stations), seed=terr)
     trips = [(rt if t0 <= rt < t1 and rs in stations else None, rs if rs in stations else None,
               ut if t0 <= ut < t1 and us in stations else None, us if us in stations else None)
-             for rt, rs, ut, us in c.execute("""SELECT rent_dt, rent_st, rtn_dt, rtn_st FROM tr
-                 WHERE (rent_dt >= $a AND rent_dt < $b) OR (rtn_dt >= $a AND rtn_dt < $b) ORDER BY rent_dt""",
-                                            {"a": t0, "b": t1}).fetchall()]
+             for rt, rs, ut, us in raw]
     lat = sum(s.lat for s in stations.values()) / len(stations)
     lon = sum(s.lon for s in stations.values()) / len(stations)
     fixed = frozenset(r[0] for r in c.execute("SELECT st_no FROM zs WHERE role = '고정 회수'").fetchall()) & stations.keys()
@@ -205,4 +219,4 @@ def load_day(terr: str, d: date) -> Day:
         SELECT lo + (hi - lo) / 2 AS m, st, kind, n::INT FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet'
         WHERE lo + (hi - lo) / 2 >= $a AND lo + (hi - lo) / 2 < $b ORDER BY m""", {"a": t0, "b": t1}).fetchall()
               if st in stations]
-    return Day(t0, stations, trips, (lat, lon), fixed, visits)
+    return Day(t0, stations, trips, (lat, lon), fixed, visits, n_recorded)

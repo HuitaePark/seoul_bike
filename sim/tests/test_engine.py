@@ -2,10 +2,12 @@
 # Date: 20OCT2026
 # Purpose: 재생 규칙(실패 대여와 그 반납 지우기, 빈 대여소-분 적분)과 트럭 실행(재고 반영, 옮긴 대수)을 작은 가짜 하루로 확인한다.
 
+import random
 import unittest
 from datetime import datetime, timedelta
 
 from sim.engine import Day, replay
+from sim.latent import poisson_arrivals
 from sim.policies import CurrentOps, NoRebalancing, SimpleRule
 from rebalancing.models import Station
 
@@ -45,6 +47,23 @@ class ReplayTest(unittest.TestCase):
         r = replay(Day(T0, stations, [], (37.505, 127.005), visits=visits), CurrentOps())
         self.assertEqual(r.stock, {1: 0, 2: 4})
         self.assertEqual((r.moved, r.pick_short), (3, 2))
+
+    def test_latent_rentals_are_counted_apart_from_recorded(self):
+        stations = {1: Station(1, "A", 37.50, 127.00, 10, 1)}
+        trips = [(at(8), 1, None, None),       # 기록된 대여: 성공
+                 (at(9), 1, None, None)]       # 억눌린 수요: A가 비어 실패
+        r = replay(Day(T0, stations, trips, (37.5, 127.0), n_recorded=1), NoRebalancing())
+        self.assertEqual((r.rentals, r.latent, r.failed, r.failed_latent), (2, 1, 1, 1))
+
+
+class LatentTest(unittest.TestCase):
+    def test_poisson_arrivals_stay_inside_and_follow_hourly_rate(self):
+        s, e = at(7, 30), at(10)
+        rate = lambda t: 0.0 if t.hour == 8 else 40.0  # noqa: E731  08시에는 아무도 오지 않는다
+        ts = poisson_arrivals(s, e, rate, random.Random(0))
+        self.assertTrue(all(s <= t < e for t in ts))
+        self.assertFalse(any(t.hour == 8 for t in ts))
+        self.assertTrue(40 <= len(ts) <= 80)  # 기댓값 0.5시간·40 + 1시간·40 = 60
 
 
 if __name__ == "__main__":
