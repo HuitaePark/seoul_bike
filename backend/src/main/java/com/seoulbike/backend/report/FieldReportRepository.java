@@ -3,6 +3,7 @@ package com.seoulbike.backend.report;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -17,6 +18,11 @@ class FieldReportRepository {
 
 	record NewReport(UUID reportId, String shiftId, String truckId, String stationId, int actualBikes, Integer loaded,
 			Integer unloaded, Issue issue, String memo, String reportedBy, Instant reportedAt) {
+	}
+
+	/** 계약 internal-api FieldReport. driver는 이름 대신 "{트럭} 기사"로 가린다 (agent에 개인정보를 보내지 않는다). */
+	record ShiftReport(String reportId, String truckId, String driver, String stationId, int actualBikes, Integer loaded,
+			Integer unloaded, String issue, String memo, Instant reportedAt) {
 	}
 
 	private final JdbcClient jdbc;
@@ -44,6 +50,22 @@ class FieldReportRepository {
 			.param("reportedBy", r.reportedBy())
 			.param("reportedAt", OffsetDateTime.ofInstant(r.reportedAt(), ZoneOffset.UTC))
 			.update();
+	}
+
+	List<ShiftReport> forShift(String shiftId, Instant since) {
+		return jdbc.sql("""
+				select report_id, truck_id, station_id, actual_bikes, loaded, unloaded, issue, memo, reported_at
+				from field_reports
+				where shift_id = :shiftId and (cast(:since as timestamptz) is null or reported_at > :since)
+				order by reported_at
+				""")
+			.param("shiftId", shiftId)
+			.param("since", since == null ? null : OffsetDateTime.ofInstant(since, ZoneOffset.UTC))
+			.query((rs, i) -> new ShiftReport(rs.getString("report_id"), rs.getString("truck_id"),
+					rs.getString("truck_id") + " 기사", rs.getString("station_id"), rs.getInt("actual_bikes"),
+					rs.getObject("loaded", Integer.class), rs.getObject("unloaded", Integer.class), rs.getString("issue"),
+					rs.getString("memo"), rs.getObject("reported_at", OffsetDateTime.class).toInstant()))
+			.list();
 	}
 
 	void linkTask(UUID reportId, UUID taskId) {

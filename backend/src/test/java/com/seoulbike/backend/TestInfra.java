@@ -16,6 +16,7 @@ public class TestInfra {
 			app.auth.seed-password=test-password
 			app.fake-agent.enabled=true
 			app.fake-agent.step-millis=5
+			app.internal.token=test-internal-token
 			""";
 
 	@Bean

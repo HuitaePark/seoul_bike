@@ -51,7 +51,7 @@ class TaskFlowTest {
 	KafkaTemplate<String, String> kafka;
 
 	@Autowired
-	RouteChangeApprovals routeApprovals;
+	ChangeApprovals changeApprovals;
 
 	private final HttpClient http = HttpClient.newHttpClient();
 
@@ -261,7 +261,7 @@ class TaskFlowTest {
 
 			// 기사는 자기 트럭 변경이 오는 것을 볼 수 있지만, 관리자 카드를 대신 결정할 수는 없다.
 			assertThat(decide(taskId, driver1, managerCard)).isEqualTo(403);
-			assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, managerCardId, "truck-1", candidateId,
+			assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, managerCardId, "truck-1", candidateId,
 					RouteChangeGrade.MAJOR))
 				.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("관리자 승인이 없다"));
 			assertThat(decide(taskId, manager, managerCard)).isEqualTo(202);
@@ -298,17 +298,17 @@ class TaskFlowTest {
 		String candidateId = driverCard.path("candidateId").asString();
 		UUID driverCardId = UUID.fromString(driverCard.path("approvalId").asString());
 
-		routeApprovals.requireApproved(taskId, driverCardId, "truck-1", candidateId, RouteChangeGrade.MINOR);
-		assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, driverCardId, "truck-1", candidateId,
+		changeApprovals.requireRouteChange(taskId, driverCardId, "truck-1", candidateId, RouteChangeGrade.MINOR);
+		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "truck-1", candidateId,
 				RouteChangeGrade.MAJOR))
 			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code()).isEqualTo("APPROVAL_REQUIRED"));
-		assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, driverCardId, "truck-2", candidateId,
+		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "truck-2", candidateId,
 				RouteChangeGrade.MINOR))
 			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("truck-2 기사 승인이 없다"));
-		assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, UUID.randomUUID(), "truck-1", candidateId,
+		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, UUID.randomUUID(), "truck-1", candidateId,
 				RouteChangeGrade.MINOR))
 			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("마지막 승인이 아니다"));
-		assertThatThrownBy(() -> routeApprovals.requireApproved(taskId, driverCardId, "truck-1", candidateId,
+		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "truck-1", candidateId,
 				RouteChangeGrade.NONE))
 			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code()).isEqualTo("NOTHING_TO_APPLY"));
 	}

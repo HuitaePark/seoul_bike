@@ -36,6 +36,8 @@ services:
       SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-}
       # 기본은 꺼짐. 진짜 agent 없이 시연할 때만 .env에서 true로 켠다 (켠 채로 agent를 붙이면 이벤트가 두 번 나간다).
       FAKE_AGENT_ENABLED: ${FAKE_AGENT_ENABLED:-false}
+      # business-mcp와 같은 값. 비우면 /internal/** 는 모두 401이다.
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
     ports:
       # 공개 포트. 서버에서는 Tailscale 주소로 접근한다.
       - "8080:8080"
