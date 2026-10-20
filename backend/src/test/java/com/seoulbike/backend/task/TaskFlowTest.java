@@ -166,6 +166,10 @@ class TaskFlowTest {
 		var negative = call("POST", "/api/reports", login("driver1"),
 				"{\"shiftId\":\"s\",\"stationId\":\"ST-1\",\"actualBikes\":-1}");
 		assertThat(negative.statusCode()).isEqualTo(400);
+		var unknownIssue = call("POST", "/api/reports", login("driver1"),
+				"{\"shiftId\":\"s\",\"stationId\":\"ST-1\",\"actualBikes\":1,\"issue\":\"FLOOD\"}");
+		assertThat(unknownIssue.statusCode()).isEqualTo(400);
+		assertThat(json.readTree(unknownIssue.body()).path("code").asString()).isEqualTo("INVALID_REQUEST");
 	}
 
 	@Test

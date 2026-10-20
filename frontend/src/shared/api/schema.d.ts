@@ -596,8 +596,8 @@ export interface components {
             stationId: string;
             /** @description 도착했을 때 실제 재고 */
             actualBikes: number;
-            loaded?: number;
-            unloaded?: number;
+            loaded?: number | null;
+            unloaded?: number | null;
             /** @enum {string|null} */
             issue?: "BLOCKED" | "CONSTRUCTION" | "INVENTORY_MISMATCH" | "OTHER" | null;
             memo?: string | null;
@@ -1158,7 +1158,10 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description 작업 큐에 넣지 못함 (QUEUE_UNAVAILABLE). 보고도 남기지 않으니 다시 보낸다 */
+            /**
+             * @description 작업 큐에 넣지 못함 (QUEUE_UNAVAILABLE). 보고도 남기지 않으니 다시 보낸다.
+             *     전송 시간 초과 뒤 명령이 늦게 도착할 수 있어, 드물게 재경로 작업이 한 번 더 생길 수 있다.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;

@@ -415,7 +415,9 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '503':
-          description: 작업 큐에 넣지 못함 (QUEUE_UNAVAILABLE). 보고도 남기지 않으니 다시 보낸다
+          description: |
+            작업 큐에 넣지 못함 (QUEUE_UNAVAILABLE). 보고도 남기지 않으니 다시 보낸다.
+            전송 시간 초과 뒤 명령이 늦게 도착할 수 있어, 드물게 재경로 작업이 한 번 더 생길 수 있다.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -896,11 +898,11 @@ components:
       type: object
       required: [shiftId, stationId, actualBikes]
       properties:
-        shiftId: { type: string }
-        stationId: { type: string }
+        shiftId: { type: string, minLength: 1, maxLength: 100 }
+        stationId: { type: string, minLength: 1, maxLength: 64 }
         actualBikes: { type: integer, minimum: 0, description: 도착했을 때 실제 재고 }
-        loaded: { type: integer, minimum: 0 }
-        unloaded: { type: integer, minimum: 0 }
+        loaded: { type: [integer, 'null'], minimum: 0 }
+        unloaded: { type: [integer, 'null'], minimum: 0 }
         issue:
           type: [string, 'null']
           enum: [BLOCKED, CONSTRUCTION, INVENTORY_MISMATCH, OTHER, null]

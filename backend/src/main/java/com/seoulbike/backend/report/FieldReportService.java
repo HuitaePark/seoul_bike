@@ -43,7 +43,8 @@ class FieldReportService {
 		try {
 			taskId = tasks.startFieldReport(driver, report.shiftId(), contract(report));
 		}
-		catch (ApiException e) {
+		catch (RuntimeException e) {
+			// 큐 실패(503)든 DB 오류든 작업 없는 issue 보고를 남기지 않는다. 기사가 다시 보내면 새로 남는다.
 			reports.delete(report.reportId());
 			throw e;
 		}
