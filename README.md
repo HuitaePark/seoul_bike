@@ -30,10 +30,9 @@ Docker Compose로 운영하며, 공개 포트는 frontend(:80)와 backend(:8080)
 | [05 연결 뷰](docs/images/views/05-mcp-connection.png) | 도구와 근거 문서는 어디에서 오는가 |
 | [06 Harness](docs/images/views/06-harness.png) | 모델을 감싼 코드는 무엇으로 구성되는가 |
 
-모든 그림은 같은 이름의 `.svg`가 원본이다. Figma로 가져와 수정할 수 있다.
-
 ## 문서
 
+- [계약 (API · Kafka)](docs/specs/README.md): OpenAPI·AsyncAPI 초안, [Swagger](https://baki-macbookpro.tail3286a4.ts.net/swagger)
 - [역할 분담 (6인)](docs/ROLES.md): 역할별 작업, 완료 기준, 1주차 계약, 단계
 - [PRD](docs/PRD.md): 문제 정의, 요구사항, 에이전트 설계
 - [아키텍처](docs/ARCHITECTURE.md): 스택, 모듈 구조, 메시징, 컨테이너 구성

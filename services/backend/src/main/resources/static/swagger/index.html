@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>따릉이 재배치 에이전트 · API 계약</title>
+  <link rel="stylesheet" href="/webjars/swagger-ui/swagger-ui.css">
+  <style>
+    .contract-bar { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; padding: 10px 20px; background: #111827; color: #e5e7eb; font-size: 13px; }
+    .contract-bar a { color: #93c5fd; margin-left: 12px; }
+  </style>
+</head>
+<body>
+  <div class="contract-bar">
+    계약 초안 v0.1 · 원본은 저장소 <code>docs/specs/</code>
+    <a href="/specs/asyncapi.yaml">Kafka 계약 (AsyncAPI)</a>
+    <a href="/">시스템 상태</a>
+  </div>
+  <div id="swagger-ui"></div>
+  <script src="/webjars/swagger-ui/swagger-ui-bundle.js"></script>
+  <script src="/webjars/swagger-ui/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      urls: [
+        { url: "/specs/openapi.yaml", name: "공개 API (화면 → backend)" },
+        { url: "/specs/internal-api.yaml", name: "내부 API (business-mcp → backend)" }
+      ],
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      layout: "StandaloneLayout"
+    });
+  </script>
+</body>
+</html>

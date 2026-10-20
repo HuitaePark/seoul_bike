@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>따릉이 재배치 에이전트 · 시스템 상태</title>
+  <style>
+    body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; max-width: 640px; margin: 56px auto; padding: 0 20px; color: #111827; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    p.sub { color: #6b7280; margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+    th { color: #6b7280; font-weight: 600; }
+    td.detail { color: #4b5563; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+    .UP { color: #15803d; font-weight: 700; }
+    .DOWN { color: #b91c1c; font-weight: 700; }
+    .meta { display: grid; grid-template-columns: 110px 1fr; gap: 8px 16px; padding: 16px 20px; border: 1px solid #e5e7eb; border-radius: 12px; font-size: 14px; }
+    .meta dt { color: #6b7280; }
+    .meta dd { margin: 0; font-family: ui-monospace, Menlo, monospace; }
+    button { margin-top: 16px; padding: 8px 14px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>따릉이 재배치 에이전트 · 시스템 상태</h1>
+  <p class="sub">backend가 docker network 안에서 의존하는 저장소와 대기열에 실제로 연결되는지 보여준다.</p>
+
+  <dl class="meta">
+    <dt>서비스</dt><dd id="service">-</dd>
+    <dt>버전</dt><dd id="version">-</dd>
+    <dt>빌드 시각</dt><dd id="builtAt">-</dd>
+    <dt>서버 시각</dt><dd id="serverTime">-</dd>
+  </dl>
+
+  <table>
+    <thead><tr><th>의존성</th><th>상태</th><th>내용</th></tr></thead>
+    <tbody id="deps"><tr><td colspan="3">확인 중…</td></tr></tbody>
+  </table>
+  <button onclick="load()">다시 확인</button>
+  <p><a href="/swagger/">API 계약 보기 (Swagger)</a></p>
+
+  <script>
+    const fmt = (iso) => iso ? new Date(iso).toLocaleString("ko-KR") : "-";
+    const text = (id, value) => { document.getElementById(id).textContent = value; };
+
+    function row(name, status, detail) {
+      const tr = document.createElement("tr");
+      [name, status, detail].forEach((value, i) => {
+        const td = document.createElement("td");
+        td.textContent = value;
+        if (i === 1) td.className = status;
+        if (i === 2) td.className = "detail";
+        tr.appendChild(td);
+      });
+      return tr;
+    }
+
+    async function load() {
+      const deps = document.getElementById("deps");
+      try {
+        const res = await fetch("/api/system/status");
+        const s = await res.json();
+        text("service", s.service);
+        text("version", `${s.version} · ${s.revision.slice(0, 7)}`);
+        text("builtAt", fmt(s.builtAt));
+        text("serverTime", fmt(s.serverTime));
+        deps.replaceChildren(...s.dependencies.map(d => row(d.name, d.status, d.detail)));
+      } catch (e) {
+        deps.replaceChildren(row("backend", "DOWN", "상태 API 응답 없음"));
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

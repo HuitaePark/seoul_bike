@@ -1,0 +1,63 @@
+# main에 반영되면 배포 서버(self-hosted, macOS Apple Silicon)에서 직접 빌드하고 띄운다.
+# 공개 저장소이므로 pull_request 이벤트는 받지 않는다. 외부인이 PR로 서버에서 코드를 실행하지 못하게 하기 위해서다.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - "services/**"
+      - "packages/**"
+      - "docs/specs/**"
+      - "apps/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'HuitaePark/skala_seoul_bike' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, macOS, ARM64, seoul-bike]
+    environment: production
+    timeout-minutes: 30
+    env:
+      COMPOSE_FILE: infra/compose.yaml
+      COMPOSE_PROJECT_NAME: seoul-bike
+      GIT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker 확인
+        run: docker info --format 'Docker {{.ServerVersion}} · {{.Architecture}}'
+
+      - name: 서버 .env 확인
+        run: |
+          if [ ! -f "$HOME/seoul-bike/.env" ]; then
+            echo "::error::$HOME/seoul-bike/.env가 없다. infra/.env.example을 참고해 만든다."
+            exit 1
+          fi
+
+      - name: 이미지 받기·빌드
+        run: |
+          docker compose --env-file "$HOME/seoul-bike/.env" pull --ignore-buildable
+          docker compose --env-file "$HOME/seoul-bike/.env" build --pull
+
+      - name: 기동과 헬스체크
+        run: docker compose --env-file "$HOME/seoul-bike/.env" up -d --remove-orphans --wait --wait-timeout 300
+
+      - name: 실패 시 상태와 로그
+        if: failure()
+        run: |
+          docker compose --env-file "$HOME/seoul-bike/.env" ps
+          docker compose --env-file "$HOME/seoul-bike/.env" logs --tail 200
+
+      - name: 쓰지 않는 이미지 정리
+        if: success()
+        run: docker image prune -f
