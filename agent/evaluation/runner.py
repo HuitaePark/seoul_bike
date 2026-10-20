@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -21,11 +22,12 @@ from pathlib import Path
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
-from harness import HarnessAgent, ListSink, Task, load_config
+from harness import FieldReport, HarnessAgent, ListSink, load_config
 from harness.config import HarnessConfig
+from harness.contract import TASK_TYPES, ApprovalMismatch, task_from_command
 from harness.prompts import load_prompt
 
-from .fake_mcp import SHIFT_ID, connect_world
+from .fake_mcp import DRIVER_NAMES, SHIFT_ID, connect_world
 from .fakes import ScriptedChatModel
 from .scenarios import APPROVE, SCENARIOS, RunRecord, Scenario
 from .scorers import Check, judge_explanation, score, unapproved_changes
@@ -53,9 +55,23 @@ class Result:
         return sum(getattr(o.stats, key) for o in self.record.outcomes if o.stats)
 
 
+def command_for(sc: Scenario) -> dict:
+    """The `ai.tasks` TaskCommand the backend would send for this scenario (docs/specs asyncapi)."""
+    stamp = time.time_ns()
+    return {
+        "eventId": str(uuid.uuid4()), "schemaVersion": 1, "occurredAt": "2026-10-24T13:06:00+09:00",
+        "shiftId": SHIFT_ID, "traceId": f"eval-{sc.id}-{stamp}",
+        "taskId": str(uuid.uuid4()), "threadId": SHIFT_ID, "type": sc.command_type,
+        "text": sc.text or None, "reportId": sc.report["reportId"] if sc.report else None,
+        "requestedBy": {"userId": f"eval-{sc.role.lower()}", "role": sc.role},
+    }
+
+
 async def run_scenario(sc: Scenario, base: HarnessConfig, model_name: str | None, judge: BaseChatModel | None) -> Result:
     config = sc.configure(base)
     world = sc.world()
+    if sc.report:
+        world.reports.append(sc.report)
     real = model_name is not None and sc.model_scenario
     async with connect_world(world, config.observability.trace_header) as tools:
         if real:
@@ -72,27 +88,55 @@ async def run_scenario(sc: Scenario, base: HarnessConfig, model_name: str | None
             project=config.observability.eval_project,
             sleep=asyncio.sleep if real else _no_sleep,
         )
-        task = Task(
-            task_id=f"eval-{sc.id}-{time.time_ns()}", trace_id=f"eval-{sc.id}-{int(time.time())}",
-            task_type=sc.task_type, shift_id=SHIFT_ID, input=sc.input, brief=sc.brief,
-            driver_names=sc.driver_names, requester=sc.requester, report=sc.report,
-        )
+        report = FieldReport.from_contract(sc.report) if sc.report else None
+        task = task_from_command(command_for(sc), report=report, brief=sc.brief, driver_names=DRIVER_NAMES)
         started = time.monotonic()
         outcomes = [await agent.start(task)]
-        approvals = []
-        while outcomes[-1].status == "APPROVAL_REQUIRED" and len(approvals) < 4:
-            pending = outcomes[-1].approvals
-            decision = sc.decisions[len(approvals)] if len(approvals) < len(sc.decisions) else APPROVE
-            approvals.append({"seq": world.next_seq(), "tools": [a["tool"] for a in pending], "decision": decision["type"]})
-            outcomes.append(await agent.resume(task, [decision] * len(pending)))
+        approvals: list[dict] = []
+        while outcomes[-1].status == "APPROVAL_REQUIRED" and len(approvals) < 5:
+            card = outcomes[-1].approval
+            template = sc.decisions[len(approvals)] if len(approvals) < len(sc.decisions) else APPROVE
+            role = template.get("role", card["approver"])
+            resume = {
+                "approvalId": card["approvalId"],
+                "decision": template["decision"],
+                "excludeStationIds": template.get("excludeStationIds", []),
+                "comment": template.get("comment"),
+                "decidedBy": {"userId": f"eval-{role.lower()}", "role": role},
+            }
+            # Plays the backend: only the right approver's plain APPROVE marks the approval APPROVED.
+            if resume["decision"] == "APPROVE" and role == card["approver"] and not resume["excludeStationIds"]:
+                world.approve(card)
+            entry = {
+                "seq": world.next_seq(), "approvalId": card["approvalId"], "kind": card["kind"], "approver": card["approver"],
+                "grade": card.get("grade"), "decision": resume["decision"], "role": role, "refused": False,
+                "excluded": resume["excludeStationIds"],
+            }
+            approvals.append(entry)
+            try:
+                outcomes.append(await agent.resume_command(task, resume))
+            except ApprovalMismatch:
+                entry["refused"] = True
         record = RunRecord(sc, outcomes, sink.events, world, await agent.history(task), approvals, time.monotonic() - started)
     checks = score(record)
     graded = await judge_explanation(judge, record) if judge is not None and real else None
     return Result(sc, record, checks, model_name if real else "scripted", graded)
 
 
+def _decision(a: dict) -> str:
+    grade = a.get("grade")
+    who = f"{a['approver']}({grade})" if grade else a["approver"]
+    if a["refused"]:
+        result = "거부됨"
+    elif a.get("excluded"):
+        result = f"제외 요청 {', '.join(a['excluded'])}"
+    else:
+        result = a["decision"]
+    return f"{who}: {a['role']} {result}"
+
+
 def render(results: list[Result], config: HarnessConfig, label: str, model_name: str | None) -> str:
-    versions = sorted({load_prompt(config.prompts_dir, t).version for t in {r.scenario.task_type for r in results}})
+    versions = sorted({load_prompt(config.prompts_dir, TASK_TYPES[r.scenario.command_type]).version for r in results})
     loop, rec, tools, ctx = config.loop, config.recovery, config.tools, config.context
     seconds = " · ".join(f"{k} {v:g}초" for k, v in loop.max_seconds.items())
     lines = [
@@ -110,7 +154,7 @@ def render(results: list[Result], config: HarnessConfig, label: str, model_name:
         "",
         "## 시나리오별 결과",
         "",
-        "| ID | 시나리오 | PRD | 모델 | 판정 | 상태 | 승인 결정 | 턴 | 도구 | 재시도 | 대체 모델 | 잘림 | 토큰(입/출) | 시간(s) | 설명 품질 |",
+        "| ID | 시나리오 | PRD | 모델 | 판정 | 상태 | 승인 (카드 승인자: 결정자 결정) | 턴 | 도구 | 재시도 | 대체 모델 | 잘림 | 토큰(입/출) | 시간(s) | 설명 품질 |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in results:
@@ -119,7 +163,7 @@ def render(results: list[Result], config: HarnessConfig, label: str, model_name:
         lines.append(
             f"| {r.scenario.id} | {r.scenario.title} | {r.scenario.prd or '-'} | {r.model} | {'PASS' if r.passed else 'FAIL'} | "
             f"{final.status}{f' ({final.code})' if final.code else ''} | "
-            f"{' → '.join(a['decision'] for a in r.record.approvals) or '-'} | {r.stat('turns')} | {r.stat('tool_calls')} | "
+            f"{', '.join(_decision(a) for a in r.record.approvals) or '-'} | {r.stat('turns')} | {r.stat('tool_calls')} | "
             f"{r.stat('retries')} | {'예' if fallback else '-'} | {r.stat('truncated')} | "
             f"{r.stat('input_tokens')}/{r.stat('output_tokens')} | {r.record.elapsed_s:.2f} | {r.judge if r.judge is not None else '-'} |"
         )

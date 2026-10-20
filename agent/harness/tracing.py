@@ -11,8 +11,17 @@ from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage
+from langsmith import Client
 
+from .guardrails import Masker
 from .task import HarnessContext, Task
+
+
+def langsmith_client(masker: Masker, **client_kwargs: Any) -> Client:
+    """LangSmith client whose anonymizer masks every run's inputs, outputs, error, and metadata. Runs recorded
+    inside the middleware chain hold raw MCP results (before ToolResultMiddleware masks them), so masking at the
+    client is what keeps driver identity out of LangSmith."""
+    return Client(anonymizer=masker.value, **client_kwargs)
 
 
 def run_config(task: Task, *, prompt_version: str, model: str, recursion_limit: int, extra: dict | None = None) -> dict[str, Any]:
