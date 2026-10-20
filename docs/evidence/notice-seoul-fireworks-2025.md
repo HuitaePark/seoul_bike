@@ -1,28 +1,32 @@
 ---
+title: '서울시 공지: 2025 서울세계불꽃축제 공유자전거 대여·반납 중단'
 doc_id: notice-seoul-fireworks-2025
-doc_type: seoul_notice
-title: "서울시 공지: 2025 서울세계불꽃축제 공유자전거 대여·반납 중단"
 version: 1
-verified_at: "2026-10-20"
-written_by: "MCP·RAG 담당 (팀 요약)"
+updated: '2026-10-20'
+source: 서울시 보도자료 「2025 서울세계불꽃축제 종합대책」(news.seoul.go.kr/culture/archives/530468), 팀 저장소 PRD v0.2
+status: 2025년 행사 기록. 폐쇄 대여소 목록(첨부 PDF)은 아직 옮기지 않았다
+doc_type: seoul_notice
+written_by: MCP·RAG 담당 (팀 요약)
 language: ko
-event_date: "2025-09-27"
-valid_from: "2025-09-26T19:00:00+09:00"
-valid_to: "2025-09-28T09:00:00+09:00"
+event_date: '2025-09-27'
+valid_from: '2025-09-26T19:00:00+09:00'
+valid_to: '2025-09-28T09:00:00+09:00'
 sources:
-  - role: primary
-    type: github
-    repo: "HuitaePark/skala_seoul_bike"
-    commit: "9380965"
-    paths: ["docs/PRD.md", "docs/ROLES.md"]
-  - role: supplementary
-    type: press_release
-    citation: "서울시, 「2025 서울세계불꽃축제…서울시, '시민안전 최우선' 종합대책 가동」"
-    url: "https://news.seoul.go.kr/culture/archives/530468"
-  - role: supplementary
-    type: press_release
-    citation: "서울시 미디어허브, 「'불꽃축제' 가기 전에 꼭 확인하세요!(ft. 주말행사 교통정보)」, 2025.09 (PRD 14 출처)"
-    url: "https://mediahub.seoul.go.kr/archives/2015721"
+- role: primary
+  type: github
+  repo: HuitaePark/skala_seoul_bike
+  commit: '9380965'
+  paths:
+  - docs/PRD.md
+  - docs/ROLES.md
+- role: supplementary
+  type: press_release
+  citation: 서울시, 「2025 서울세계불꽃축제…서울시, '시민안전 최우선' 종합대책 가동」
+  url: https://news.seoul.go.kr/culture/archives/530468
+- role: supplementary
+  type: press_release
+  citation: 서울시 미디어허브, 「'불꽃축제' 가기 전에 꼭 확인하세요!(ft. 주말행사 교통정보)」, 2025.09 (PRD 14 출처)
+  url: https://mediahub.seoul.go.kr/archives/2015721
 ---
 
 # 서울시 공지: 2025 서울세계불꽃축제 공유자전거 대여·반납 중단

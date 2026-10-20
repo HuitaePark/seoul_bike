@@ -1,25 +1,31 @@
 ---
+title: 재배치 운영 기준
 doc_id: ops-rebalancing-standard
+version: 2
+updated: '2026-10-20'
+source: '팀 저장소 PRD v0.2·ROLES v0.2·ARCHITECTURE·OR-Tools 가이드 (커밋 9380965), 보조: 김유신(2023), 서울시 불꽃축제 보도자료'
+status: 팀 정리. [초기값]은 인터뷰·시뮬레이터로 조정할 값이고, 실제 운영 매뉴얼이 아니다
 doc_type: ops_standard
-title: "재배치 운영 기준"
-version: 1
-verified_at: "2026-10-20"
-written_by: "MCP·RAG 담당 (팀 작성)"
+written_by: MCP·RAG 담당 (팀 작성)
 language: ko
 sources:
-  - role: primary
-    type: github
-    repo: "HuitaePark/skala_seoul_bike"
-    commit: "9380965"
-    paths: ["docs/PRD.md", "docs/ROLES.md", "docs/ARCHITECTURE.md", "docs/or-tools/ortools-rebalancing.md"]
-  - role: supplementary
-    type: paper
-    doc_id: ref-forecast-kim-2023
-    citation: "김유신, 인터넷정보학회논문지 24(5), 2023"
-  - role: supplementary
-    type: press_release
-    doc_id: notice-seoul-fireworks-2025
-    citation: "서울시, 2025 서울세계불꽃축제 종합대책 보도자료"
+- role: primary
+  type: github
+  repo: HuitaePark/skala_seoul_bike
+  commit: '9380965'
+  paths:
+  - docs/PRD.md
+  - docs/ROLES.md
+  - docs/ARCHITECTURE.md
+  - docs/or-tools/ortools-rebalancing.md
+- role: supplementary
+  type: paper
+  doc_id: ref-forecast-kim-2023
+  citation: 김유신, 인터넷정보학회논문지 24(5), 2023
+- role: supplementary
+  type: press_release
+  doc_id: notice-seoul-fireworks-2025
+  citation: 서울시, 2025 서울세계불꽃축제 종합대책 보도자료
 ---
 
 # 재배치 운영 기준
@@ -113,25 +119,26 @@ sources:
 
 출처: PRD 6.4, 6.8, 2.1 S1·S2 · 보조: notice-seoul-fireworks-2025
 
-## 8. 변경 등급과 승인
+## 8. 변경 등급과 승인 (작은 변경·큰 변경)
 
 | 등급 | 조건 `[초기값]` | 승인 |
 | --- | --- | --- |
-| none | 정류장 순서·대수 변화 없음 | 없음 |
-| minor | 같은 트럭 안의 변경, 빠지는 정류장 2곳 이하, 소요 시간 증가 10분 이하 | 기사 |
-| major | 트럭 간 배정 이동, 트럭 추가 투입, minor 기준 초과, 관리자 요청에서 비롯된 변경 | 관리자 → 기사 |
+| none (변경 없음) | 정류장 순서·대수 변화 없음 | 없음 |
+| minor (작은 변경) | 같은 트럭 안의 변경, 빠지는 정류장 2곳 이하, 소요 시간 증가 10분 이하 | 기사 |
+| major (큰 변경) | 트럭 간 배정 이동, 트럭 추가 투입, minor 기준 초과, 관리자 요청에서 비롯된 변경 | 관리자 → 기사 |
 
+- 경로 변경의 승인 카드가 곧 기사 수락이다. 큰 변경은 관리자 카드가 승인된 뒤 기사 카드를 한 장 더 보낸다. 앞 카드가 거절되면 기존 경로를 유지한다.
 - 같은 트럭에 새 변경안이 생기면 이전 대기안은 무효(`superseded`)가 된다.
 - 기사가 거절하면 기존 경로를 유지한다.
 - 등급 판정은 코드 규칙(백엔드)이 한다. 경계값은 현장 인터뷰로 확인한다.
 
-출처: PRD 6.6, 6.3, FR-07, FR-13
+출처: PRD 6.6, 6.3, FR-07(작은 변경·큰 변경), FR-13 · specs openapi v0.3 ApprovalRequest(큰 변경은 관리자 → 기사 카드 두 장)
 
-## 9. 현장 보고와 기사 안내
+## 9. 현장 보고와 기사 안내 (운전 중 알림 금지)
 
 - 기사는 정류장에서 실제 수량을 3번 이하의 터치로 보고한다. 기본값은 계획 수량이고 +/-로 조정한다.
 - 진입 불가·공사 등은 선택지 또는 짧은 메모로 남긴다. 메모는 LLM이 `{유형, 대여소}`로 바꾸고, 남은 경로를 다시 계산한다.
-- **운행 중에는 모달·소리 알림 없이 배지만 표시한다.** 변경안은 정차 중이거나 정류장에 도착했을 때만 보여준다.
+- **운전 중 확인을 강요하지 않는다.** 운행 중에는 모달·소리 알림 없이 배지만 표시한다. 변경안은 정차 중이거나 정류장에 도착했을 때만 보여준다.
 
 출처: PRD FR-11, FR-12, FR-14, 6.3
 

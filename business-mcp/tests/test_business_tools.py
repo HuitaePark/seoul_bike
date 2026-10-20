@@ -122,6 +122,13 @@ async def test_uppercase_region_and_shift_ids_pass_schema(client):
     assert err["code"] == "SHIFT_NOT_FOUND" and err["hint"]["candidates"] == [SHIFT_ID]
 
 
+async def test_station_number_format_passes_schema(client):
+    """합의 1번 제안(대여소번호 "108")도 스키마를 통과해 백엔드 오류(후보 포함)까지 간다."""
+    async with client:
+        err = await call_error(client, "get_station_detail", {"station_id": "108"})
+    assert err["code"] == "STATION_NOT_FOUND" and err["hint"]["candidates"]
+
+
 async def test_station_not_found_then_retry_with_candidate(client):
     """완료 기준: 잘못된 인자에 대한 오류 메시지를 보고 다시 호출한다."""
     async with client:
@@ -134,7 +141,7 @@ async def test_station_not_found_then_retry_with_candidate(client):
 
 async def test_schema_rejects_bad_ids(client):
     async with client:
-        bad_station = await client.call_tool("get_station_detail", {"station_id": "1023"}, raise_on_error=False)
+        bad_station = await client.call_tool("get_station_detail", {"station_id": "강남-1023"}, raise_on_error=False)
         bad_shift = await client.call_tool("get_current_plan", {"shift_id": "S05:2026-10-21:am"}, raise_on_error=False)
     assert bad_station.is_error and bad_shift.is_error
 

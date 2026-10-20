@@ -1,23 +1,26 @@
 ---
+title: 공유자전거 따릉이 재배치를 위한 실시간 수요예측 모델 연구 (요약)
 doc_id: ref-forecast-kim-2023
-doc_type: reference_paper
-title: "공유자전거 따릉이 재배치를 위한 실시간 수요예측 모델 연구 (요약)"
-data_period: "2019-01 ~ 2019-12 (검증 2019-10)"
 version: 1
-written_by: "MCP·RAG 담당 (팀 요약, 원문 아님)"
-verified_at: "2026-10-20"          # koreascience 서지·수치 대조일
+updated: '2026-10-20'
+source: 김유신, 인터넷정보학회논문지 24(5), pp.107-120, 2023, DOI 10.7472/jksii.2023.24.5.107
+status: 외부 논문 요약(보조 근거). 2019년 데이터이므로 참고 기준으로만 인용한다
+doc_type: reference_paper
+data_period: 2019-01 ~ 2019-12 (검증 2019-10)
+written_by: MCP·RAG 담당 (팀 요약, 원문 아님)
 language: ko
 sources:
-  - role: primary
-    type: paper
-    citation: "김유신, 「공유자전거 따릉이 재배치를 위한 실시간 수요예측 모델 연구」, 인터넷정보학회논문지 24권 5호, pp.107-120, 2023"
-    doi: "10.7472/jksii.2023.24.5.107"
-    url: "https://koreascience.or.kr/article/JAKO202331843220886.page"
-  - role: supplementary
-    type: github
-    repo: "HuitaePark/skala_seoul_bike"
-    commit: "9380965"
-    paths: ["docs/PRD.md"]       # 8절 '우리 설계와의 연결'의 PRD 위치
+- role: primary
+  type: paper
+  citation: 김유신, 「공유자전거 따릉이 재배치를 위한 실시간 수요예측 모델 연구」, 인터넷정보학회논문지 24권 5호, pp.107-120, 2023
+  doi: 10.7472/jksii.2023.24.5.107
+  url: https://koreascience.or.kr/article/JAKO202331843220886.page
+- role: supplementary
+  type: github
+  repo: HuitaePark/skala_seoul_bike
+  commit: '9380965'
+  paths:
+  - docs/PRD.md
 ---
 
 # 공유자전거 따릉이 재배치를 위한 실시간 수요예측 모델 연구 (요약)

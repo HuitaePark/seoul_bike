@@ -42,7 +42,8 @@ WRITE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True,
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 ConstraintType = Literal["TARGET_ADJUST", "STATION_SUSPENDED", "STATION_BLOCKED", "INVENTORY_OVERRIDE", "PRIORITY_BOOST"]
-StationId = Annotated[str, Field(pattern=r"^ST-\d+$", description="대여소 ID, 예: ST-1023")]
+StationId = Annotated[str, Field(pattern=r"^(ST-)?\d+$",
+                                 description="대여소 ID, 예: ST-1023. 대여소번호(예 108) 형식도 받는다 (docs/data/agreements.md 1번 합의 전)")]
 RegionId = Annotated[str, Field(pattern=r"^[A-Za-z0-9-]+$", description="권역 ID, 예: S05, gwangjin-seongdong")]
 ShiftId = Annotated[
     str,

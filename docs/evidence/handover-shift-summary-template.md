@@ -1,20 +1,24 @@
 ---
+title: 근무조 인수인계 요약 양식
 doc_id: handover-shift-summary-template
-doc_type: handover
-title: "근무조 인수인계 요약 양식"
 version: 1
-verified_at: "2026-10-20"
-written_by: "MCP·RAG 담당 (팀 작성)"
+updated: '2026-10-20'
+source: 팀 저장소 PRD v0.2 6.3~6.6·9.2절, ARCHITECTURE 7.1절 (커밋 9380965)
+status: 양식. 5절 작성 예시의 숫자는 가상 값이다
+doc_type: handover
+written_by: MCP·RAG 담당 (팀 작성)
 language: ko
 sources:
-  - role: primary
-    type: github
-    repo: "HuitaePark/skala_seoul_bike"
-    commit: "9380965"
-    paths: ["docs/PRD.md", "docs/ARCHITECTURE.md"]
-  - role: supplementary
-    type: rag_doc
-    doc_id: ops-rebalancing-standard
+- role: primary
+  type: github
+  repo: HuitaePark/skala_seoul_bike
+  commit: '9380965'
+  paths:
+  - docs/PRD.md
+  - docs/ARCHITECTURE.md
+- role: supplementary
+  type: rag_doc
+  doc_id: ops-rebalancing-standard
 ---
 
 # 근무조 인수인계 요약 양식
