@@ -24,8 +24,12 @@ class TaskEventStore {
 
 	private static final Logger log = LoggerFactory.getLogger(TaskEventStore.class);
 
-	/** Kafka 봉투 필드. 화면으로 보내는 SSE data에서는 뺀다. */
-	private static final Set<String> ENVELOPE = Set.of("eventId", "schemaVersion", "shiftId", "traceId");
+	/**
+	 * 계약 TaskEvent 필드(seq 제외). 이것만 저장하고 SSE로 보낸다. 봉투(eventId 등)와 agent 확장 필드(harness의
+	 * runId·토큰 수 등)는 화면, 특히 기사 브라우저로 가지 않게 버린다.
+	 */
+	private static final Set<String> EVENT_FIELDS = Set.of("taskId", "type", "occurredAt", "token", "tool", "approval",
+			"answer", "sources", "error", "code");
 
 	record StoredEvent(UUID taskId, int seq, String type, String data) {
 
@@ -57,7 +61,7 @@ class TaskEventStore {
 		}
 
 		ObjectNode payload = ((ObjectNode) message).deepCopy();
-		payload.remove(ENVELOPE);
+		payload.retain(EVENT_FIELDS);
 		if (!payload.has("occurredAt")) {
 			payload.put("occurredAt", Instant.now().toString());
 		}
