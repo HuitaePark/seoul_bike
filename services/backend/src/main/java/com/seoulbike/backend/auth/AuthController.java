@@ -44,11 +44,18 @@ class AuthController {
 	@PostMapping("/api/auth/login")
 	LoginResponse login(@Valid @RequestBody LoginRequest req) {
 		// 아이디가 없는 경우와 비밀번호가 틀린 경우를 구분하지 않는다.
-		var user = users.findByLoginId(req.loginId())
+		var stored = users.findByLoginId(req.loginId())
 			.filter(u -> passwords.matches(req.password(), u.passwordHash()))
 			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
-					"아이디 또는 비밀번호가 맞지 않다"))
-			.toCurrentUser();
+					"아이디 또는 비밀번호가 맞지 않다"));
+		// 상태는 비밀번호가 맞을 때만 알려준다. 남의 계정 상태를 떠보지 못하게 한다.
+		switch (stored.status()) {
+			case ACTIVE -> {
+			}
+			case PENDING -> throw ApiException.forbidden("ACCOUNT_PENDING", "관리자 승인을 기다리는 계정이다");
+			case DISABLED -> throw ApiException.forbidden("ACCOUNT_DISABLED", "비활성화된 계정이다");
+		}
+		var user = stored.toCurrentUser();
 
 		Instant now = Instant.now();
 		JwtClaimsSet.Builder claims = JwtClaimsSet.builder()

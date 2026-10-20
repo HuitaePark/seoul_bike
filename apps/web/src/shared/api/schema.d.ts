@@ -21,6 +21,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 회원가입 신청
+         * @description 누구나 신청할 수 있고, 계정은 **승인 대기(PENDING)** 로 만들어진다.
+         *     관리자가 승인(역할·트럭 확정)하기 전에는 로그인할 수 없다.
+         */
+        post: operations["signup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -125,6 +146,68 @@ export interface paths {
          *     backend가 승인 기록을 남긴 뒤 같은 `threadId`로 에이전트를 재개한다.
          */
         post: operations["decideApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 계정 목록 (관리자) */
+        get: operations["listAccounts"];
+        put?: never;
+        /**
+         * 계정 발급 (관리자)
+         * @description 바로 쓸 수 있는(ACTIVE) 계정을 만든다. 기사는 트럭이 필요하다.
+         */
+        post: operations["createAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{userId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 가입 신청 승인 (관리자)
+         * @description 역할과 트럭을 확정하고 ACTIVE로 바꾼다. 기사로 승인하려면 truckId가 필요하다 (TRUCK_REQUIRED).
+         */
+        post: operations["approveAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{userId}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 계정 비활성화 (관리자)
+         * @description 로그인을 막는다. 가입 신청 거절에도 쓴다. 자기 계정은 비활성화할 수 없다 (CANNOT_DISABLE_SELF).
+         *     이미 발급된 토큰은 만료(최대 12시간)될 때까지 남는다.
+         */
+        post: operations["disableAccount"];
         delete?: never;
         options?: never;
         head?: never;
@@ -267,6 +350,45 @@ export interface components {
             name: string;
             role: components["schemas"]["Role"];
             /** @description DRIVER만 */
+            truckId?: string | null;
+        };
+        /**
+         * @description PENDING 가입 신청(로그인 불가) · ACTIVE 사용 중 · DISABLED 비활성(로그인 불가)
+         * @enum {string}
+         */
+        AccountStatus: "PENDING" | "ACTIVE" | "DISABLED";
+        /** @description 영문 소문자·숫자·. _ - */
+        LoginId: string;
+        /** Format: password */
+        Password: string;
+        Account: {
+            id: string;
+            loginId: string;
+            name: string;
+            role: components["schemas"]["Role"];
+            truckId?: string | null;
+            status: components["schemas"]["AccountStatus"];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SignupRequest: {
+            loginId: components["schemas"]["LoginId"];
+            password: components["schemas"]["Password"];
+            name: string;
+            /** @description 희망 역할. 관리자가 승인할 때 바꿀 수 있다 */
+            requestedRole: components["schemas"]["Role"];
+        };
+        CreateAccountRequest: {
+            loginId: components["schemas"]["LoginId"];
+            password: components["schemas"]["Password"];
+            name: string;
+            role: components["schemas"]["Role"];
+            /** @description DRIVER면 필수 */
+            truckId?: string | null;
+        };
+        ApproveAccountRequest: {
+            role: components["schemas"]["Role"];
+            /** @description DRIVER면 필수 */
             truckId?: string | null;
         };
         /**
@@ -549,6 +671,7 @@ export interface components {
     };
     parameters: {
         TaskId: string;
+        UserId: string;
         /** @description {regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. LangGraph thread_id로도 쓴다 */
         ShiftId: string;
         Page: number;
@@ -583,6 +706,49 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description 승인 대기(ACCOUNT_PENDING) 또는 비활성(ACCOUNT_DISABLED) 계정 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    signup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignupRequest"];
+            };
+        };
+        responses: {
+            /** @description 신청 접수 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description 이미 쓰는 아이디 (LOGIN_ID_TAKEN) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getMe: {
@@ -750,6 +916,130 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    listAccounts: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["AccountStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 최신 가입순 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description 발급됨 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description 이미 쓰는 아이디 (LOGIN_ID_TAKEN) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    approveAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description 승인됨 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description 승인 대기 상태가 아님 (ACCOUNT_NOT_PENDING) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    disableAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 비활성화됨 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listRegionStations: {

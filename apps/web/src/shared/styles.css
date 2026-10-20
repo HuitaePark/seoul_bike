@@ -15,7 +15,8 @@ h3 { font-size: 15px; }
 
 .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; }
 .login { max-width: 360px; margin: 80px auto; display: flex; flex-direction: column; gap: 12px; }
-.console { display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start; }
+.console { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .console { grid-template-columns: minmax(0, 1fr); } }
 form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #374151; }
 input, select, textarea { font: inherit; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; }
@@ -43,3 +44,12 @@ h2 button.ghost { padding: 2px 8px; font-size: 12px; }
 .muted { color: #6b7280; font-size: 13px; }
 .hint { color: #6b7280; font-size: 12px; }
 .error { color: #b91c1c; font-size: 13px; }
+
+.topbar a.router-link-exact-active { color: #fff; font-weight: 700; }
+.accounts { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }
+.accounts td { padding: 8px 6px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+.accounts td button { margin-right: 6px; }
+.badge.PENDING { background: #fef3c7; }
+.badge.ACTIVE { background: #dcfce7; }
+.badge.DISABLED { background: #e5e7eb; color: #6b7280; }
+.accounts input, .accounts select { width: 100%; max-width: 160px; box-sizing: border-box; }

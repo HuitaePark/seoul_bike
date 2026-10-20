@@ -34,12 +34,15 @@ class SeedUsers implements ApplicationRunner {
 			return;
 		}
 		String hash = passwords.encode(props.seedPassword());
-		var seeds = List.of(
-				new UserRepository.StoredUser("u-manager", "manager", hash, "관제 관리자", Role.MANAGER, null),
-				new UserRepository.StoredUser("u-driver-1", "driver1", hash, "기사 1", Role.DRIVER, "truck-1"),
-				new UserRepository.StoredUser("u-driver-2", "driver2", hash, "기사 2", Role.DRIVER, "truck-2"),
-				new UserRepository.StoredUser("u-executive", "executive", hash, "운영사 책임자", Role.EXECUTIVE, null));
-		long created = seeds.stream().filter(users::insertIfAbsent).count();
+		record Seed(String id, String loginId, String name, Role role, String truckId) {
+		}
+		var seeds = List.of(new Seed("u-manager", "manager", "관제 관리자", Role.MANAGER, null),
+				new Seed("u-driver-1", "driver1", "기사 1", Role.DRIVER, "truck-1"),
+				new Seed("u-driver-2", "driver2", "기사 2", Role.DRIVER, "truck-2"),
+				new Seed("u-executive", "executive", "운영사 책임자", Role.EXECUTIVE, null));
+		long created = seeds.stream()
+			.filter(s -> users.insertIfAbsent(s.id(), s.loginId(), hash, s.name(), s.role(), s.truckId(), AccountStatus.ACTIVE))
+			.count();
 		if (created > 0) {
 			log.info("시드 계정 {}개를 만들었다", created);
 		}

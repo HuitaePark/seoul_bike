@@ -32,6 +32,7 @@ async function submit() {
     <label>비밀번호 <input v-model="password" type="password" autocomplete="current-password" required /></label>
     <p v-if="error" class="error">{{ error }}</p>
     <button :disabled="busy">{{ busy ? '확인 중…' : '로그인' }}</button>
+    <RouterLink to="/signup" class="hint">계정이 없으면 회원가입</RouterLink>
     <p class="hint">시연 계정: manager · driver1 · driver2 · executive (비밀번호는 팀에 따로 공유)</p>
   </form>
 </template>

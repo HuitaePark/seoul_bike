@@ -6,6 +6,8 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: () => import('./features/login/LoginView.vue'), meta: { public: true } },
+    { path: '/signup', component: () => import('./features/login/SignupView.vue'), meta: { public: true } },
+    { path: '/admin/users', component: () => import('./features/admin-users/AdminUsersView.vue') },
     { path: '/', component: () => import('./features/task-console/TaskConsoleView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
