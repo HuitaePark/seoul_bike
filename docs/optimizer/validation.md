@@ -44,7 +44,8 @@ CLI의 JSON 출력도 서로 다른 두 프로세스에서 동일한 것을 확�
 
 ## OSRM·캐시 후속 검증 (최신 main 반영 후)
 
-최신 `origin/main` `221caf5`를 `9460226`에서 개인 브랜치에 병합한 후 진행했다.
+`origin/main` `221caf5`를 `9460226`에서 개인 브랜치에 병합한 후 진행했다.
+작업 중 추가된 main `aebf8a6`의 공통 API·Kafka 명세와 CI 변경도 별도 병합·대조했다.
 같은 Python 3.12.13 환경에서 **77개 테스트와 24개 subtest가 통과**했다.
 서드파티 SWIG의 기존 DeprecationWarning 3건만 있으며 실패는 없다.
 
