@@ -7,6 +7,8 @@ services:
   backend:
     build:
       context: ../services/backend
+      additional_contexts:
+        specs: ../docs/specs
       args:
         GIT_SHA: ${GIT_SHA:-local}
     environment:

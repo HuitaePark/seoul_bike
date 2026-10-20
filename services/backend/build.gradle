@@ -28,6 +28,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-kafka'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	runtimeOnly 'org.postgresql:postgresql'
+	implementation 'org.webjars:swagger-ui:5.33.2'
+	implementation 'org.webjars:webjars-locator-lite'
 	testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-jdbc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-kafka-test'
@@ -47,6 +49,16 @@ tasks.named('jar') {
 
 tasks.named('bootJar') {
 	archiveFileName = 'backend.jar'
+}
+
+// 계약 원본은 docs/specs에 둔다. 빌드할 때 복사해서 /specs/*.yaml로 서빙하고 /swagger/에서 보여준다.
+// Docker 빌드는 compose additional_contexts로 넘긴 경로(-PspecsDir=/specs)를 쓴다.
+def specsDir = providers.gradleProperty('specsDir').orElse('../../docs/specs')
+tasks.named('processResources', ProcessResources) {
+	from(specsDir.map { file(it) }) {
+		include '*.yaml'
+		into 'static/specs'
+	}
 }
 
 tasks.named('test') {

@@ -1,0 +1,459 @@
+openapi: 3.1.0
+info:
+  title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
+  version: 0.1.0-draft
+  summary: business-mcp가 호출하는 backend 내부 API
+  description: |
+    **초안 v0.1.** MCP·에이전트 담당 확인 전이다.
+
+    - docker network 안에서만 열린다. 화면과 외부에서는 호출하지 않는다.
+    - 업무 규칙(변경 등급, 승인 주체)은 backend에만 있다. business-mcp는 규칙을 복제하지 않고 이 API를 부른다.
+    - **변경 API 3개는 `approvalId`가 `APPROVED`가 아니면 403을 돌려준다.** 에이전트 interrupt와 별개로
+      backend가 한 번 더 막는다 (UR-18 "사람 승인 없이 바꾸지 않음").
+    - 오류 메시지는 MCP `ToolError`로 그대로 전달되므로, 모델이 다시 호출할 수 있는 정보를 담는다
+      (예 없는 대여소면 권역 안의 비슷한 대여소 목록).
+
+    | MCP 도구 | 내부 API |
+    | --- | --- |
+    | get_risk_stations | GET /internal/stations/risk |
+    | get_station_detail | GET /internal/stations/{stationId} |
+    | get_forecast | GET /internal/forecasts |
+    | get_current_plan | GET /internal/shifts/{shiftId}/plan |
+    | get_truck_status | GET /internal/shifts/{shiftId}/trucks |
+    | get_field_reports | GET /internal/shifts/{shiftId}/reports |
+    | request_route_plan | POST /internal/plans/solve |
+    | add_constraint (변경) | POST /internal/constraints |
+    | submit_plan (변경) | POST /internal/plans/{planId}/activate |
+    | propose_route_change (변경) | POST /internal/routes/{truckId}/apply |
+servers:
+  - url: http://backend:8080
+    description: docker network 안
+security:
+  - internalToken: []
+
+paths:
+  /internal/stations/risk:
+    get:
+      operationId: getRiskStations
+      summary: 빈·과적재 위험 대여소
+      parameters:
+        - name: regionId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: horizonH
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 6, default: 3 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: 우선순위 내림차순
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RiskStation' }
+        '404': { $ref: '#/components/responses/RegionNotFound' }
+
+  /internal/stations/{stationId}:
+    get:
+      operationId: getStationDetail
+      summary: 대여소 상세
+      parameters:
+        - name: stationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 대여소
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StationDetail' }
+        '404': { $ref: '#/components/responses/StationNotFound' }
+
+  /internal/forecasts:
+    get:
+      operationId: getForecasts
+      summary: 대여소별 예측
+      parameters:
+        - name: stationIds
+          in: query
+          required: true
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 200
+            items: { type: string }
+        - name: start
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: horizonH
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 6, default: 3 }
+      responses:
+        '200':
+          description: 예측
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Forecast' }
+        '404': { $ref: '#/components/responses/StationNotFound' }
+
+  /internal/shifts/{shiftId}/plan:
+    get:
+      operationId: getCurrentPlan
+      summary: 현재 계획
+      parameters:
+        - $ref: '#/components/parameters/ShiftId'
+      responses:
+        '200':
+          description: 계획 (공개 API Plan과 같은 형식)
+          content:
+            application/json:
+              schema: { $ref: 'openapi.yaml#/components/schemas/Plan' }
+        '404': { $ref: '#/components/responses/ShiftNotFound' }
+
+  /internal/shifts/{shiftId}/trucks:
+    get:
+      operationId: getTruckStatus
+      summary: 트럭 현재 위치·적재량·남은 정류장
+      parameters:
+        - $ref: '#/components/parameters/ShiftId'
+      responses:
+        '200':
+          description: 트럭 상태
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TruckState' }
+        '404': { $ref: '#/components/responses/ShiftNotFound' }
+
+  /internal/shifts/{shiftId}/reports:
+    get:
+      operationId: getFieldReports
+      summary: 근무조 현장 보고
+      description: 기사 이름·연락처는 마스킹해서 돌려준다 (Harness Guardrails).
+      parameters:
+        - $ref: '#/components/parameters/ShiftId'
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: 보고 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FieldReport' }
+        '404': { $ref: '#/components/responses/ShiftNotFound' }
+
+  /internal/plans/solve:
+    post:
+      operationId: requestRoutePlan
+      summary: 경로 계산 요청 (계획 초안 또는 재경로)
+      description: |
+        backend가 Kafka `solve.requests`로 optimizer에 보내고 `solve.results`를 기다린다 (최대 60초).
+        시간을 넘기면 탐욕 휴리스틱 임시안을 `provisional: true`로 돌려준다.
+        결과는 아직 활성화되지 않은 후보이며, 활성 계획과 비교한 변경 등급을 함께 준다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolveRequest' }
+      responses:
+        '200':
+          description: 후보 계획
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanCandidate' }
+        '404': { $ref: '#/components/responses/ShiftNotFound' }
+
+  /internal/constraints:
+    post:
+      operationId: addConstraint
+      summary: 제약 추가 (변경, 승인 필요)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConstraintRequest' }
+      responses:
+        '201':
+          description: 추가됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Constraint' }
+        '403': { $ref: '#/components/responses/ApprovalRequired' }
+        '404': { $ref: '#/components/responses/StationNotFound' }
+
+  /internal/plans/{planId}/activate:
+    post:
+      operationId: activatePlan
+      summary: 계획 활성화 (변경, 관리자 승인 필요)
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovedChange' }
+      responses:
+        '200':
+          description: 활성화된 계획
+          content:
+            application/json:
+              schema: { $ref: 'openapi.yaml#/components/schemas/Plan' }
+        '403': { $ref: '#/components/responses/ApprovalRequired' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /internal/routes/{truckId}/apply:
+    post:
+      operationId: applyRouteChange
+      summary: 트럭 경로 변경 적용 (변경, 기사 또는 관리자 승인 필요)
+      parameters:
+        - name: truckId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ApprovedChange'
+                - type: object
+                  required: [candidateId]
+                  properties:
+                    candidateId: { type: string }
+      responses:
+        '200':
+          description: 적용된 경로
+          content:
+            application/json:
+              schema: { $ref: 'openapi.yaml#/components/schemas/Route' }
+        '403': { $ref: '#/components/responses/ApprovalRequired' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+components:
+  securitySchemes:
+    internalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
+      description: docker network 밖으로 열리지 않더라도 서비스 토큰으로 한 번 더 막는다
+
+  parameters:
+    ShiftId:
+      name: shiftId
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    ApprovalRequired:
+      description: approvalId가 없거나 APPROVED가 아니거나 승인 주체가 맞지 않음
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ToolProblem' }
+          example:
+            type: about:blank
+            title: 승인되지 않은 변경
+            status: 403
+            code: APPROVAL_REQUIRED
+            detail: approvalId 8f1c…는 PENDING 상태다. 승인 후 다시 호출한다.
+    StationNotFound:
+      description: 없는 대여소. 다시 호출할 수 있게 후보를 준다
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ToolProblem' }
+          example:
+            type: about:blank
+            title: 대여소 없음
+            status: 404
+            code: STATION_NOT_FOUND
+            detail: "'ST-9999' 대여소가 없다. 권역 안의 가까운 대여소: ST-1023, ST-1031"
+            suggestions: [ST-1023, ST-1031]
+    RegionNotFound:
+      description: 없는 권역
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ToolProblem' }
+    ShiftNotFound:
+      description: 없는 근무조
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ToolProblem' }
+    Conflict:
+      description: 이미 활성화됐거나 더 새로운 후보로 대체됨
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ToolProblem' }
+
+  schemas:
+    RiskStation:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/StationStatus'
+        - type: object
+          required: [neededBikes, priority, reasons]
+          properties:
+            neededBikes:
+              type: integer
+              description: 양수 회수, 음수 배치
+            priority: { type: number }
+            emptyAt:
+              type: [string, 'null']
+              format: date-time
+              description: 예상 빈 시각
+            reasons:
+              type: array
+              items: { type: string }
+
+    StationDetail:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/StationStatus'
+        - type: object
+          properties:
+            district: { type: string }
+            recentReports:
+              type: array
+              items: { $ref: '#/components/schemas/FieldReport' }
+
+    Forecast:
+      type: object
+      required: [stationId, start, horizonH, rentals, returns]
+      properties:
+        stationId: { type: string }
+        start: { type: string, format: date-time }
+        horizonH: { type: integer }
+        rentals: { type: number }
+        returns: { type: number }
+        modelVersion: { type: string }
+
+    TruckState:
+      type: object
+      required: [truckId, capacity, load, remainingStops]
+      properties:
+        truckId: { type: string }
+        capacity: { type: integer }
+        load: { type: integer }
+        lat: { type: [number, 'null'] }
+        lon: { type: [number, 'null'] }
+        shiftEnd: { type: string, format: date-time }
+        remainingStops:
+          type: array
+          items: { $ref: 'openapi.yaml#/components/schemas/Stop' }
+
+    FieldReport:
+      type: object
+      required: [reportId, truckId, stationId, actualBikes, reportedAt]
+      properties:
+        reportId: { type: string }
+        truckId: { type: string }
+        driver: { type: string, description: 마스킹된 표시 (예 기사 A) }
+        stationId: { type: string }
+        actualBikes: { type: integer }
+        issue: { type: [string, 'null'] }
+        memo: { type: [string, 'null'] }
+        reportedAt: { type: string, format: date-time }
+
+    SolveRequest:
+      type: object
+      required: [shiftId, kind]
+      properties:
+        shiftId: { type: string }
+        kind:
+          type: string
+          enum: [PLAN, REPLAN]
+        truckIds:
+          type: array
+          description: REPLAN에서 다시 풀 트럭. 비우면 전체
+          items: { type: string }
+        excludeStationIds:
+          type: array
+          items: { type: string }
+        requestedBy:
+          type: object
+          required: [taskId]
+          properties:
+            taskId: { type: string, format: uuid }
+
+    PlanCandidate:
+      type: object
+      required: [candidateId, status, plan]
+      properties:
+        candidateId: { type: string }
+        status:
+          type: string
+          enum: [OK, TIMEOUT_PROVISIONAL]
+        plan: { $ref: 'openapi.yaml#/components/schemas/Plan' }
+        grade:
+          type: [string, 'null']
+          enum: [NONE, MINOR, MAJOR, null]
+          description: 활성 계획 대비 변경 등급. backend 업무 규칙으로 계산
+        diffs:
+          type: array
+          items: { $ref: 'openapi.yaml#/components/schemas/RouteDiff' }
+
+    ConstraintType:
+      type: string
+      enum: [TARGET_ADJUST, STATION_SUSPENDED, STATION_BLOCKED, INVENTORY_OVERRIDE, PRIORITY_BOOST]
+
+    ConstraintRequest:
+      allOf:
+        - $ref: '#/components/schemas/ApprovedChange'
+        - type: object
+          required: [shiftId, type, stationIds, validFrom, validTo, reason]
+          properties:
+            shiftId: { type: string }
+            type: { $ref: '#/components/schemas/ConstraintType' }
+            stationIds:
+              type: array
+              minItems: 1
+              items: { type: string }
+            value:
+              type: [integer, 'null']
+              description: TARGET_ADJUST 가감 대수, INVENTORY_OVERRIDE 실제 재고
+            validFrom: { type: string, format: date-time }
+            validTo: { type: string, format: date-time }
+            reason: { type: string }
+
+    Constraint:
+      allOf:
+        - $ref: '#/components/schemas/ConstraintRequest'
+        - type: object
+          required: [constraintId]
+          properties:
+            constraintId: { type: string }
+
+    ApprovedChange:
+      type: object
+      required: [approvalId, taskId]
+      properties:
+        approvalId: { type: string, format: uuid }
+        taskId: { type: string, format: uuid }
+
+    ToolProblem:
+      type: object
+      description: RFC 9457 + MCP ToolError로 그대로 넘길 정보
+      required: [type, title, status, code, detail]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string, description: 모델이 읽고 다시 호출할 수 있는 문장 }
+        suggestions:
+          type: array
+          items: { type: string }

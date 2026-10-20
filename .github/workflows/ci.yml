@@ -34,6 +34,19 @@ jobs:
       - run: ./gradlew test --no-daemon
         working-directory: services/backend
 
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: OpenAPI 검증
+        run: npx --yes @redocly/cli@2 lint docs/specs/openapi.yaml docs/specs/internal-api.yaml --format=summary
+      - name: AsyncAPI 검증
+        working-directory: docs/specs
+        run: npx --yes @asyncapi/cli@6 validate asyncapi.yaml
+
   compose:
     runs-on: ubuntu-latest
     steps:

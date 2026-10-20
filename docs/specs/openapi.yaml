@@ -1,0 +1,739 @@
+openapi: 3.1.0
+info:
+  title: 따릉이 재배치 에이전트 · 공개 API
+  version: 0.1.0-draft
+  summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
+  description: |
+    **초안 v0.1.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
+
+    - 작업 API 5개는 과제 레퍼런스(표 5-8)를 그대로 따른다. 경로와 이름을 바꾸지 않는다.
+    - LLM이 필요한 요청은 작업으로 접수해 **202**를 돌려주고, 진행 상황은 **SSE**로 보낸다.
+    - 화면은 이 API만 호출한다. AI 서버 주소는 화면에 드러내지 않는다.
+    - 오류 본문은 RFC 9457 `application/problem+json`이다.
+servers:
+  - url: https://baki-macbookpro.tail3286a4.ts.net
+    description: 배포 서버 (Tailscale Funnel)
+  - url: http://localhost:8080
+    description: 로컬
+security:
+  - bearerAuth: []
+tags:
+  - name: auth
+    description: 로그인과 내 정보
+  - name: ai-tasks
+    description: 작업 API (과제 레퍼런스 표 5-8)
+  - name: stations
+    description: 대여소 현황
+  - name: plans
+    description: 계획과 기사 경로
+  - name: reports
+    description: 기사 현장 보고
+  - name: kpi
+    description: 성과 비교
+  - name: system
+    description: 배포·통합 확인
+
+paths:
+  /api/auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: 로그인하고 액세스 토큰을 받는다
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: 로그인 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: 내 정보
+      responses:
+        '200':
+          description: 로그인한 사용자
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/ai/tasks:
+    post:
+      operationId: createTask
+      tags: [ai-tasks]
+      summary: 질문·요청으로 작업을 만든다
+      description: |
+        작업 상태를 저장하고 Kafka `ai.tasks`로 에이전트에 넘긴 뒤 바로 202를 돌려준다.
+        같은 근무조(`shiftId`)의 작업은 순서대로 처리된다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskRequest' }
+      responses:
+        '202':
+          description: 작업 접수
+          headers:
+            Location:
+              schema: { type: string }
+              description: /api/ai/tasks/{taskId}
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskAccepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      operationId: listTasks
+      tags: [ai-tasks]
+      summary: 작업 목록
+      parameters:
+        - name: mine
+          in: query
+          description: true면 내가 만든 작업만
+          schema: { type: boolean, default: false }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TaskStatus' }
+        - name: shiftId
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 최신순 목록
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/ai/tasks/{taskId}:
+    get:
+      operationId: getTask
+      tags: [ai-tasks]
+      summary: 작업 상태와 결과
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 작업
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/ai/tasks/{taskId}/stream:
+    get:
+      operationId: streamTaskEvents
+      tags: [ai-tasks]
+      summary: 진행 이벤트 구독 (SSE)
+      description: |
+        `text/event-stream`. 각 이벤트는 `id`(작업 안에서 증가하는 seq), `event`(아래 `TaskEventType`),
+        `data`(JSON, 스키마 `TaskEvent`)로 보낸다.
+
+        - 재연결할 때 `Last-Event-ID`를 보내면 그 다음 이벤트부터 다시 보낸다. 이벤트는 DB에 남아 있다.
+        - 15초마다 주석 줄(`: ping`)을 보낸다. 프록시가 연결을 끊지 않게 하기 위해서다.
+        - `DONE` 또는 `FAILED`를 보낸 뒤 스트림을 닫는다.
+
+        | event | 언제 | 화면 |
+        | --- | --- | --- |
+        | TOKEN | 답변이 생성되는 동안 | 답변 영역에 이어 붙임 |
+        | TOOL_START · TOOL_END | MCP 도구 실행 전후 | "대여소 조회 중…" 상태 |
+        | APPROVAL_REQUIRED | 변경 도구 앞에서 멈췄을 때 | 승인 카드 |
+        | DONE · FAILED | 작업 종료 | 스트림 닫고 목록 갱신 |
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: 이벤트 스트림
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                examples:
+                  - "id: 7\nevent: APPROVAL_REQUIRED\ndata: {\"taskId\":\"...\",\"seq\":7,\"type\":\"APPROVAL_REQUIRED\",...}\n\n"
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/ai/tasks/{taskId}/approval:
+    post:
+      operationId: decideApproval
+      tags: [ai-tasks]
+      summary: 승인 또는 거절
+      description: |
+        `APPROVAL_REQUIRED` 이벤트의 `approvalId`에 답한다. 승인 주체가 아니면 403.
+        계획은 관리자, 작은 변경(minor)은 해당 트럭 기사, 큰 변경(major)은 관리자가 먼저 승인한다.
+        backend가 승인 기록을 남긴 뒤 같은 `threadId`로 에이전트를 재개한다.
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalDecision' }
+      responses:
+        '202':
+          description: 결정 접수. 결과는 SSE로 온다
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 이미 처리됐거나 더 새로운 변경안으로 대체됨(superseded)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/regions/{regionId}/stations:
+    get:
+      operationId: listRegionStations
+      tags: [stations]
+      summary: 권역 대여소 현황과 예측 (현황 지도)
+      parameters:
+        - name: regionId
+          in: path
+          required: true
+          schema: { type: string, examples: [gwangjin-seongdong] }
+        - name: horizonH
+          in: query
+          description: 예측 구간(시간)
+          schema: { type: integer, minimum: 1, maximum: 6, default: 3 }
+      responses:
+        '200':
+          description: 대여소 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/StationStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/shifts/{shiftId}/plan:
+    get:
+      operationId: getShiftPlan
+      tags: [plans]
+      summary: 근무조의 현재 계획 (계획 검토·모니터링)
+      parameters:
+        - $ref: '#/components/parameters/ShiftId'
+      responses:
+        '200':
+          description: 가장 최근 버전의 계획
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Plan' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/drivers/me/route:
+    get:
+      operationId: getMyRoute
+      tags: [plans]
+      summary: 기사 본인 트럭의 오늘 경로
+      description: DRIVER만. 다른 트럭 경로는 볼 수 없다.
+      responses:
+        '200':
+          description: 경로
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Route' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/reports:
+    post:
+      operationId: createFieldReport
+      tags: [reports]
+      summary: 정류장 현장 보고
+      description: |
+        보고는 바로 저장하고, 재경로가 필요하면 `FIELD_REPORT` 작업을 만들어 `taskId`를 함께 돌려준다.
+        DRIVER는 자기 트럭의 정류장만 보고할 수 있다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FieldReportRequest' }
+      responses:
+        '202':
+          description: 보고 저장, 재경로 작업 접수
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FieldReportAccepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/kpi:
+    get:
+      operationId: getKpi
+      tags: [kpi]
+      summary: 정책별 성과 비교 (시뮬레이터 결과)
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: regionId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: policies
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/Policy' }
+      responses:
+        '200':
+          description: 정책별 지표
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PolicyKpi' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/system/status:
+    get:
+      operationId: getSystemStatus
+      tags: [system]
+      summary: 시스템 상태 (구현됨)
+      description: backend가 PostgreSQL과 Kafka에 실제로 연결되는지. 인증 없음.
+      security: []
+      responses:
+        '200':
+          description: 상태
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SystemStatus' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "역할 클레임: MANAGER, DRIVER, EXECUTIVE. DRIVER 토큰에는 truckId가 들어간다."
+
+  parameters:
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ShiftId:
+      name: shiftId
+      in: path
+      required: true
+      description: "{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. LangGraph thread_id로도 쓴다"
+      schema: { type: string, examples: ['gwangjin-seongdong:2026-11-03:AM'] }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    BadRequest:
+      description: 요청 형식 오류
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: 토큰 없음 또는 만료
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: 역할 또는 소유권 부족 (예 다른 트럭)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: 없음
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Role:
+      type: string
+      enum: [MANAGER, DRIVER, EXECUTIVE]
+
+    LoginRequest:
+      type: object
+      required: [loginId, password]
+      properties:
+        loginId: { type: string }
+        password: { type: string, format: password }
+
+    LoginResponse:
+      type: object
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken: { type: string }
+        tokenType: { type: string, const: Bearer }
+        expiresIn: { type: integer, description: 초 }
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        truckId:
+          type: [string, 'null']
+          description: DRIVER만
+
+    TaskType:
+      type: string
+      enum: [PLAN_DRAFT, FIELD_REPORT, REQUEST, QUESTION]
+      description: |
+        PLAN_DRAFT 근무조 계획 초안 · FIELD_REPORT 현장 보고 해석·재경로 ·
+        REQUEST 상황 반영 요청(행사·공사) · QUESTION 질의응답
+
+    TaskStatus:
+      type: string
+      enum: [QUEUED, RUNNING, WAITING_APPROVAL, DONE, FAILED]
+
+    CreateTaskRequest:
+      type: object
+      required: [type, shiftId]
+      properties:
+        type: { $ref: '#/components/schemas/TaskType' }
+        shiftId: { type: string }
+        text:
+          type: string
+          maxLength: 2000
+          description: REQUEST·QUESTION의 자연어 입력
+
+    TaskAccepted:
+      type: object
+      required: [taskId, status, streamUrl]
+      properties:
+        taskId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        streamUrl: { type: string, examples: ['/api/ai/tasks/0c3e…/stream'] }
+
+    Task:
+      type: object
+      required: [taskId, type, status, shiftId, createdBy, createdAt, updatedAt]
+      properties:
+        taskId: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/TaskType' }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        shiftId: { type: string }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        answer:
+          type: [string, 'null']
+          description: DONE일 때 최종 답변
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/Source' }
+        pendingApproval:
+          oneOf:
+            - $ref: '#/components/schemas/ApprovalRequest'
+            - type: 'null'
+        error:
+          type: [string, 'null']
+          description: FAILED 사유
+        traceId:
+          type: [string, 'null']
+          description: LangSmith trace (Harness 관측)
+
+    TaskPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        page: { type: integer }
+        size: { type: integer }
+        total: { type: integer }
+
+    TaskEventType:
+      type: string
+      enum: [TOKEN, TOOL_START, TOOL_END, APPROVAL_REQUIRED, DONE, FAILED]
+
+    TaskEvent:
+      type: object
+      description: SSE data. Kafka ai.events 메시지와 같은 형식 (asyncapi.yaml)
+      required: [taskId, seq, type, occurredAt]
+      properties:
+        taskId: { type: string, format: uuid }
+        seq: { type: integer, description: SSE id와 같다 }
+        type: { $ref: '#/components/schemas/TaskEventType' }
+        occurredAt: { type: string, format: date-time }
+        token:
+          type: string
+          description: TOKEN
+        tool:
+          type: object
+          description: TOOL_START · TOOL_END
+          properties:
+            name: { type: string, examples: [business_get_risk_stations] }
+            label: { type: string, examples: [위험 대여소 조회 중] }
+            ok: { type: boolean, description: TOOL_END만 }
+        approval:
+          $ref: '#/components/schemas/ApprovalRequest'
+        answer:
+          type: string
+          description: DONE
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/Source' }
+        error:
+          type: string
+          description: FAILED
+
+    ApprovalRequest:
+      type: object
+      description: 변경 도구 앞에서 에이전트가 멈췄을 때의 승인 카드
+      required: [approvalId, kind, approver, summary]
+      properties:
+        approvalId: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [SUBMIT_PLAN, ADD_CONSTRAINT, ROUTE_CHANGE]
+        approver:
+          type: string
+          enum: [MANAGER, DRIVER]
+        grade:
+          type: [string, 'null']
+          enum: [MINOR, MAJOR, null]
+          description: ROUTE_CHANGE만
+        truckId: { type: [string, 'null'] }
+        summary: { type: string, description: 승인 카드 제목 }
+        reasons:
+          type: array
+          items: { type: string }
+        planId: { type: [string, 'null'] }
+        diff:
+          oneOf:
+            - $ref: '#/components/schemas/RouteDiff'
+            - type: 'null'
+
+    ApprovalDecision:
+      type: object
+      required: [approvalId, decision]
+      properties:
+        approvalId: { type: string, format: uuid }
+        decision:
+          type: string
+          enum: [APPROVE, REJECT]
+        excludeStationIds:
+          type: array
+          description: 계획 승인에서 일부 대여소를 빼고 다시 계산 (UR-04)
+          items: { type: string }
+        comment: { type: string, maxLength: 500 }
+
+    Source:
+      type: object
+      description: 근거. 도구 결과 또는 RAG 문서
+      required: [kind, title]
+      properties:
+        kind:
+          type: string
+          enum: [TOOL, DOC]
+        title: { type: string }
+        uri:
+          type: [string, 'null']
+          description: "DOC이면 doc://{docId} (rag-mcp Resource)"
+        excerpt: { type: [string, 'null'] }
+
+    StationRole:
+      type: string
+      enum: [FIXED_PICKUP, FIXED_DROPOFF, VARIABLE]
+
+    RiskKind:
+      type: string
+      enum: [EMPTY, OVERFLOW, NONE]
+
+    StationStatus:
+      type: object
+      required: [stationId, name, lat, lon, docks, bikes, observedAt, risk]
+      properties:
+        stationId: { type: string }
+        name: { type: string }
+        lat: { type: number }
+        lon: { type: number }
+        docks: { type: integer, description: 거치대 수 }
+        bikes: { type: integer, description: 현재 재고 }
+        observedAt: { type: string, format: date-time }
+        forecastBikes:
+          type: [integer, 'null']
+          description: horizonH 뒤 예상 재고
+        risk: { $ref: '#/components/schemas/RiskKind' }
+        role: { $ref: '#/components/schemas/StationRole' }
+        elevationM: { type: [number, 'null'] }
+
+    Stop:
+      type: object
+      required: [seq, stationId, action, bikes]
+      properties:
+        seq: { type: integer }
+        stationId: { type: string }
+        stationName: { type: string }
+        action:
+          type: string
+          enum: [PICKUP, DROPOFF]
+        bikes: { type: integer, minimum: 1 }
+        loadAfter: { type: integer }
+        eta: { type: [string, 'null'], format: date-time }
+        reason: { type: [string, 'null'], description: 포함 근거 (FR-03) }
+        status:
+          type: string
+          enum: [PENDING, DONE, SKIPPED]
+
+    Route:
+      type: object
+      required: [truckId, stops]
+      properties:
+        truckId: { type: string }
+        capacity: { type: integer, examples: [15] }
+        startLoad: { type: integer }
+        stops:
+          type: array
+          items: { $ref: '#/components/schemas/Stop' }
+
+    Unserved:
+      type: object
+      description: 포기한 대여소와 이유 (FR-05)
+      required: [stationId, priority, reason]
+      properties:
+        stationId: { type: string }
+        stationName: { type: string }
+        priority: { type: number }
+        reason: { type: string }
+
+    Plan:
+      type: object
+      required: [planId, shiftId, version, status, routes, unserved]
+      properties:
+        planId: { type: string }
+        shiftId: { type: string }
+        version: { type: integer }
+        status:
+          type: string
+          enum: [DRAFT, PROPOSED, ACTIVE, REJECTED, CLOSED]
+        provisional:
+          type: boolean
+          description: 최적화 시간 초과로 만든 임시안
+        routes:
+          type: array
+          items: { $ref: '#/components/schemas/Route' }
+        unserved:
+          type: array
+          items: { $ref: '#/components/schemas/Unserved' }
+        explanation: { type: [string, 'null'] }
+
+    RouteDiff:
+      type: object
+      required: [truckId, before, after]
+      properties:
+        truckId: { type: string }
+        before:
+          type: array
+          items: { $ref: '#/components/schemas/Stop' }
+        after:
+          type: array
+          items: { $ref: '#/components/schemas/Stop' }
+        addedMinutes: { type: number }
+
+    FieldReportRequest:
+      type: object
+      required: [shiftId, stationId, actualBikes]
+      properties:
+        shiftId: { type: string }
+        stationId: { type: string }
+        actualBikes: { type: integer, minimum: 0, description: 도착했을 때 실제 재고 }
+        loaded: { type: integer, minimum: 0 }
+        unloaded: { type: integer, minimum: 0 }
+        issue:
+          type: [string, 'null']
+          enum: [BLOCKED, CONSTRUCTION, INVENTORY_MISMATCH, OTHER, null]
+        memo: { type: [string, 'null'], maxLength: 500 }
+
+    FieldReportAccepted:
+      type: object
+      required: [reportId]
+      properties:
+        reportId: { type: string }
+        taskId:
+          type: [string, 'null']
+          format: uuid
+          description: 재경로 작업을 만들었으면 그 id
+
+    Policy:
+      type: string
+      enum: [NONE, GREEDY, CURRENT_OPS, AGENT]
+      description: 재배치 없음 · 단순 규칙 · 현행 운영 재현 · 본 시스템
+
+    PolicyKpi:
+      type: object
+      required: [policy, emptyStationMinutes, overflowStationMinutes, bikesMovedPerTruckHour]
+      properties:
+        policy: { $ref: '#/components/schemas/Policy' }
+        emptyStationMinutes: { type: number, description: 주 지표 }
+        overflowStationMinutes: { type: number }
+        bikesMovedPerTruckHour: { type: number }
+
+    SystemStatus:
+      type: object
+      required: [service, version, revision, serverTime, dependencies]
+      properties:
+        service: { type: string }
+        version: { type: string }
+        revision: { type: string }
+        builtAt: { type: [string, 'null'], format: date-time }
+        serverTime: { type: string, format: date-time }
+        dependencies:
+          type: array
+          items:
+            type: object
+            required: [name, status, detail]
+            properties:
+              name: { type: string }
+              status:
+                type: string
+                enum: [UP, DOWN]
+              detail: { type: string }
+
+    Problem:
+      type: object
+      description: RFC 9457
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code:
+          type: string
+          description: 화면 분기용 코드 (예 APPROVAL_SUPERSEDED, TRUCK_NOT_OWNED)
