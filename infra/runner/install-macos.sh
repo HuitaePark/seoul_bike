@@ -18,7 +18,7 @@ if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
   exit 1
 fi
 if ! command -v docker >/dev/null; then
-  echo "Docker Desktop을 먼저 설치한다" >&2
+  echo "docker가 없다. 먼저 설치한다: brew install colima docker docker-compose && brew services start colima" >&2
   exit 1
 fi
 
@@ -45,8 +45,8 @@ echo "PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" > .pa
 
 cat <<'EOF'
 
-남은 서버 설정:
+남은 서버 설정 (infra/README.md 참고):
   1) ~/seoul-bike/.env 만들기 (infra/.env.example 참고) 후 chmod 600 ~/seoul-bike/.env
-  2) Docker Desktop: Settings → General → "Start Docker Desktop when you sign in" 켜기
-  3) 잠자기 방지: sudo pmset -c sleep 0  (전원 연결 시 잠자기 끄기)
+  2) Colima가 로그인 시 자동 실행되는지 확인: brew services list | grep colima
+  3) 잠자기 방지: caffeinate LaunchAgent 등록 또는 sudo pmset -c sleep 0
 EOF

@@ -22,17 +22,26 @@ flowchart LR
 
 ## 서버 최초 설정 (한 번)
 
-1. Docker Desktop 설치, 로그인 시 자동 실행 켜기
-2. 러너 설치: 등록 토큰을 받아 실행한다 (토큰 받는 법은 스크립트 상단 주석)
+현재 서버: `bakillm@baki-macbookpro` (Tailscale `100.109.172.112`), CPU 10코어 · 메모리 16GB. 화면 없이 SSH로 관리하므로 Docker Desktop 대신 Colima를 쓴다.
+
+1. Homebrew 설치 (관리자 비밀번호 필요, 개발자 도구 포함)
+2. Docker 런타임: Colima를 로그인 시 자동 실행 서비스로 띄운다
    ```bash
-   git clone https://github.com/HuitaePark/skala_seoul_bike.git && cd skala_seoul_bike
-   bash infra/runner/install-macos.sh <등록 토큰>
+   brew install colima docker docker-compose docker-buildx
+   mkdir -p ~/.docker/cli-plugins
+   ln -sfn /opt/homebrew/opt/docker-compose/bin/docker-compose ~/.docker/cli-plugins/docker-compose
+   ln -sfn /opt/homebrew/opt/docker-buildx/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx
+   colima start --cpu 6 --memory 8 --disk 100 --vm-type vz --vz-rosetta --mount-type virtiofs
+   colima stop && brew services start colima
    ```
-3. 비밀값 파일
+3. 러너 설치: 등록 토큰을 받아 실행한다 (토큰 받는 법은 스크립트 상단 주석)
    ```bash
-   cp infra/.env.example ~/seoul-bike/.env && chmod 600 ~/seoul-bike/.env   # 값 수정
+   curl -fsSL https://raw.githubusercontent.com/HuitaePark/skala_seoul_bike/main/infra/runner/install-macos.sh | bash -s -- <등록 토큰>
    ```
-4. 잠자기 방지: `sudo pmset -c sleep 0`
+4. 비밀값 파일: `~/seoul-bike/.env` (권한 600). 양식은 `infra/.env.example`, 비밀번호는 `openssl rand -hex 24`로 만든다.
+5. 잠자기 방지: `~/Library/LaunchAgents/com.seoulbike.caffeinate.plist`가 `caffeinate -s`를 상시 실행한다 (전원 연결 시 잠자기 차단, 관리자 비밀번호 불필요). **노트북 덮개는 열어 둔다.** 덮개를 닫으면 잠든다.
+
+같은 서버에서 Ollama(`com.baki.ollama-server`, `100.109.172.112:11434`)도 돈다. 모델을 올리면 메모리를 쓰므로 Colima 메모리(8GB)와 합이 16GB를 넘지 않게 본다.
 
 ## 배포하기
 
@@ -54,7 +63,7 @@ flowchart LR
 
 | 증상 | 확인 |
 | --- | --- |
-| 배포 잡이 `Waiting for a runner`에서 멈춤 | 서버가 잠자기 상태인지, `~/actions-runner-seoul-bike/svc.sh status` |
-| `docker: command not found` | 러너 폴더의 `.path`에 `/usr/local/bin`이 있는지, Docker Desktop이 켜져 있는지 |
+| 배포 잡이 `Waiting for a runner`에서 멈춤 | 서버가 잠들었는지, 덮개가 닫혔는지, `~/actions-runner-seoul-bike/svc.sh status` |
+| `docker: command not found` · 소켓 연결 실패 | `brew services list`에서 colima가 started인지, 러너 폴더 `.path`에 `/opt/homebrew/bin`이 있는지 |
 | `.env가 없다` 오류 | `~/seoul-bike/.env` 존재와 권한(600) |
 | `--wait` 시간 초과 | 잡 로그의 "실패 시 상태와 로그" 단계 |
