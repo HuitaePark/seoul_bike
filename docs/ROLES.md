@@ -115,7 +115,7 @@ flowchart LR
 - [ ] 변경 등급 규칙, 승인 기록, 감사 로그
 - [ ] Kafka 발행·소비, 실패 시 `*.retry` → `*.dlq`
 - [ ] 따릉이·기상청 수집 스케줄러, PostgreSQL 스키마 (Flyway)
-- [ ] 화면: 공통 뼈대 (Vue 프로젝트, 로그인, 라우팅, `useApi()`, `useTaskStream()`)
+- [ ] 화면: 공통 뼈대 (Vue 프로젝트, 로그인·회원가입, 계정 관리, 라우팅, `api` 클라이언트, `useTaskStream()`)
 
 **완료 기준:** 로그인한 관리자가 작업을 만들면 202를 받고 SSE로 진행 이벤트가 오며, 실패한 작업이 재시도 후 DLQ에 쌓인다. **금지:** LLM 호출.
 
@@ -146,9 +146,10 @@ flowchart LR
 
 ## 4. 화면 공동 개발 규칙
 
-- 4가 M2에 공통 뼈대(로그인, `useApi()`, `useTaskStream()`)를 올리기 전에는 각자 화면을 시작하지 않는다.
+- 4가 M2에 공통 뼈대(로그인, `api` 클라이언트, `useTaskStream()`)를 올리기 전에는 각자 화면을 시작하지 않는다.
 - UI 라이브러리는 M1에 하나로 정한다.
-- 폴더 단위로 나눈다: `src/features/{task-console, approval, task-history, driver, evidence, plan-map, report}`. `src/shared`는 4의 승인이 필요하다.
+- 폴더 단위로 나눈다: `src/features/{task-console, approval, task-history, driver, evidence, plan-map, report}`. 로그인·회원가입(`login`)과 계정 관리(`admin-users`)는 4가 맡는다. `src/shared`는 4의 승인이 필요하다.
+- 승인 카드는 M2에서 `task-console` 안에 임시로 있다. 1이 `approval`로 옮긴다.
 - API 타입은 OpenAPI에서, 이벤트 타입은 이벤트 JSON Schema에서 생성한다.
 - 백엔드가 준비되기 전에는 OpenAPI 기반 가짜 API(MSW 등)로 개발한다.
 

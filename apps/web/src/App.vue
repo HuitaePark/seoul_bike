@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { useAuth } from './shared/auth/store'
+import { roleLabel } from './shared/labels'
 
 const auth = useAuth()
-const roleLabel = { MANAGER: '관제 관리자', DRIVER: '트럭 기사', EXECUTIVE: '운영사 책임자' } as const
 </script>
 
 <template>

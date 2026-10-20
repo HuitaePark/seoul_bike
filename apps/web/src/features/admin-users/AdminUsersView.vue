@@ -1,20 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, problemMessage, type Schemas } from '../../shared/api/client'
+import { roleLabel } from '../../shared/labels'
 
 // 계정 관리 (관리자). 권한은 backend가 /api/admin/** 에서 MANAGER만 허용한다.
 
 type Account = Schemas['Account']
 type Role = Schemas['Role']
-
-const roleLabel: Record<Role, string> = { MANAGER: '관제 관리자', DRIVER: '트럭 기사', EXECUTIVE: '운영사 책임자' }
 const statusLabel: Record<Schemas['AccountStatus'], string> = { PENDING: '승인 대기', ACTIVE: '사용 중', DISABLED: '비활성' }
 
 const accounts = ref<Account[]>([])
 const error = ref('')
 // 승인할 때 고를 역할·트럭. 신청한 역할을 기본값으로 둔다.
 const decisions = ref<Record<string, { role: Role; truckId: string }>>({})
-const createForm = ref({ loginId: '', password: '', name: '', role: 'DRIVER' as Role, truckId: '' })
+const EMPTY_FORM = { loginId: '', password: '', name: '', role: 'DRIVER' as Role, truckId: '' }
+const createForm = ref({ ...EMPTY_FORM })
 const createError = ref('')
 
 const pending = computed(() => accounts.value.filter((a) => a.status === 'PENDING'))
@@ -56,7 +56,7 @@ async function create() {
     createError.value = problemMessage(e)
     return
   }
-  createForm.value = { loginId: '', password: '', name: '', role: 'DRIVER', truckId: '' }
+  createForm.value = { ...EMPTY_FORM }
   await load()
 }
 

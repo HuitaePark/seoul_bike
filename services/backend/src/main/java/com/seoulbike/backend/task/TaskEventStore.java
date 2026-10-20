@@ -112,9 +112,15 @@ class TaskEventStore {
 						json.writeValueAsString(approval));
 				tasks.waitForApproval(taskId, approvalId);
 			}
-			case "DONE" -> tasks.finish(taskId, payload.path("answer").asString(null),
-					json.writeValueAsString(payload.has("sources") ? payload.get("sources") : json.createArrayNode()));
-			case "FAILED" -> tasks.fail(taskId, payload.path("error").asString("에이전트 처리 실패"));
+			case "DONE" -> {
+				approvals.supersedePending(taskId);
+				tasks.finish(taskId, payload.path("answer").asString(null),
+						json.writeValueAsString(payload.has("sources") ? payload.get("sources") : json.createArrayNode()));
+			}
+			case "FAILED" -> {
+				approvals.supersedePending(taskId);
+				tasks.fail(taskId, payload.path("error").asString("에이전트 처리 실패"));
+			}
 			default -> log.warn("모르는 이벤트 종류를 저장만 한다: {}", type);
 		}
 	}

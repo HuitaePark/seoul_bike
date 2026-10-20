@@ -58,6 +58,11 @@ class TaskRepository {
 			.update();
 	}
 
+	/** 큐에 넣지 못한 작업을 지운다. 에이전트가 받은 적이 없어 이벤트·승인 기록도 없다. */
+	void delete(UUID taskId) {
+		jdbc.sql("delete from ai_tasks where task_id = :taskId").param("taskId", taskId).update();
+	}
+
 	Optional<Task> findVisible(UUID taskId, CurrentUser user) {
 		return jdbc.sql(SELECT + " where t.task_id = :taskId and " + VISIBLE)
 			.param("taskId", taskId)
@@ -112,13 +117,15 @@ class TaskRepository {
 			.update();
 	}
 
-	void resume(UUID taskId) {
-		jdbc.sql("""
+	/** 이 승인 요청을 기다리는 작업만 재개한다. 이미 끝났거나 다른 요청을 기다리면 false. */
+	boolean resume(UUID taskId, UUID approvalId) {
+		return jdbc.sql("""
 				update ai_tasks set status = 'RUNNING', pending_approval_id = null, updated_at = now()
-				where task_id = :taskId
+				where task_id = :taskId and status = 'WAITING_APPROVAL' and pending_approval_id = :approvalId
 				""")
 			.param("taskId", taskId)
-			.update();
+			.param("approvalId", approvalId)
+			.update() == 1;
 	}
 
 	void finish(UUID taskId, String answer, String sourcesJson) {

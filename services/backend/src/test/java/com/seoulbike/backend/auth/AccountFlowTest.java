@@ -88,8 +88,11 @@ class AccountFlowTest {
 
 	@Test
 	void signupRejectsMalformedInput() throws Exception {
-		assertThat(call("POST", "/api/auth/signup", null, body("AB", "password-123", "x", "requestedRole", "DRIVER"))
-			.statusCode()).isEqualTo(400);
+		var badLoginId = call("POST", "/api/auth/signup", null, body("AB", "password-123", "x", "requestedRole", "DRIVER"));
+		assertThat(badLoginId.statusCode()).isEqualTo(400);
+		JsonNode problem = json.readTree(badLoginId.body());
+		assertThat(problem.path("code").asString()).isEqualTo("INVALID_REQUEST");
+		assertThat(problem.path("detail").asString()).startsWith("loginId:");
 		assertThat(call("POST", "/api/auth/signup", null, body(uniqueLoginId(), "short", "x", "requestedRole", "DRIVER"))
 			.statusCode()).isEqualTo(400);
 	}

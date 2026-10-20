@@ -30,8 +30,9 @@
 | 계약 | 상태 |
 | --- | --- |
 | 로그인 · `/api/me` · JWT · 역할 3개 | 구현 |
+| 회원가입(승인 대기) · 관리자 계정 관리 (`/api/admin/users`) | 구현 (v0.2) |
 | 작업 API 5개 (202 · SSE · `Last-Event-ID` 재전송 · 승인) | 구현 |
-| `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다 |
+| `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. **재시도·DLQ(`*.retry` · `*.dlq`)는 아직 없다 (M4)** |
 | `/api/system/status` | 구현 |
 | 대여소 · 계획 · 현장 보고 · 성과 API | 계약만 |
 | `/internal/**` · `solve.*` | 계약만 (backend는 `/internal/**`를 아직 막아 둔다) |

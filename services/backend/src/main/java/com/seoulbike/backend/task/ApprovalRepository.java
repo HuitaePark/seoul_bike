@@ -6,6 +6,9 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+import com.seoulbike.backend.auth.CurrentUser;
+import com.seoulbike.backend.auth.Role;
+
 @Repository
 class ApprovalRepository {
 
@@ -13,7 +16,16 @@ class ApprovalRepository {
 		PENDING, APPROVED, REJECTED, SUPERSEDED
 	}
 
-	record Approval(UUID approvalId, UUID taskId, String kind, String approverRole, String truckId, Status status) {
+	record Approval(UUID approvalId, UUID taskId, String kind, Role approverRole, String truckId, Status status) {
+
+		/** 계획·제약은 관리자, 경로 변경은 그 트럭의 기사만 결정한다. */
+		boolean canBeDecidedBy(CurrentUser user) {
+			return switch (approverRole) {
+				case MANAGER -> user.is(Role.MANAGER);
+				case DRIVER -> user.is(Role.DRIVER) && truckId != null && truckId.equals(user.truckId());
+				case EXECUTIVE -> false;
+			};
+		}
 	}
 
 	private final JdbcClient jdbc;
@@ -22,7 +34,7 @@ class ApprovalRepository {
 		this.jdbc = jdbc;
 	}
 
-	/** 같은 작업에 새 승인 요청이 오면 이전 대기 요청은 낡은 것이다 (계약: 409 superseded). */
+	/** 같은 작업에 새 승인 요청이 오거나 작업이 끝나면 대기 중인 요청은 낡은 것이다 (계약: 409 superseded). */
 	void supersedePending(UUID taskId) {
 		jdbc.sql("update approvals set status = 'SUPERSEDED' where task_id = :taskId and status = 'PENDING'")
 			.param("taskId", taskId)
@@ -53,7 +65,7 @@ class ApprovalRepository {
 			.param("approvalId", approvalId)
 			.param("taskId", taskId)
 			.query((rs, i) -> new Approval(rs.getObject("approval_id", UUID.class), rs.getObject("task_id", UUID.class),
-					rs.getString("kind"), rs.getString("approver_role"), rs.getString("truck_id"),
+					rs.getString("kind"), Role.valueOf(rs.getString("approver_role")), rs.getString("truck_id"),
 					Status.valueOf(rs.getString("status"))))
 			.optional();
 	}

@@ -1,5 +1,6 @@
 package com.seoulbike.backend.auth;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 import javax.crypto.SecretKey;
@@ -14,7 +15,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
@@ -26,8 +26,12 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import tools.jackson.databind.json.JsonMapper;
+
+import com.seoulbike.backend.common.ProblemAdvice;
 
 /**
  * 공개 API는 Bearer JWT(HS256)로 보호한다. 역할은 토큰의 role 클레임에서 ROLE_* 권한으로 바뀐다.
@@ -39,6 +43,10 @@ class SecurityConfig {
 
 	@Bean
 	SecurityFilterChain api(HttpSecurity http, JsonMapper json) throws Exception {
+		AuthenticationEntryPoint unauthorized = (req, res, e) -> writeProblem(res, json, HttpStatus.UNAUTHORIZED,
+				"UNAUTHORIZED", "로그인이 필요하다");
+		AccessDeniedHandler forbidden = (req, res, e) -> writeProblem(res, json, HttpStatus.FORBIDDEN, "FORBIDDEN",
+				"권한이 없다");
 		return http
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -53,17 +61,11 @@ class SecurityConfig {
 				// business-mcp용 내부 API는 서비스 토큰으로 따로 연다. 구현 전까지는 막아 둔다.
 				.requestMatchers("/internal/**").denyAll()
 				.anyRequest().authenticated())
-			.oauth2ResourceServer(o -> o
-				.jwt(jwt -> jwt.jwtAuthenticationConverter(roleConverter()))
-				.authenticationEntryPoint((req, res, e) -> writeProblem(res, json, HttpStatus.UNAUTHORIZED,
-						"UNAUTHORIZED", "로그인이 필요하다"))
-				.accessDeniedHandler((req, res, e) -> writeProblem(res, json, HttpStatus.FORBIDDEN, "FORBIDDEN",
-						"권한이 없다")))
-			.exceptionHandling(e -> e
-				.authenticationEntryPoint((req, res, ex) -> writeProblem(res, json, HttpStatus.UNAUTHORIZED,
-						"UNAUTHORIZED", "로그인이 필요하다"))
-				.accessDeniedHandler((req, res, ex) -> writeProblem(res, json, HttpStatus.FORBIDDEN, "FORBIDDEN",
-						"권한이 없다")))
+			// 토큰이 틀린 경우(리소스 서버)와 토큰이 아예 없는 경우(exceptionHandling) 모두 같은 본문을 쓴다.
+			.oauth2ResourceServer(o -> o.jwt(jwt -> jwt.jwtAuthenticationConverter(roleConverter()))
+				.authenticationEntryPoint(unauthorized)
+				.accessDeniedHandler(forbidden))
+			.exceptionHandling(e -> e.authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden))
 			.build();
 	}
 
@@ -97,12 +99,10 @@ class SecurityConfig {
 	}
 
 	private static void writeProblem(HttpServletResponse res, JsonMapper json, HttpStatus status, String code,
-			String detail) throws java.io.IOException {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
-		problem.setProperty("code", code);
+			String detail) throws IOException {
 		res.setStatus(status.value());
 		res.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
 		res.setCharacterEncoding(StandardCharsets.UTF_8.name());
-		json.writeValue(res.getOutputStream(), problem);
+		json.writeValue(res.getOutputStream(), ProblemAdvice.problem(status, code, detail));
 	}
 }

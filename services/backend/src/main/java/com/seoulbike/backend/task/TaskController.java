@@ -13,7 +13,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,9 +24,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.seoulbike.backend.auth.CurrentUser;
 
-/** 작업 API 5개 (과제 레퍼런스 표 5-8, 계약 docs/specs/openapi.yaml). */
+/**
+ * 작업 API 5개 (과제 레퍼런스 표 5-8, 계약 docs/specs/openapi.yaml).
+ * {@code @Validated}를 붙이지 않는다. 붙이면 Spring 7 내장 파라미터 검증이 꺼져 범위 오류가 500이 된다.
+ */
 @RestController
-@Validated
 class TaskController {
 
 	record CreateTaskRequest(@NotNull TaskType type, @NotBlank @Size(max = 100) String shiftId,
@@ -65,18 +66,16 @@ class TaskController {
 	}
 
 	/**
-	 * 구독을 먼저 등록하고 DB에 쌓인 이벤트를 다시 보낸다. 그 사이에 들어온 새 이벤트는 seq로 걸러진다.
+	 * 구독을 먼저 등록하고 DB에 쌓인 이벤트를 다시 보낸다. 그동안 들어온 새 이벤트는 SseHub가 모아 뒤에 보낸다.
 	 * 이미 끝난 작업이면 남은 이벤트를 보내고 닫는다.
 	 */
 	@GetMapping(path = "/api/ai/tasks/{taskId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
 	SseEmitter stream(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID taskId,
 			@RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
 		Task task = service.get(CurrentUser.from(jwt), taskId);
-		SseHub.Subscriber sub = hub.subscribe(taskId, parseSeq(lastEventId));
-		events.after(taskId, parseSeq(lastEventId)).forEach(sub::send);
-		if (task.status().terminal()) {
-			sub.close();
-		}
+		int after = parseSeq(lastEventId);
+		SseHub.Subscriber sub = hub.subscribe(taskId, after);
+		sub.replay(events.after(taskId, after), task.status().terminal());
 		return sub.emitter();
 	}
 

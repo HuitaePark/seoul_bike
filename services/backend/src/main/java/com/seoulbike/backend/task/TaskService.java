@@ -33,8 +33,10 @@ class TaskService {
 		this.json = json;
 	}
 
-	/** 저장과 큐 전송을 한 트랜잭션으로 묶는다. 큐에 못 넣으면 작업도 남기지 않는다. */
-	@Transactional
+	/**
+	 * 작업을 먼저 커밋하고 큐에 넣는다. 반대로 하면 에이전트 이벤트가 커밋보다 먼저 와서 "모르는 작업"으로 버려진다.
+	 * 큐에 못 넣으면 작업을 지우고 503을 돌려준다.
+	 */
 	TaskAccepted create(CurrentUser user, CreateTask req) {
 		if (!allowedTypes(user.role()).contains(req.type())) {
 			throw ApiException.forbidden("TASK_TYPE_NOT_ALLOWED", user.role() + " 역할은 " + req.type() + " 작업을 만들 수 없다");
@@ -46,7 +48,13 @@ class TaskService {
 		UUID taskId = UUID.randomUUID();
 		String traceId = UUID.randomUUID().toString().replace("-", "");
 		tasks.insert(taskId, req.type(), req.shiftId(), req.text(), user.id(), traceId);
-		publisher.newTask(taskId, req.type(), req.shiftId(), req.text(), traceId, user);
+		try {
+			publisher.newTask(taskId, req.type(), req.shiftId(), req.text(), traceId, user);
+		}
+		catch (ApiException e) {
+			tasks.delete(taskId);
+			throw e;
+		}
 		return new TaskAccepted(taskId, TaskStatus.QUEUED, "/api/ai/tasks/" + taskId + "/stream");
 	}
 
@@ -74,12 +82,7 @@ class TaskService {
 			case SUPERSEDED -> throw ApiException.conflict("APPROVAL_SUPERSEDED", "더 새로운 승인 요청으로 대체됐다");
 			default -> throw ApiException.conflict("APPROVAL_ALREADY_DECIDED", "이미 처리된 승인 요청이다");
 		}
-		boolean isApprover = switch (approval.approverRole()) {
-			case "MANAGER" -> user.is(Role.MANAGER);
-			case "DRIVER" -> user.is(Role.DRIVER) && approval.truckId() != null && approval.truckId().equals(user.truckId());
-			default -> false;
-		};
-		if (!isApprover) {
+		if (!approval.canBeDecidedBy(user)) {
 			throw ApiException.forbidden("NOT_APPROVER", "이 승인 요청의 승인 주체가 아니다");
 		}
 		var status = decision.decision() == ApprovalDecision.Decision.APPROVE ? ApprovalRepository.Status.APPROVED
@@ -87,7 +90,10 @@ class TaskService {
 		if (!approvals.decide(approval.approvalId(), status, json.writeValueAsString(decision), user.id())) {
 			throw ApiException.conflict("APPROVAL_ALREADY_DECIDED", "이미 처리된 승인 요청이다");
 		}
-		tasks.resume(taskId);
+		// 작업이 이미 끝났거나 다른 요청을 기다리면 재개하지 않는다. 예외로 위의 결정 기록도 롤백된다.
+		if (!tasks.resume(taskId, approval.approvalId())) {
+			throw ApiException.conflict("APPROVAL_SUPERSEDED", "작업이 이 승인 요청을 더 기다리지 않는다");
+		}
 		publisher.resume(taskId, task.shiftId(), task.traceId(), approval.approvalId(), decision, user);
 	}
 

@@ -2,6 +2,9 @@ package com.seoulbike.backend.task;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -11,8 +14,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * 작업별 SSE 구독자. 재연결한 구독자는 Last-Event-ID 이후 이벤트를 DB에서 다시 받고,
- * 새 이벤트와 다시 보내기가 겹쳐도 seq로 걸러 한 번씩만 받는다.
+ * 작업별 SSE 구독자. 새 구독자는 먼저 등록하고 Last-Event-ID 이후 이벤트를 DB에서 다시 받는다.
+ * 다시 보내는 동안 들어온 새 이벤트는 모아 두었다가 다시 보내기가 끝난 뒤 seq 순서로 보낸다.
+ * 그래서 재연결 중에 이벤트가 빠지거나 두 번 가지 않는다.
  *
  * <p>주의: backend 인스턴스가 하나라는 전제다. 여러 개를 띄우면 각 인스턴스가 ai.events를 모두 받아야 한다.
  */
@@ -59,6 +63,8 @@ class SseHub {
 		private final SseEmitter emitter;
 		private int lastSeq;
 		private boolean closed;
+		/** null이면 다시 보내기가 끝났다. 그 전에 온 새 이벤트는 여기에 모은다. */
+		private List<TaskEventStore.StoredEvent> pendingLive = new ArrayList<>();
 
 		private Subscriber(UUID taskId, SseEmitter emitter, int lastSeq) {
 			this.taskId = taskId;
@@ -70,7 +76,26 @@ class SseHub {
 			return emitter;
 		}
 
+		/** DB에 쌓인 이벤트를 보내고, 그동안 모인 새 이벤트를 이어서 보낸다. 한 번만 부른다. */
+		synchronized void replay(List<TaskEventStore.StoredEvent> history, boolean taskFinished) {
+			history.forEach(this::write);
+			List<TaskEventStore.StoredEvent> live = pendingLive;
+			pendingLive = null;
+			live.stream().sorted(Comparator.comparingInt(TaskEventStore.StoredEvent::seq)).forEach(this::write);
+			if (taskFinished) {
+				close();
+			}
+		}
+
 		synchronized void send(TaskEventStore.StoredEvent event) {
+			if (pendingLive != null) {
+				pendingLive.add(event);
+				return;
+			}
+			write(event);
+		}
+
+		private void write(TaskEventStore.StoredEvent event) {
 			if (closed || event.seq() <= lastSeq) {
 				return;
 			}
@@ -98,7 +123,7 @@ class SseHub {
 			}
 		}
 
-		synchronized void close() {
+		private void close() {
 			if (!closed) {
 				closed = true;
 				emitter.complete();

@@ -42,7 +42,7 @@ async function create() {
   await refresh()
 }
 
-async function decide(approvalId: string, decision: 'APPROVE' | 'REJECT') {
+async function decide(approvalId: string, decision: Schemas['ApprovalDecision']['decision']) {
   if (!selected.value) return
   deciding.value = true
   decisionError.value = ''

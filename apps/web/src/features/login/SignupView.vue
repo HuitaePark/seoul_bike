@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { api, problemMessage, type Schemas } from '../../shared/api/client'
+import { roleLabel } from '../../shared/labels'
 
 const form = ref({ loginId: '', password: '', name: '', requestedRole: 'DRIVER' as Schemas['Role'] })
 const error = ref('')
@@ -39,9 +40,7 @@ async function submit() {
       <label>
         희망 역할
         <select v-model="form.requestedRole">
-          <option value="DRIVER">트럭 기사</option>
-          <option value="MANAGER">관제 관리자</option>
-          <option value="EXECUTIVE">운영사 책임자</option>
+          <option v-for="(label, role) in roleLabel" :key="role" :value="role">{{ label }}</option>
         </select>
         <span class="hint">관리자가 승인할 때 역할과 트럭을 확정한다</span>
       </label>
