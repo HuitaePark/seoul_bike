@@ -504,6 +504,15 @@ export interface components {
             /** @description DOC이면 doc://{docId} (rag-mcp Resource) */
             uri?: string | null;
             excerpt?: string | null;
+            /** @description 사람이 읽는 출처 (예 PRD 7.1, 김유신 2023). TOOL이면 호출한 내부 API */
+            citation?: string | null;
+            /**
+             * @description DOC 근거 등급. PRIMARY 팀 저장소 자료, SUPPLEMENTARY 저장소 밖 자료(논문, 보도자료)
+             * @enum {string|null}
+             */
+            basis?: "PRIMARY" | "SUPPLEMENTARY" | null;
+            /** @description 문서 안 절 이름 */
+            section?: string | null;
         };
         /** @enum {string} */
         StationRole: "FIXED_PICKUP" | "FIXED_DROPOFF" | "VARIABLE";
@@ -556,6 +565,7 @@ export interface components {
             reason: string;
         };
         Plan: {
+            /** @description 계획 버전마다 고유하다. 활성화(activate)는 이 값으로 버전을 지정한다 */
             planId: string;
             shiftId: string;
             version: number;
