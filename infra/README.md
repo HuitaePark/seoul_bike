@@ -43,7 +43,21 @@ flowchart LR
 
 같은 서버에서 Ollama(`com.baki.ollama-server`, `100.109.172.112:11434`)도 돈다. 모델을 올리면 메모리를 쓰므로 Colima 메모리(8GB)와 합이 16GB를 넘지 않게 본다.
 
-접속 확인: `http://baki-macbookpro.tail3286a4.ts.net:8080` (시스템 상태 페이지). Colima가 모든 네트워크 인터페이스에 포트를 열기 때문에, Tailscale뿐 아니라 서버가 연결된 공유기 내부망에서도 열려 있다.
+접속 주소:
+
+| 주소 | 범위 | 비고 |
+| --- | --- | --- |
+| `https://baki-macbookpro.tail3286a4.ts.net:8443` | **인터넷 공개** (Tailscale Funnel → backend :8080) | 팀원·발표 데모용. 인증을 붙이기 전까지 아무나 볼 수 있다 |
+| `http://baki-macbookpro.tail3286a4.ts.net:8080` | Tailscale 네트워크, 서버가 연결된 공유기 내부망 | Colima가 모든 인터페이스에 포트를 연다 |
+| `https://baki-macbookpro.tail3286a4.ts.net` | Tailscale 네트워크만 | 기존 설정. Ollama(11434)로 연결 |
+
+Funnel 관리 (서버에서, CLI는 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`):
+
+```bash
+Tailscale funnel status                                          # 현재 설정
+Tailscale funnel --bg --https=8443 http://127.0.0.1:8080         # 공개
+Tailscale funnel --https=8443 off                                # 공개 중단
+```
 
 ## 배포하기
 
