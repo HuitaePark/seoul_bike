@@ -1,5 +1,6 @@
 package com.seoulbike.backend.constraint;
 
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,9 +39,26 @@ class ConstraintService {
 		if (NEEDS_VALUE.contains(req.type()) && req.value() == null) {
 			throw invalid(req.type() + " 제약은 value가 필요하다 (TARGET_ADJUST 가감 대수, INVENTORY_OVERRIDE 실제 재고)");
 		}
-		approvals.requireManagerApproval(req.taskId(), req.approvalId(), ChangeApprovals.Kind.ADD_CONSTRAINT);
-		constraints.insertIfAbsent(UUID.randomUUID(), req);
-		return constraints.findByApproval(req.approvalId());
+		if (req.type() == ConstraintType.INVENTORY_OVERRIDE && req.value() < 0) {
+			throw invalid("INVENTORY_OVERRIDE의 value(실제 재고)는 0 이상이어야 한다");
+		}
+		approvals.requireManagerApproval(req.taskId(), req.approvalId(), ChangeApprovals.Kind.ADD_CONSTRAINT, req.shiftId());
+		if (constraints.insertIfAbsent(UUID.randomUUID(), req)) {
+			return constraints.findByApproval(req.approvalId());
+		}
+		// 재시도: 같은 내용이면 처음 만든 제약, 다른 내용이면 승인을 다른 변경에 쓰려는 것이다.
+		Constraint existing = constraints.findByApproval(req.approvalId());
+		if (!sameContent(existing, req)) {
+			throw ApiException.conflict("APPROVAL_ALREADY_USED",
+					"approvalId " + req.approvalId() + "로 이미 다른 제약(" + existing.constraintId() + ")을 넣었다. 새 제약은 새 승인을 받는다.");
+		}
+		return existing;
+	}
+
+	private static boolean sameContent(Constraint c, ConstraintRequest r) {
+		return c.shiftId().equals(r.shiftId()) && c.type() == r.type() && c.stationIds().equals(r.stationIds())
+				&& Objects.equals(c.value(), r.value()) && c.validFrom().isEqual(r.validFrom())
+				&& c.validTo().isEqual(r.validTo()) && c.reason().equals(r.reason());
 	}
 
 	private static ApiException invalid(String detail) {

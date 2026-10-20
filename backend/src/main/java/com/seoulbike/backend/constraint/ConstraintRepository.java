@@ -27,9 +27,9 @@ class ConstraintRepository {
 		this.json = json;
 	}
 
-	/** 같은 approval_id가 이미 있으면 넣지 않는다 (재시도). */
-	void insertIfAbsent(UUID constraintId, ConstraintRequest req) {
-		jdbc.sql("""
+	/** 같은 approval_id가 이미 있으면 넣지 않고 false (재시도). */
+	boolean insertIfAbsent(UUID constraintId, ConstraintRequest req) {
+		return jdbc.sql("""
 				insert into constraints (constraint_id, approval_id, task_id, shift_id, type, station_ids, value,
 				                         valid_from, valid_to, reason)
 				values (:constraintId, :approvalId, :taskId, :shiftId, :type, cast(:stationIds as jsonb), :value,
@@ -46,7 +46,7 @@ class ConstraintRepository {
 			.param("validFrom", req.validFrom())
 			.param("validTo", req.validTo())
 			.param("reason", req.reason())
-			.update();
+			.update() == 1;
 	}
 
 	Constraint findByApproval(UUID approvalId) {

@@ -25,13 +25,18 @@ public class ChangeApprovals {
 	}
 
 	private final ApprovalRepository approvals;
+	private final TaskRepository tasks;
 
-	ChangeApprovals(ApprovalRepository approvals) {
+	ChangeApprovals(ApprovalRepository approvals, TaskRepository tasks) {
 		this.approvals = approvals;
+		this.tasks = tasks;
 	}
 
-	/** 계획·제약: 이 작업의 그 종류 카드를 관리자가 승인했어야 한다. */
-	public void requireManagerApproval(UUID taskId, UUID approvalId, Kind kind) {
+	/**
+	 * 계획·제약: 이 작업의 그 종류 카드를 관리자가 승인했어야 하고, 바꾸려는 근무조가 그 작업의 근무조여야 한다.
+	 * 근무조를 보지 않으면 PM 작업의 승인으로 AM 근무조를 바꿀 수 있다.
+	 */
+	public void requireManagerApproval(UUID taskId, UUID approvalId, Kind kind, String shiftId) {
 		var approval = approvals.find(approvalId, taskId)
 			.orElseThrow(() -> denied("작업 " + taskId + "에 approvalId " + approvalId + "가 없다. 승인 카드를 받은 뒤 그 id로 다시 호출한다."));
 		if (!kind.name().equals(approval.kind()) || approval.approverRole() != Role.MANAGER) {
@@ -39,6 +44,11 @@ public class ChangeApprovals {
 		}
 		if (approval.status() != ApprovalRepository.Status.APPROVED) {
 			throw denied("approvalId " + approvalId + "는 " + approval.status() + " 상태다. 승인 후 다시 호출한다.");
+		}
+		String taskShift = tasks.find(taskId).map(Task::shiftId).orElse(null);
+		if (!shiftId.equals(taskShift)) {
+			throw denied("approvalId " + approvalId + "는 근무조 " + taskShift + " 작업의 승인이다. 근무조 " + shiftId
+					+ "를 바꾸려면 그 근무조 작업에서 승인을 받는다.");
 		}
 	}
 

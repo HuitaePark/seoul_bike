@@ -93,6 +93,16 @@ class InternalApiTest {
 			var retry = call("POST", "/internal/constraints", null, TOKEN, constraint(approvalId, taskId, "STATION_SUSPENDED", null));
 			assertThat(json.readTree(retry.body()).path("constraintId").asString())
 				.isEqualTo(added.path("constraintId").asString());
+			// 같은 승인을 다른 내용에 쓰거나, 다른 근무조를 바꾸는 데 쓸 수 없다.
+			var otherContent = (ObjectNode) json.readTree(constraint(approvalId, taskId, "STATION_BLOCKED", null));
+			var reused = call("POST", "/internal/constraints", null, TOKEN, json.writeValueAsString(otherContent));
+			assertThat(reused.statusCode()).isEqualTo(409);
+			assertThat(code(reused)).isEqualTo("APPROVAL_ALREADY_USED");
+			var otherShift = (ObjectNode) json.readTree(constraint(approvalId, taskId, "STATION_SUSPENDED", null));
+			otherShift.put("shiftId", "S05:2026-11-07:AM");
+			var wrongShift = call("POST", "/internal/constraints", null, TOKEN, json.writeValueAsString(otherShift));
+			assertThat(wrongShift.statusCode()).isEqualTo(403);
+			assertThat(json.readTree(wrongShift.body()).path("detail").asString()).contains("근무조 S05:2026-11-07:PM");
 
 			// 다른 종류의 카드, 다른 작업의 승인으로는 제약을 넣을 수 없다.
 			UUID routeCard = UUID.fromString(nextCard(stream).path("approvalId").asString());
@@ -116,6 +126,8 @@ class InternalApiTest {
 		noStations.putArray("stationIds");
 		assertThat(call("POST", "/internal/constraints", null, TOKEN, json.writeValueAsString(noStations)).statusCode())
 			.isEqualTo(400);
+		assertThat(code(call("POST", "/internal/constraints", null, TOKEN, constraint(any, any, "INVENTORY_OVERRIDE", -1))))
+			.isEqualTo("INVALID_REQUEST");
 	}
 
 	private String constraint(UUID approvalId, UUID taskId, String type, Integer value) {

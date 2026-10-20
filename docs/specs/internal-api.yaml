@@ -10,7 +10,7 @@ info:
     - v0.3: `FieldReport`에 `loaded`·`unloaded`, `issue` 값 목록. 같은 모양이 `ai.tasks` FIELD_REPORT 명령의 `report`로도 간다.
     - v0.2: 경로 변경 승인 순서. 후보(`PlanCandidate`)에 `requiredApprovers`, 적용 API의 확인 규칙.
 
-    - docker network 안에서만 열린다. 화면과 외부에서는 호출하지 않는다.
+    - 공개 주소(화면 nginx)로는 열리지 않는다. 서버 안의 backend 포트(tailnet)에서는 **서비스 토큰이 유일한 보호**다.
     - **모든 요청에 `X-Internal-Token`이 있어야 한다.** 없거나 틀리면 401 `UNAUTHORIZED`. 사용자 JWT로는 열리지 않는다.
       backend에 토큰이 설정돼 있지 않으면 모두 401이다.
     - 업무 규칙(변경 등급, 승인 주체)은 backend에만 있다. business-mcp는 규칙을 복제하지 않고 이 API를 부른다.
@@ -189,10 +189,11 @@ paths:
       operationId: addConstraint
       summary: 제약 추가 (변경, 승인 필요)
       description: |
-        이 작업(`taskId`)의 **ADD_CONSTRAINT 카드를 관리자가 승인**했어야 한다 (아니면 403 `APPROVAL_REQUIRED`, 상태를 문장에 적는다).
-        **같은 `approvalId`로 다시 부르면 처음 만든 제약을 그대로 돌려준다** (agent 재시도에 안전).
-        `validTo`가 `validFrom`보다 앞이거나, `TARGET_ADJUST`·`INVENTORY_OVERRIDE`에 `value`가 없으면 400 `INVALID_REQUEST`.
-        대여소가 있는지(404)는 대여소 데이터가 들어오면(M3) 확인한다.
+        이 작업(`taskId`)의 **ADD_CONSTRAINT 카드를 관리자가 승인**했어야 하고, `shiftId`가 그 작업의 근무조여야 한다
+        (아니면 403 `APPROVAL_REQUIRED`, 이유를 문장에 적는다).
+        **같은 `approvalId`로 같은 내용을 다시 부르면 처음 만든 제약을 그대로 돌려준다** (agent 재시도에 안전). 내용이 다르면 409.
+        `validTo`가 `validFrom`보다 앞이거나, `TARGET_ADJUST`·`INVENTORY_OVERRIDE`에 `value`가 없거나,
+        `INVENTORY_OVERRIDE`의 `value`가 음수면 400 `INVALID_REQUEST`. 대여소가 있는지(404)는 대여소 데이터가 들어오면(M3) 확인한다.
       requestBody:
         required: true
         content:
@@ -211,6 +212,11 @@ paths:
               schema: { $ref: '#/components/schemas/ToolProblem' }
         '403': { $ref: '#/components/responses/ApprovalRequired' }
         '404': { $ref: '#/components/responses/StationNotFound' }
+        '409':
+          description: 같은 `approvalId`로 이미 다른 내용의 제약을 넣었다 (APPROVAL_ALREADY_USED). 새 제약은 새 승인을 받는다
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ToolProblem' }
 
   /internal/plans/{planId}/activate:
     post:
