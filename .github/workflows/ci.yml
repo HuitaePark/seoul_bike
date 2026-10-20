@@ -1,0 +1,29 @@
+# PR과 main 푸시에서 GitHub 호스팅 러너로만 검사한다. 서버(self-hosted) 러너는 여기서 쓰지 않는다.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  or-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+        working-directory: or-tools
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose 파일 검증
+        run: docker compose -f infra/compose.yaml --env-file infra/.env.example config -q
