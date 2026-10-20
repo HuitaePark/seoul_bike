@@ -6,5 +6,9 @@
 __pycache__/
 *.pyc
 .DS_Store
+# 인증키와 수집 데이터·로그는 커밋하지 않는다
+.env
+/data/
+/logs/
 # 그림 원본(SVG)은 Figma 편집용으로 로컬에만 둔다
 docs/images/**/*.svg
