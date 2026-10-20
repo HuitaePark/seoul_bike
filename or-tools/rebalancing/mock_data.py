@@ -52,6 +52,6 @@ def make_stations(per_cluster: int = 6, seed: int = 7) -> tuple[list[Station], d
     return stations, kinds
 
 
-def make_trucks(count: int = 3, capacity: int = 20) -> list[Truck]:
+def make_trucks(count: int = 3, capacity: int = 15) -> list[Truck]:
     """같은 용량의 트럭 count대를 만든다."""
     return [Truck(id=i, capacity=capacity) for i in range(count)]
