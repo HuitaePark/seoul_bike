@@ -72,10 +72,10 @@ PARAMS = dict(objective="poisson", learning_rate=0.05, num_leaves=63, min_data_i
               feature_fraction=0.8, seed=0, deterministic=True, verbose=-1)
 
 
-def fit(train: pd.DataFrame, stop: pd.DataFrame, target: str) -> lgb.Booster:
+def fit(train: pd.DataFrame, stop: pd.DataFrame, target: str, feats: list[str] = FEATS) -> lgb.Booster:
     """stop(학습 다음 한 달)으로 조기 종료한다. 검증 기간은 고르는 데 쓰지 않는다."""
-    return lgb.train(PARAMS, lgb.Dataset(train[FEATS], train[target]), num_boost_round=2000,
-                     valid_sets=[lgb.Dataset(stop[FEATS], stop[target])], callbacks=[lgb.early_stopping(50, verbose=False)])
+    return lgb.train(PARAMS, lgb.Dataset(train[feats], train[target]), num_boost_round=2000,
+                     valid_sets=[lgb.Dataset(stop[feats], stop[target])], callbacks=[lgb.early_stopping(50, verbose=False)])
 
 
 class LightGBMPredictor:

@@ -6,7 +6,8 @@ import unittest
 
 import pandas as pd
 
-from forecast.lgbm import shift_mae, stockout
+from forecast.lgbm import FEATS, shift_mae, stockout
+from forecast.nowcast import stack, with_lags
 
 
 class ShiftMaeTest(unittest.TestCase):
@@ -33,6 +34,21 @@ class StockoutTest(unittest.TestCase):
         self.assertEqual(out.loc["good", "빈 곳 중 잡은 비율"], 1.0)   # A를 잡는다
         self.assertEqual(out.loc["flat", "빈 곳 중 잡은 비율"], 0.0)   # 변화 없음으로 예측하면 못 잡는다
         self.assertEqual(out.loc["good", "근무조마다 위험 상위 1곳 적중"], 1.0)
+
+
+class NowcastStackTest(unittest.TestCase):
+    def test_recent_features_end_k_hours_before_target(self):
+        # 대여소 하나, 대여 수 = 그 시각의 순번(0, 1, 2, …). lead k에서 '직전 1시간'은 대상 시각 k시간 전이어야 한다(미래를 보지 않음)
+        h = pd.date_range("2025-06-11 00:00", periods=12, freq="h")
+        df = pd.DataFrame({"st": 1, "h": h, "rent": range(12), "ret": 0, "empty_min": 0.0, "rain_mm": 0.0,
+                           "plain_rent": 1.0, "base_ret": 0.0, **{f: 0.0 for f in FEATS if f not in ("plain_rent", "base_ret")}})
+        df["hh"] = df.h.dt.hour
+        fw = pd.DataFrame({"h": [], "lead": []}).astype({"h": "datetime64[ns]", "lead": "int64"})
+        s = stack(with_lags(df), fw, 1.0)
+        row = s[(s.h == h[10]) & (s.lead == 3)].iloc[0]
+        self.assertEqual(row.rent_rec1, 7)            # 10시 대상, lead 3 → 예측 시점 08시, 직전 1시간은 07시
+        self.assertEqual(row.rent_rec3, 7 + 6 + 5)    # 07·06·05시
+        self.assertEqual(row.zone_ratio3, 18 / 3)     # 구역(대여소 하나) 대여 18 ÷ 베이스라인 3
 
 
 if __name__ == "__main__":
