@@ -17,6 +17,7 @@ public class TestInfra {
 			app.fake-agent.enabled=true
 			app.fake-agent.step-millis=5
 			app.internal.token=test-internal-token
+			app.kafka.retry.delay=200
 			""";
 
 	@Bean

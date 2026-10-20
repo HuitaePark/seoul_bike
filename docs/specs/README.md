@@ -32,7 +32,7 @@
 | 로그인 · `/api/me` · JWT · 역할 3개 | 구현 |
 | 회원가입(승인 대기) · 관리자 계정 관리 (`/api/admin/users`) | 구현 (v0.2) |
 | 작업 API 5개 (202 · SSE · `Last-Event-ID` 재전송 · 승인) | 구현 |
-| `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. **재시도·DLQ(`*.retry` · `*.dlq`)는 아직 없다 (M4)** |
+| `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. `ai.events` 소비는 **재시도(`ai.events.retry`) → `ai.events.dlq`** (형식 오류는 바로 dlq) |
 | `/api/system/status` | 구현 |
 | 현장 보고 `POST /api/reports` (기사만, `issue`가 있으면 재경로 작업) | 구현 (v0.5). 정류장이 기사 경로에 있는지는 경로가 생기면(M3) 확인 |
 | 대여소 · 계획 · 성과 API | 계약만 |
