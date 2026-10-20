@@ -23,7 +23,7 @@ sequenceDiagram
 
     M->>D: make_stations(), make_trucks()
     D-->>M: 대여소 30곳, 트럭 3대
-    M->>I: compute_imbalances(대여소, 예측기, hour=8)
+    M->>I: compute_imbalances(대여소, 예측기, start=08:00)
     loop 대여소마다
         I->>F: predict(대여소, 8시)
         F-->>I: 대여 N대 · 반납 M대 예상

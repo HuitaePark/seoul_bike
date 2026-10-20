@@ -5,6 +5,8 @@
 """예측 결과를 솔버가 필요로 하는 '대여소별 수거/보충 수량'으로 바꾼다."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from .forecast import DemandPredictor
 from .models import Imbalance, Station
 
@@ -33,16 +35,18 @@ def healthy_band(station: Station, rentals: int, returns: int, safety: int) -> t
 
 
 def compute_imbalances(
-    stations: list[Station], predictor: DemandPredictor, hour: int, safety: int = 2
+    stations: list[Station], predictor: DemandPredictor, start: datetime, horizon_h: int = 1, safety: int = 2
 ) -> list[Imbalance]:
     """모든 대여소를 검사해서 '불균형인 대여소'만 Imbalance 목록으로 돌려준다.
 
+    start, horizon_h: 예측 구간(start부터 horizon_h시간). PRD 7.1은 3시간이지만 기본값은 지금 동작과 같은 1시간이다.
     safety: 구간이 끝났을 때도 남겨 두려는 최소 자전거 수(예측이 틀릴 때를 대비한 여유).
     """
     result = []
     for s in stations:
-        f = predictor.predict(s, hour)  # 이 대여소의 예측 구간 동안의 예상 대여·반납 수
-        lo, hi = healthy_band(s, f.rentals, f.returns, safety)
+        f = predictor.predict(s, start, horizon_h)  # 이 대여소의 예측 구간 동안의 시간별 예상 대여·반납 수
+        # shortcut: 구간 합계로 끝 시점 재고만 본다(시간별 궤적 검사 없음). PRD 7.1 궤적 검사는 f.rentals_h·returns_h로 추가한다
+        lo, hi = healthy_band(s, round(f.rentals), round(f.returns), safety)
         if s.bikes > hi:
             result.append(Imbalance(s.id, s.bikes - hi))  # 남는다(+) -> 트럭이 수거(pickup)
         elif s.bikes < lo:

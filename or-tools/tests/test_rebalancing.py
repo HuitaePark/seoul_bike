@@ -3,6 +3,7 @@
 # Purpose: Checks plan feasibility (load limits, no duplicate visits) and OR-Tools vs greedy cost.
 
 import unittest
+from datetime import datetime
 
 from rebalancing.baseline import plan_greedy
 from rebalancing.forecast import HeuristicPredictor
@@ -14,8 +15,17 @@ from rebalancing.planner import plan_routes
 
 def build(hour: int, seed: int = 7, trucks: int = 3):
     stations, kinds = make_stations(seed=seed)
-    imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=seed), hour)
+    imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=seed), datetime(2025, 5, 1, hour))
     return stations, imbalances, make_trucks(trucks)
+
+
+class ForecastTest(unittest.TestCase):
+    def test_predict_returns_hourly_values_and_sums(self):
+        s = Station(0, "x", 0, 0, capacity=20, bikes=10)
+        f = HeuristicPredictor({0: "residential"}).predict(s, datetime(2025, 5, 1, 6), horizon_h=3)
+        self.assertEqual((len(f.rentals_h), len(f.returns_h)), (3, 3))
+        self.assertEqual((f.rentals, f.returns), (sum(f.rentals_h), sum(f.returns_h)))
+        self.assertGreater(f.rentals_h[1], f.rentals_h[0])  # 06시는 평소, 07시는 주거지 출근 대여가 몰림
 
 
 class HealthyBandTest(unittest.TestCase):
