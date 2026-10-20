@@ -7,6 +7,7 @@
 | [`openapi.yaml`](openapi.yaml) | 공개 API: 로그인, 작업 API 5개(202·SSE·승인), 대여소, 계획, 현장 보고, 성과 | 화면 → backend | 백엔드 |
 | [`internal-api.yaml`](internal-api.yaml) | 내부 API `/internal/**`, MCP 도구 ↔ API 대응표, 승인 확인 규칙 | business-mcp → backend | 백엔드 + MCP |
 | [`asyncapi.yaml`](asyncapi.yaml) | Kafka 토픽과 메시지: `ai.tasks`, `ai.events`, `solve.requests`, `solve.results` | backend ↔ agent, backend ↔ optimizer | 백엔드 + 에이전트 + 최적화 |
+| [`optimizer.md`](optimizer.md) | 공통 solve 대응 계산 규칙·실행 설정, OSRM·캐시와 구현 범위 | backend ↔ optimizer | 최적화 · 인프라 |
 
 ## 보는 법
 

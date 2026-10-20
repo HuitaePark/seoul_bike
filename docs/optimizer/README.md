@@ -8,10 +8,11 @@
 
 저장소 루트에서 Python 3.12로 환경을 만든다. CI도 Python 3.12를 사용한다.
 Python 3.14가 기본인 macOS에서는 `uv venv --python 3.12 .venv`로 대신 만들 수 있다.
+uv 환경에서는 아래 pip 설치 대신 `uv pip install --python .venv/bin/python -r requirements.txt -r or-tools/requirements-dev.txt`를 사용한다.
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt pytest
+.venv/bin/python -m pip install -r requirements.txt -r or-tools/requirements-dev.txt
 cd or-tools
 ../.venv/bin/python -m pytest -q
 ../.venv/bin/python -m rebalancing --hour 8 --trucks 3
@@ -30,6 +31,7 @@ cd or-tools
 | 시간 | `available_time_s` 안에 이동, 작업, 차고지 복귀까지 완료. 기본 3시간이며 저녁 근무조 등은 별도 지정 |
 | 작업 시간 | 정류장당 180초 + 자전거당 30초. `PlanningOptions`로 변경 |
 | 재경로 | 현재 위치·적재량을 전달하고 `completed_station_ids`, `blocked_station_ids`로 대상 조정 |
+| 배정 고정 | Truck.fixed_station_ids로 처리 차량 제한. 방문 순서·방문 필수는 지정하지 않음 |
 | 완료/진입 불가 | 완료된 거점은 계산·미처리에서 제외. 진입 불가 거점은 `blocked` 사유로 미처리 |
 | 대여소 운영 상한 | `Station.operating_limit`, 생략하면 거치대 수. 현재 재고와 목표 재고를 거치대 수로 잘라내지 않음 |
 | 우선순위 | `Imbalance.priority`가 있으면 사용. 없으면 필요 대수 × 유형 가중치 (부족 2, 과적재 1) |
@@ -41,7 +43,7 @@ cd or-tools
 반영한 정식 우선순위는 데이터 담당과 계약을 맞춰 전달해야 한다. 현재 예측기는
 구간 합계만 돌려주므로 시간별 재고 궤적, 빈 시각, 예측 구간 중간의 안전은 계산하지 않는다.
 현재 재경로는 완료/진입 불가 제외와 새 위치·적재량 반영까지이며, 이동 중인
-다음 정류장 고정이나 트럭 간 기존 배정 유지 정책은 후속 작업이다.
+다음 정류장의 방문 순서 고정은 후속 작업이다. 차량 배정 제한은 두 정책에 반영했다.
 
 기본 출발 적재량은 두 정책 모두 0대다. 차고지에 충분한 재고가 있다는 이유로
 솔버가 임의로 자전거를 만들어 싣지 않는다. 차고지 재적재·부분 처리는 아직 지원하지 않는다.
@@ -69,7 +71,8 @@ cd or-tools
 - 도달 불가 셀 하나라도 있으면 전체 행렬을 거부한다. 일부 거점을 건너뛰는 복구 정책은 아직 구현하지 않았다.
 
 실행 예시와 지도 파일 준비는 [독립 개발 환경](../../infra/optimizer/README.md)을 따른다.
-Kafka 메시지에는 아직 이 설정을 추가하지 않았으며 [solve 명세](solve-contract.md)는 계속 검토용 초안이다.
+공통 메시지는 [AsyncAPI](../specs/asyncapi.yaml)를 따른다. 변환·계산 함수와 실행 설정은
+[역할 5 명세](../specs/optimizer.md)에 있다. Kafka 전송·중복 제거 실행기는 후속 작업이다.
 
 ## 미처리 사유
 
@@ -108,7 +111,7 @@ OR-Tools 버전을 고정하고 입력의 대여소·트럭 순서를 정규화�
 
 ## 다음 연결 작업
 
-1. [공통 AsyncAPI](../specs/asyncapi.yaml)와 [코어 연결 검토](contract-review.md)를 백엔드·데이터 담당과 검토한다.
+1. [역할 5 명세](../specs/optimizer.md)의 실행 설정 공급·중복 처리 책임을 담당자와 확인한다.
 2. 확정 권역의 실제 OSRM 도로망과 캐시에서 200곳·5대 입력을 검증한다.
 3. 합의된 요청/응답 스키마로 Kafka 실행기를 붙인다.
 4. Vue 공통 뼈대 위에 지도·계획 검토 화면을 만든다.

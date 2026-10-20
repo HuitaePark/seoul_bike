@@ -3,19 +3,19 @@ from __future__ import annotations
 
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
-from .models import Imbalance, Plan, Route, Station, Stop, Truck
-from .problem import PlanningOptions, prepare_problem, require_int
+from .models import Imbalance, Plan, Route, RoutingStation, Station, Stop, Truck
+from .problem import PlanningOptions, prepare_problem, require_int, require_number
 from .travel_time import LatLon, TravelTime
 
 
 def plan_routes(
     depot: LatLon,
-    stations: list[Station],
+    stations: list[Station | RoutingStation],
     imbalances: list[Imbalance],
     trucks: list[Truck],
     *,
     time_limit_s: int | None = None,
-    penalty_per_bike_m: int = 3_000,
+    penalty_per_bike_m: float = 3_000,
     truck_fixed_cost_m: int = 2_000,
     travel_time: TravelTime | None = None,
     options: PlanningOptions | None = None,
@@ -30,7 +30,7 @@ def plan_routes(
     wall-clock cap, NOT a reproducibility guarantee. Every truck starts with its
     supplied load and must return to the depot.
     """
-    require_int("penalty_per_bike_m", penalty_per_bike_m)
+    require_number("penalty_per_bike_m", penalty_per_bike_m)
     require_int("truck_fixed_cost_m", truck_fixed_cost_m)
     if time_limit_s is not None:
         require_int("time_limit_s", time_limit_s, minimum=1)
@@ -75,6 +75,9 @@ def plan_routes(
 
     for node in range(1, len(problem.imbalances) + 1):
         routing.AddDisjunction([manager.NodeToIndex(node)], problem.penalty(node, penalty_per_bike_m))
+        if node in problem.fixed_vehicles:
+            # -1 keeps a legal unperformed state when service is infeasible.
+            routing.VehicleVar(manager.NodeToIndex(node)).SetValues([-1, problem.fixed_vehicles[node]])
 
     params = pywrapcp.DefaultRoutingSearchParameters()
     params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC

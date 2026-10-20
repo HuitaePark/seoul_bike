@@ -101,7 +101,7 @@ def test_protocol_errors_are_explicit(payload):
         OsrmTravelTime("http://localhost").matrix(POINTS[:2])
 
 
-@pytest.mark.parametrize("error,retryable", [(TimeoutError(), True), (URLError("offline"), True),
+@pytest.mark.parametrize("error,retryable", [(TimeoutError(), True), (URLError(TimeoutError()), True), (URLError("offline"), True),
     (HTTPError("http://localhost", 503, "unavailable", {}, None), True),
     (HTTPError("http://localhost", 429, "limit", {}, None), True),
     (HTTPError("http://localhost", 400, "invalid", {}, None), False)])
@@ -109,6 +109,8 @@ def test_transport_failure_no_retry_no_estimate(error, retryable):
     with patch("rebalancing.osrm.urlopen", side_effect=error) as request, pytest.raises(TravelTimeError) as caught:
         OsrmTravelTime("http://localhost").matrix(POINTS[:2])
     assert caught.value.retryable is retryable
+    if isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError):
+        assert caught.value.code == "timeout"
     assert request.call_count == 1
 
 

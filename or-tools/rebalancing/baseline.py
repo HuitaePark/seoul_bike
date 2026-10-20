@@ -1,14 +1,14 @@
 """Nearest feasible station baseline using the same physical constraints as OR-Tools."""
 from __future__ import annotations
 
-from .models import Imbalance, Plan, Route, Station, Stop, Truck
+from .models import Imbalance, Plan, Route, RoutingStation, Station, Stop, Truck
 from .problem import PlanningOptions, prepare_problem
 from .travel_time import LatLon, TravelTime
 
 
 def plan_greedy(
     depot: LatLon,
-    stations: list[Station],
+    stations: list[Station | RoutingStation],
     imbalances: list[Imbalance],
     trucks: list[Truck],
     *,
@@ -32,6 +32,7 @@ def plan_greedy(
             feasible = [
                 node for node, imbalance in todo.items()
                 if 0 <= load + imbalance.delta <= truck.capacity
+                and problem.fixed_vehicles.get(node, vehicle) == vehicle
                 and elapsed + durations[position][node] + problem.service_s(node) + durations[node][0]
                 <= truck.available_time_s
             ]

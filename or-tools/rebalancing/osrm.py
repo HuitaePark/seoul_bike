@@ -126,7 +126,8 @@ class OsrmTravelTime:
             raise TravelTimeError("http_error", f"OSRM HTTP {error.code}",
                                   retryable=error.code == 429 or error.code >= 500) from error
         except (URLError, OSError, HTTPException) as error:
-            raise TravelTimeError("network_error", f"OSRM connection failed: {type(error).__name__}", retryable=True) from error
+            code = "timeout" if isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError) else "network_error"
+            raise TravelTimeError(code, f"OSRM connection failed: {type(error).__name__}", retryable=True) from error
         except (ValueError, UnicodeError) as error:
             raise TravelTimeError("invalid_response", "OSRM did not return valid JSON") from error
         if not isinstance(payload, dict):

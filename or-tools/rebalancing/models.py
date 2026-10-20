@@ -30,6 +30,16 @@ class Station:
 
 
 @dataclass(frozen=True)
+class RoutingStation:
+    """Location for an already computed demand; producer validates inventory."""
+
+    id: int
+    name: str
+    lat: float
+    lon: float
+
+
+@dataclass(frozen=True)
 class Truck:
     """재배치 트럭 한 대."""
 
@@ -38,6 +48,7 @@ class Truck:
     load: int = 0  # 현재 적재량. 솔버가 임의로 출발 적재량을 선택하지 않는다
     position: tuple[float, float] | None = None  # (위도, 경도), None이면 차고지
     available_time_s: int = 3 * 60 * 60  # 요청 시점부터 근무 종료까지 남은 시간
+    fixed_station_ids: tuple[int, ...] = ()  # 처리할 때 차량을 고정. 방문 순서·방문 필수는 지정하지 않음
 
 
 @dataclass(frozen=True)
@@ -66,7 +77,7 @@ class Imbalance:
 
     station_id: int  # 대여소 고유 번호
     delta: int  # 남는 양(+) 또는 모자란 양(-)
-    priority: int | None = None  # 비음수 정수 점수. None이면 수량 × 유형 가중치로 계산
+    priority: int | float | None = None  # 공통 명세의 비음수 점수. None이면 수량 × 유형 가중치
 
     @property
     def action(self) -> Literal["pickup", "dropoff"]:

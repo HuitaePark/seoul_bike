@@ -14,7 +14,7 @@ def validate_point(name: str, point: LatLon) -> None:
     if not isinstance(point, (tuple, list)) or len(point) != 2:
         raise ValueError(f"{name} must be (latitude, longitude)")
     lat, lon = point
-    if any(type(v) not in (int, float) or not isfinite(v) for v in point):
+    if any(type(v) not in (int, float) or not -180 <= v <= 180 or not isfinite(v) for v in point):
         raise ValueError(f"{name} has invalid coordinates")
     if not -90 <= lat <= 90 or not -180 <= lon <= 180:
         raise ValueError(f"{name} has invalid coordinates")
