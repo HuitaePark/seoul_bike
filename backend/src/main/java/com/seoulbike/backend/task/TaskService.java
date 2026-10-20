@@ -9,6 +9,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import com.seoulbike.backend.audit.AuditLog;
 import com.seoulbike.backend.auth.CurrentUser;
 import com.seoulbike.backend.auth.Role;
 import com.seoulbike.backend.common.ApiException;
@@ -27,14 +28,16 @@ public class TaskService {
 	private final TaskCommandPublisher publisher;
 	private final JsonMapper json;
 	private final TransactionTemplate tx;
+	private final AuditLog audit;
 
 	TaskService(TaskRepository tasks, ApprovalRepository approvals, TaskCommandPublisher publisher, JsonMapper json,
-			TransactionTemplate tx) {
+			TransactionTemplate tx, AuditLog audit) {
 		this.tasks = tasks;
 		this.approvals = approvals;
 		this.publisher = publisher;
 		this.json = json;
 		this.tx = tx;
+		this.audit = audit;
 	}
 
 	TaskAccepted create(CurrentUser user, CreateTask req) {
@@ -101,6 +104,8 @@ public class TaskService {
 			tx.executeWithoutResult(s -> {
 				approvals.reopen(decision.approvalId());
 				tasks.waitForApproval(taskId, decision.approvalId());
+				audit.record(task.shiftId(), AuditLog.Type.APPROVAL_REOPENED, AuditLog.Actor.system(),
+						decision.approvalId().toString(), taskId, "에이전트에 재개 명령을 보내지 못해 결정을 되돌렸다. 다시 결정할 수 있다");
 			});
 			throw e;
 		}
@@ -128,6 +133,12 @@ public class TaskService {
 		if (!tasks.resume(taskId, approval.approvalId())) {
 			throw ApiException.conflict("APPROVAL_SUPERSEDED", "작업이 이 승인 요청을 더 기다리지 않는다");
 		}
+		boolean approved = status == ApprovalRepository.Status.APPROVED;
+		int excluded = decision.excludeStationIds() == null ? 0 : decision.excludeStationIds().size();
+		audit.record(task.shiftId(), approved ? AuditLog.Type.APPROVAL_APPROVED : AuditLog.Type.APPROVAL_REJECTED,
+				AuditLog.Actor.of(user), approval.approvalId().toString(), taskId,
+				approval.kind() + " 카드를 " + (approved ? "승인" : "거절") + "했다"
+						+ (excluded > 0 ? " (뺄 대여소 " + excluded + "곳)" : ""));
 		return task;
 	}
 

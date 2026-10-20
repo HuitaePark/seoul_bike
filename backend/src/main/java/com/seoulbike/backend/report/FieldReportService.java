@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import com.seoulbike.backend.audit.AuditLog;
 import com.seoulbike.backend.auth.CurrentUser;
-import com.seoulbike.backend.common.ApiException;
 import com.seoulbike.backend.report.FieldReportRepository.NewReport;
 import com.seoulbike.backend.task.TaskService;
 
@@ -24,11 +24,13 @@ class FieldReportService {
 
 	private final FieldReportRepository reports;
 	private final TaskService tasks;
+	private final AuditLog audit;
 	private final JsonMapper json;
 
-	FieldReportService(FieldReportRepository reports, TaskService tasks, JsonMapper json) {
+	FieldReportService(FieldReportRepository reports, TaskService tasks, AuditLog audit, JsonMapper json) {
 		this.reports = reports;
 		this.tasks = tasks;
+		this.audit = audit;
 		this.json = json;
 	}
 
@@ -36,9 +38,15 @@ class FieldReportService {
 		var report = new NewReport(UUID.randomUUID(), req.shiftId(), driver.truckId(), req.stationId(), req.actualBikes(),
 				req.loaded(), req.unloaded(), req.issue(), req.memo(), driver.id(), Instant.now());
 		reports.insert(report);
-		if (report.issue() == null) {
-			return new Accepted(report.reportId(), null);
-		}
+		UUID taskId = report.issue() == null ? null : startReroute(driver, report);
+		// 메모는 개인정보가 섞일 수 있어 감사 기록에 남기지 않는다.
+		audit.record(report.shiftId(), AuditLog.Type.FIELD_REPORT, AuditLog.Actor.of(driver), report.reportId().toString(),
+				taskId, report.stationId() + " 실제 재고 " + report.actualBikes() + "대"
+						+ (report.issue() == null ? "" : " · " + report.issue() + " → 재경로 작업"));
+		return new Accepted(report.reportId(), taskId);
+	}
+
+	private UUID startReroute(CurrentUser driver, NewReport report) {
 		UUID taskId;
 		try {
 			taskId = tasks.startFieldReport(driver, report.shiftId(), contract(report));
@@ -49,7 +57,7 @@ class FieldReportService {
 			throw e;
 		}
 		reports.linkTask(report.reportId(), taskId);
-		return new Accepted(report.reportId(), taskId);
+		return taskId;
 	}
 
 	private ObjectNode contract(NewReport r) {

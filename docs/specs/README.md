@@ -36,7 +36,7 @@
 | `/api/system/status` | 구현 |
 | 현장 보고 `POST /api/reports` (기사만, `issue`가 있으면 재경로 작업) | 구현 (v0.5). 정류장이 기사 경로에 있는지는 경로가 생기면(M3) 확인 |
 | 대여소 · 계획 · 성과 API | 계약만 |
-| `/internal/**` 서비스 토큰(`X-Internal-Token`) · 현장 보고 조회(`get_field_reports`) · 제약 추가(`add_constraint`) | 구현 (internal-api v0.4) |
+| `/internal/**` 서비스 토큰(`X-Internal-Token`) · 현장 보고 조회(`get_field_reports`) · 제약 추가(`add_constraint`) · 감사 기록(`get_audit`) | 구현 (internal-api v0.5) |
 | 나머지 `/internal/**`(대여소·예측·계획·트럭·경로 계산·계획 활성화·경로 적용) · `solve.*` | 계약만. 대여소 데이터(PR #10)와 최적화(5)가 들어오면 연다 |
 | 변경 등급 규칙 · 경로 변경 승인 순서 확인 | 구현 (등급 기준은 `application.properties`의 `app.route-change.*`). 확인 규칙을 부를 적용 API `/internal/routes/{truckId}/apply`는 `/internal`과 함께 M3. 그전까지는 가짜 에이전트가 같은 확인 규칙을 부른다 |
 

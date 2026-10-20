@@ -6,7 +6,9 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import com.seoulbike.backend.audit.AuditLog;
 import com.seoulbike.backend.common.ApiException;
 import com.seoulbike.backend.constraint.ConstraintController.Constraint;
 import com.seoulbike.backend.constraint.ConstraintController.ConstraintRequest;
@@ -26,10 +28,15 @@ class ConstraintService {
 
 	private final ConstraintRepository constraints;
 	private final ChangeApprovals approvals;
+	private final AuditLog audit;
+	private final TransactionTemplate tx;
 
-	ConstraintService(ConstraintRepository constraints, ChangeApprovals approvals) {
+	ConstraintService(ConstraintRepository constraints, ChangeApprovals approvals, AuditLog audit,
+			TransactionTemplate tx) {
 		this.constraints = constraints;
 		this.approvals = approvals;
+		this.audit = audit;
+		this.tx = tx;
 	}
 
 	Constraint add(ConstraintRequest req) {
@@ -42,8 +49,20 @@ class ConstraintService {
 		if (req.type() == ConstraintType.INVENTORY_OVERRIDE && req.value() < 0) {
 			throw invalid("INVENTORY_OVERRIDE의 value(실제 재고)는 0 이상이어야 한다");
 		}
-		approvals.requireManagerApproval(req.taskId(), req.approvalId(), ChangeApprovals.Kind.ADD_CONSTRAINT, req.shiftId());
-		if (constraints.insertIfAbsent(UUID.randomUUID(), req)) {
+		String approvedBy = approvals.requireManagerApproval(req.taskId(), req.approvalId(),
+				ChangeApprovals.Kind.ADD_CONSTRAINT, req.shiftId());
+		UUID constraintId = UUID.randomUUID();
+		// 제약과 감사 기록은 함께 남는다. 재시도로 넣지 않았으면 감사 기록도 더하지 않는다.
+		boolean added = Boolean.TRUE.equals(tx.execute(s -> {
+			if (!constraints.insertIfAbsent(constraintId, req)) {
+				return false;
+			}
+			audit.record(req.shiftId(), AuditLog.Type.CONSTRAINT_ADDED, AuditLog.Actor.approvingManager(approvedBy),
+					constraintId.toString(), req.taskId(), req.type() + " " + String.join(",", req.stationIds()) + " "
+							+ req.validFrom() + "~" + req.validTo() + " · 승인 " + req.approvalId() + " · " + req.reason());
+			return true;
+		}));
+		if (added) {
 			return constraints.findByApproval(req.approvalId());
 		}
 		// 재시도: 같은 내용이면 처음 만든 제약, 다른 내용이면 승인을 다른 변경에 쓰려는 것이다.
