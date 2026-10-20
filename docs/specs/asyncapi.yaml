@@ -1,0 +1,318 @@
+asyncapi: 3.0.0
+info:
+  title: 따릉이 재배치 에이전트 · Kafka 메시지
+  version: 0.3.0-draft
+  description: |
+    **초안 v0.3.** 에이전트·최적화 담당 확인 전이다.
+    (v0.3: `threadId` 작업 단위, `requestedBy.truckId`, 이벤트 `code`, 계약 밖 필드는 전달하지 않음 · v0.2: 경로 변경 승인 카드 순서)
+
+    공통 규칙
+    - **키는 `shiftId`.** 한 근무조의 메시지는 같은 파티션에 들어가 순서대로 처리된다.
+    - **모든 메시지에 `eventId`(UUID)를 넣는다.** 소비자는 처리한 `eventId`를 기록하고 중복은 버린다
+      (재시도·리밸런스 때 같은 메시지가 다시 올 수 있다).
+    - `schemaVersion`은 필드를 **추가만** 할 때 올린다. 소비자는 모르는 필드를 무시한다.
+    - `traceId`를 그대로 넘긴다. LangSmith trace와 로그를 한 줄로 잇는다 (Harness Observability).
+    - 처리에 실패하면 `<토픽>.retry`로 재시도하고, 계속 실패하면 `<토픽>.dlq`로 보낸다 (대기열 가산점).
+      backend(Spring Kafka)는 `@RetryableTopic(retryTopicSuffix=".retry", dltTopicSuffix=".dlq")`로 맞춘다.
+
+    | 토픽 | 보내는 쪽 → 받는 쪽 |
+    | --- | --- |
+    | ai.tasks | backend → agent |
+    | ai.events | agent → backend (→ SSE) |
+    | solve.requests | backend → optimizer |
+    | solve.results | optimizer → backend |
+defaultContentType: application/json
+
+servers:
+  redpanda:
+    host: redpanda:9092
+    protocol: kafka
+    description: docker network 안 (Redpanda, Kafka 호환)
+
+channels:
+  aiTasks:
+    address: ai.tasks
+    description: 에이전트가 처리할 작업. 새 작업과 승인 후 재개(RESUME)가 같은 토픽으로 온다.
+    messages:
+      taskCommand: { $ref: '#/components/messages/TaskCommand' }
+  aiEvents:
+    address: ai.events
+    description: 에이전트 진행 이벤트. backend가 DB에 저장하고 SSE로 화면에 중계한다.
+    messages:
+      taskEvent: { $ref: '#/components/messages/TaskEvent' }
+  solveRequests:
+    address: solve.requests
+    description: 경로 계산 요청
+    messages:
+      solveRequest: { $ref: '#/components/messages/SolveRequest' }
+  solveResults:
+    address: solve.results
+    description: 경로 계산 결과
+    messages:
+      solveResult: { $ref: '#/components/messages/SolveResult' }
+
+operations:
+  backendSendsTask:
+    action: send
+    summary: backend가 작업을 접수하거나 승인 후 재개한다
+    channel: { $ref: '#/channels/aiTasks' }
+  agentReceivesTask:
+    action: receive
+    summary: agent가 LangGraph 스레드(threadId)를 시작하거나 재개한다
+    channel: { $ref: '#/channels/aiTasks' }
+  agentSendsEvent:
+    action: send
+    summary: agent가 진행 이벤트를 발행한다
+    channel: { $ref: '#/channels/aiEvents' }
+  backendReceivesEvent:
+    action: receive
+    summary: backend가 이벤트를 저장하고 SSE로 보낸다
+    channel: { $ref: '#/channels/aiEvents' }
+  backendSendsSolve:
+    action: send
+    summary: backend가 /internal/plans/solve 요청을 최적화에 넘긴다
+    channel: { $ref: '#/channels/solveRequests' }
+  optimizerReceivesSolve:
+    action: receive
+    summary: optimizer가 OR-Tools로 계산한다
+    channel: { $ref: '#/channels/solveRequests' }
+  optimizerSendsResult:
+    action: send
+    summary: optimizer가 결과를 발행한다
+    channel: { $ref: '#/channels/solveResults' }
+  backendReceivesResult:
+    action: receive
+    summary: backend가 requestId로 기다리던 요청에 결과를 넘긴다
+    channel: { $ref: '#/channels/solveResults' }
+
+components:
+  messages:
+    TaskCommand:
+      name: TaskCommand
+      title: 작업 명령
+      headers: { $ref: '#/components/schemas/Headers' }
+      payload: { $ref: '#/components/schemas/TaskCommand' }
+      bindings:
+        kafka:
+          key: { type: string, description: shiftId }
+    TaskEvent:
+      name: TaskEvent
+      title: 진행 이벤트
+      headers: { $ref: '#/components/schemas/Headers' }
+      payload: { $ref: '#/components/schemas/TaskEventMessage' }
+      bindings:
+        kafka:
+          key: { type: string, description: shiftId }
+    SolveRequest:
+      name: SolveRequest
+      title: 경로 계산 요청
+      headers: { $ref: '#/components/schemas/Headers' }
+      payload: { $ref: '#/components/schemas/SolveRequest' }
+      bindings:
+        kafka:
+          key: { type: string, description: shiftId }
+    SolveResult:
+      name: SolveResult
+      title: 경로 계산 결과
+      headers: { $ref: '#/components/schemas/Headers' }
+      payload: { $ref: '#/components/schemas/SolveResult' }
+      bindings:
+        kafka:
+          key: { type: string, description: shiftId }
+
+  schemas:
+    Headers:
+      type: object
+      properties:
+        traceparent:
+          type: string
+          description: W3C Trace Context. 있으면 그대로 다음 메시지로 넘긴다
+
+    Envelope:
+      type: object
+      required: [eventId, schemaVersion, occurredAt, shiftId]
+      properties:
+        eventId: { type: string, format: uuid }
+        schemaVersion: { type: integer, minimum: 1, const: 1 }
+        occurredAt: { type: string, format: date-time }
+        shiftId: { type: string, description: 메시지 키와 같다 }
+        traceId: { type: string }
+
+    TaskCommand:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [taskId, threadId, type, requestedBy]
+          properties:
+            taskId: { type: string, format: uuid }
+            threadId:
+              type: string
+              description: |
+                LangGraph thread_id. 작업 단위로 `{shiftId}:{taskId}`다. backend가 정하고 agent는 그대로 쓴다.
+                같은 근무조의 작업끼리 대기 중인 interrupt가 섞이지 않게 한다. 근무조 상태(계획)의 원본은 DB다.
+            type:
+              type: string
+              enum: [PLAN_DRAFT, FIELD_REPORT, REQUEST, QUESTION, RESUME]
+            text:
+              type: string
+              description: REQUEST·QUESTION 자연어
+            reportId:
+              type: string
+              description: FIELD_REPORT일 때
+            resume:
+              type: object
+              description: RESUME일 때. backend가 승인 기록을 남긴 뒤 보낸다
+              required: [approvalId, decision, decidedBy]
+              properties:
+                approvalId: { type: string, format: uuid }
+                decision:
+                  type: string
+                  enum: [APPROVE, REJECT]
+                excludeStationIds:
+                  type: array
+                  items: { type: string }
+                comment: { type: string }
+                decidedBy:
+                  type: object
+                  required: [userId, role]
+                  properties:
+                    userId: { type: string }
+                    role:
+                      type: string
+                      enum: [MANAGER, DRIVER]
+            requestedBy:
+              type: object
+              required: [userId, role, truckId]
+              properties:
+                userId: { type: string }
+                role:
+                  type: string
+                  enum: [MANAGER, DRIVER, EXECUTIVE]
+                truckId:
+                  type: [string, 'null']
+                  description: 기사면 그 기사의 트럭, 아니면 null. agent는 기사 작업을 이 트럭으로 한정한다 (NFR-06)
+
+    TaskEventMessage:
+      description: |
+        SSE data(openapi TaskEvent)에서 `seq`를 뺀 형식에 봉투 필드를 더한다.
+        **`seq`는 agent가 보내지 않는다.** backend가 저장할 때 작업마다 1부터 매기고 SSE `id`로 쓴다.
+        아래 필드 밖의 값(예 agent의 `harness` 확장)은 backend가 저장하지 않고 화면에도 보내지 않는다.
+        화면에 필요한 값이면 계약에 먼저 올린다.
+
+        경로 변경(ROUTE_CHANGE)은 후보의 `requiredApprovers` 순서대로 `APPROVAL_REQUIRED`를 보낸다.
+        MAJOR면 관리자 카드 → `RESUME`(승인) → 기사 카드 → `RESUME`(승인) → 적용 순서다.
+        앞 카드가 거절되면 뒤 카드는 보내지 않고 기존 경로를 유지한다.
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [taskId, type]
+          properties:
+            taskId: { type: string, format: uuid }
+            type: { $ref: 'openapi.yaml#/components/schemas/TaskEventType' }
+            token: { type: string }
+            tool:
+              type: object
+              properties:
+                name: { type: string }
+                label: { type: string }
+                ok: { type: boolean }
+            approval: { $ref: 'openapi.yaml#/components/schemas/ApprovalRequest' }
+            answer: { type: string }
+            sources:
+              type: array
+              items: { $ref: 'openapi.yaml#/components/schemas/Source' }
+            error: { type: string }
+            code:
+              type: [string, 'null']
+              description: FAILED만. 실패 종류 (openapi TaskEvent.code)
+
+    SolveStation:
+      type: object
+      required: [stationId, lat, lon, neededBikes, priority]
+      properties:
+        stationId: { type: string }
+        lat: { type: number }
+        lon: { type: number }
+        neededBikes:
+          type: integer
+          description: 양수 회수, 음수 배치 (optimizer의 Imbalance.delta)
+        priority:
+          type: number
+          description: 포기(disjunction) 벌점의 근거
+        kind:
+          type: string
+          enum: [EMPTY, OVERFLOW]
+
+    SolveTruck:
+      type: object
+      required: [truckId, capacity, load, lat, lon, availableUntil]
+      properties:
+        truckId: { type: string }
+        capacity: { type: integer, examples: [15] }
+        load: { type: integer, minimum: 0 }
+        lat: { type: number }
+        lon: { type: number }
+        availableUntil:
+          type: string
+          format: date-time
+          description: 근무조 종료 시각 (시간 차원 상한)
+        fixedStationIds:
+          type: array
+          description: REPLAN에서 이 트럭에 남겨 둘 정류장 (트럭 간 이동 방지)
+          items: { type: string }
+
+    SolveRequest:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [requestId, kind, stations, trucks, params]
+          properties:
+            requestId:
+              type: string
+              description: "{shiftId}:{planVersion}:{seq}. 같은 id로 다시 와도 결과는 하나만 만든다"
+            kind:
+              type: string
+              enum: [PLAN, REPLAN]
+            stations:
+              type: array
+              items: { $ref: '#/components/schemas/SolveStation' }
+            trucks:
+              type: array
+              items: { $ref: '#/components/schemas/SolveTruck' }
+            blockedStationIds:
+              type: array
+              items: { type: string }
+            params:
+              type: object
+              required: [solutionLimit]
+              properties:
+                solutionLimit:
+                  type: integer
+                  description: 탐색 한도. 시간 대신 해 개수로 고정해 같은 입력이면 같은 결과 (NFR-04)
+                penaltyScale: { type: number }
+                serviceMinutesBase: { type: number, default: 3 }
+                serviceMinutesPerBike: { type: number, default: 0.5 }
+
+    SolveResult:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [requestId, status]
+          properties:
+            requestId: { type: string }
+            status:
+              type: string
+              enum: [OK, TIMEOUT, FAILED]
+            routes:
+              type: array
+              items: { $ref: 'openapi.yaml#/components/schemas/Route' }
+            unserved:
+              type: array
+              items: { $ref: 'openapi.yaml#/components/schemas/Unserved' }
+            stats:
+              type: object
+              properties:
+                solveMs: { type: integer }
+                objective: { type: number }
+                bikesMoved: { type: integer }
+            error: { type: string }

@@ -32,7 +32,10 @@ Docker Compose로 운영하며, 공개 포트는 frontend(:80)와 backend(:8080)
 
 ## 문서
 
+- [계약 (API · Kafka)](docs/specs/README.md): OpenAPI·AsyncAPI 초안, [Swagger](https://baki-macbookpro.tail3286a4.ts.net/swagger)
 - [역할 분담 (6인)](docs/ROLES.md): 역할별 작업, 완료 기준, 1주차 계약, 단계
 - [PRD](docs/PRD.md): 문제 정의, 요구사항, 에이전트 설계
 - [아키텍처](docs/ARCHITECTURE.md): 스택, 모듈 구조, 메시징, 컨테이너 구성
+- [Harness 명세](docs/HARNESS.md): Harness 8요소 규칙·초기값, 진행 이벤트, 실패 코드, 시나리오 평가셋 (코드 `agent/`)
+- [품질 매핑](docs/QUALITY.md): ISO/IEC 25010:2023 품질 특성별 측정 방법과 증거
 - [OR-Tools 파이프라인 가이드](docs/or-tools/README.md)

@@ -1,0 +1,112 @@
+# 서버(Apple Silicon)와 로컬 개발이 함께 쓰는 Compose 파일.
+# 공개 포트는 frontend(:80), backend(:8080)만 연다. 아래 인프라는 내부망에만 둔다.
+# 비밀값은 저장소가 아니라 서버의 .env에 둔다 (infra/.env.example 참고).
+name: seoul-bike
+
+services:
+  frontend:
+    build:
+      context: ../frontend
+    ports:
+      # 공개 포트. Tailscale Funnel(443)이 여기로 보낸다. 화면과 /api를 같은 출처로 묶는다.
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ > /dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ../backend
+      additional_contexts:
+        specs: ../docs/specs
+      args:
+        GIT_SHA: ${GIT_SHA:-local}
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-seoulbike}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-seoulbike}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 .env에 필요하다}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET이 .env에 필요하다 (32바이트 이상)}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-}
+      # 기본은 꺼짐. 진짜 agent 없이 시연할 때만 .env에서 true로 켠다 (켠 채로 agent를 붙이면 이벤트가 두 번 나간다).
+      FAKE_AGENT_ENABLED: ${FAKE_AGENT_ENABLED:-false}
+    ports:
+      # 공개 포트. 서버에서는 Tailscale 주소로 접근한다.
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 10
+    restart: unless-stopped
+
+  postgres:
+    # postgis/postgis 공식 이미지는 amd64 전용이라 Apple Silicon에서 에뮬레이션으로 돈다.
+    # 같은 메인테이너가 관리하는 멀티 아키텍처 이미지를 쓴다.
+    image: imresamu/postgis:16-3.4
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-seoulbike}
+      POSTGRES_USER: ${POSTGRES_USER:-seoulbike}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 .env에 필요하다}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  vectordb:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${VECTOR_DB:-seoulbike_vector}
+      POSTGRES_USER: ${VECTOR_USER:-seoulbike}
+      POSTGRES_PASSWORD: ${VECTOR_PASSWORD:?VECTOR_PASSWORD가 .env에 필요하다}
+    volumes:
+      - vectordata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redpanda:
+    image: redpandadata/redpanda:v26.2.5
+    command:
+      - redpanda
+      - start
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --kafka-addr
+      - internal://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092
+    volumes:
+      - rpdata:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  vectordata:
+  rpdata:

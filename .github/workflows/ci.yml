@@ -1,0 +1,73 @@
+# PR과 main 푸시에서 GitHub 호스팅 러너로만 검사한다. 서버(self-hosted) 러너는 여기서 쓰지 않는다.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  or-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+        working-directory: or-tools
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      # 테스트가 Testcontainers로 PostGIS·Redpanda를 띄운다 (러너의 Docker 사용).
+      - run: ./gradlew test --no-daemon
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      # 계약(openapi.yaml)을 바꾸고 타입을 다시 생성하지 않았으면 실패한다.
+      - name: API 타입이 계약과 같은지
+        working-directory: frontend
+        run: npm run gen:api && git diff --exit-code src/shared/api/schema.d.ts
+      - run: npm run build
+        working-directory: frontend
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: OpenAPI 검증
+        run: npx --yes @redocly/cli@2 lint docs/specs/openapi.yaml docs/specs/internal-api.yaml --format=summary
+      - name: AsyncAPI 검증
+        working-directory: docs/specs
+        run: npx --yes @asyncapi/cli@6 validate asyncapi.yaml
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose 파일 검증
+        run: docker compose -f infra/compose.yaml --env-file infra/.env.example config -q

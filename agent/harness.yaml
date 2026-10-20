@@ -1,0 +1,97 @@
+# Author: Cheon Seonghun
+# Date: 20OCT2026
+# Purpose: Every Harness limit in one place. Changing a value requires an entry in docs/HARNESS.md section 8.
+
+models:
+  primary: openai:gpt-4.1-mini      # 초기값. 팀 결정 전
+  fallback: openai:gpt-4.1-nano     # 초기값. 주 모델과 다른 공급사 권장
+  kwargs:
+    temperature: 0                  # 같은 입력이면 같은 해석에 가깝게 (NFR-04)
+
+tools:
+  result_max_chars: 4000            # 초기값
+  rag_top_k: 5
+  rag_tool: rag_search_docs
+  read_only_tasks: [qa]             # 이 작업에는 destructiveHint 도구를 절대 주지 않는다
+  allow:
+    plan_draft:
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - rag_search_docs
+      - business_request_route_plan
+      - business_submit_plan
+    field_report:
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - business_request_route_plan
+      - business_propose_route_change
+    manager_request:
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - rag_search_docs
+      - business_request_route_plan
+      - business_add_constraint
+    qa:
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - rag_search_docs
+
+context:
+  token_budget: 16000               # 초기값
+  keep_tokens: 8000                 # 요약 후 남길 최근 메시지 토큰
+
+loop:
+  max_turns: 8
+  max_seconds:                      # 실행 구간 한도 (초)
+    default: 120                    # 과제 권장값
+    field_report: 10                # 초기값. NFR-01 재경로 10초
+    plan_draft: 60                  # 초기값. NFR-02 초안 생성 60초
+  max_same_tool_calls: 3
+
+recovery:
+  model_retries: 2
+  backoff_seconds: [1, 4]           # 초기값
+  retry_status: [429, 503]
+
+guardrails:
+  approval:                         # 승인 카드 (docs/specs openapi ApprovalRequest). 승인이 곧 수락이다
+    business_submit_plan: {kind: SUBMIT_PLAN, approver: MANAGER}
+    business_add_constraint: {kind: ADD_CONSTRAINT, approver: MANAGER}
+    business_propose_route_change:  # 승인자는 후보의 requiredApprovers 순서 (backend가 정함: MINOR 기사, MAJOR 관리자 → 기사)
+      kind: ROUTE_CHANGE
+  injected_args: [approval_id, task_id]   # 모델에게 숨기고 Harness가 채운다 (internal-api ApprovedChange)
+  mask_keys: [driver, driver_name, driverName, driver_phone, driverPhone, phone, lat, lon]
+  id_pattern: 'ST-\d+'              # 변경·계산 도구 인자의 대여소 ID는 앞선 도구 결과에 나온 것만 허용
+
+observability:
+  project: seoul-bike
+  eval_project: seoul-bike-eval
+  trace_header: X-Trace-Id
+  tool_labels:                      # TOOL_START·TOOL_END 이벤트의 tool.label (화면 진행 표시)
+    business_get_risk_stations: 위험 대여소 조회 중
+    business_get_station_detail: 대여소 상세 조회 중
+    business_get_forecast: 수요 예측 조회 중
+    business_get_current_plan: 현재 계획 조회 중
+    business_get_truck_status: 트럭 상태 조회 중
+    business_get_field_reports: 현장 보고 조회 중
+    business_request_route_plan: 경로 계산 중
+    business_add_constraint: 제약 추가 중
+    business_submit_plan: 계획 활성화 중
+    business_propose_route_change: 경로 변경 적용 중
+    rag_search_docs: 근거 문서 검색 중

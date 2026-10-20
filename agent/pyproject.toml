@@ -1,0 +1,24 @@
+# Author: Cheon Seonghun
+# Date: 20OCT2026
+# Purpose: Python project for the agent server (Harness, evaluation; graph code is added by the agent-graph owner).
+
+[project]
+name = "seoul-bike-agent"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain>=1.4",
+    "langgraph>=1.2",
+    "langgraph-checkpoint-postgres>=3.2",
+    "langchain-openai>=1.7",
+    "langchain-mcp-adapters>=0.3",
+    "langsmith>=0.14",
+    "mcp>=1.30",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = ["jsonschema>=4.20", "referencing>=0.30"]   # 계약(docs/specs) 스키마 검사 테스트
+
+[tool.setuptools]
+packages = ["harness", "evaluation"]
