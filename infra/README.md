@@ -84,7 +84,7 @@ Tailscale funnel --https=443 off                                 # 공개 중단
 | 종류 | 이름 | 비고 |
 | --- | --- | --- |
 | secret (필수) | `POSTGRES_PASSWORD`, `VECTOR_PASSWORD`, `JWT_SECRET` | 없으면 배포가 멈춘다. DB 비밀번호는 기존 볼륨과 같아야 한다 |
-| secret | `SEED_USER_PASSWORD`, `INTERNAL_TOKEN`, `OLLAMA_API_KEY` | 비우면 시연 계정 없음 · `/internal` 토큰 없음 · LLM 없음 |
+| secret | `SEED_USER_PASSWORD`, `INTERNAL_TOKEN`, `OPENAI_API_KEY`, `OLLAMA_API_KEY` | 비우면 시연 계정 없음 · `/internal` 토큰 없음 · 그 공급사 LLM 없음. 서버 agent 모델은 variable `AGENT_LLM`(예 `openai:gpt-4.1-mini`) |
 | variable | `POSTGRES_DB`, `POSTGRES_USER`, `VECTOR_DB`, `VECTOR_USER`, `FAKE_AGENT_ENABLED`, `MCP_INTERNAL_MODE`, `AGENT_LLM`, `MCP_FAKE`, `OLLAMA_HOST` | 비우면 compose 기본값 |
 
 - 넣기·바꾸기 (저장소 관리자만): `gh secret set 이름 --env production` (값을 물어볼 때 붙여 넣는다. 채팅·PR에 값을 남기지 않는다), `gh variable set 이름 --env production --body 값`
