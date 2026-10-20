@@ -6,6 +6,7 @@
 __pycache__/
 *.pyc
 .DS_Store
+*.egg-info/
 # 그림 원본(SVG)은 Figma 편집용으로 로컬에만 둔다
 docs/images/**/*.svg
 # 비밀값
