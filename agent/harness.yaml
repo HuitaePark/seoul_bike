@@ -3,8 +3,8 @@
 # Purpose: Every Harness limit in one place. Changing a value requires an entry in docs/HARNESS.md section 8.
 
 models:
-  primary: openai:gpt-4.1-mini      # 초기값. 팀 결정 전
-  fallback: openai:gpt-4.1-nano     # 초기값. 주 모델과 다른 공급사 권장
+  primary: ollama:gemma4:31b        # D25 Ollama Cloud (2026-10-20). 환경 변수 OLLAMA_HOST, OLLAMA_API_KEY
+  fallback: ollama:gpt-oss:120b     # 주 모델과 다른 계열. 같은 공급사라 공급사 전체 장애는 막지 못한다
   kwargs:
     temperature: 0                  # 같은 입력이면 같은 해석에 가깝게 (NFR-04)
 
