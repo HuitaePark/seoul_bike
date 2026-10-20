@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "business": {"url": "http://127.0.0.1:19101/mcp"},
+    "rag": {"url": "http://127.0.0.1:19102/mcp"}
+  }
+}

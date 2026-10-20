@@ -1,13 +1,13 @@
 # 최적화 · 인프라 명세
 
 상태: **명세 검토용, 계산·Kafka 실행기는 개인 브랜치에 있으며 운영 backend 미연결**. 담당: 역할 5.
-기준 main: `3428c52`.
+기준 main: `1ecdb7a`.
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.3.0-draft |
+| 공개 API (OpenAPI) | 0.4.0-draft |
 | 내부 API (OpenAPI) | 0.2.0-draft |
-| Kafka (AsyncAPI) | 0.2.0-draft |
+| Kafka (AsyncAPI) | 0.3.0-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
 아래 구현 설명은 [feat/optimizer-core의 계산 코드](https://github.com/HuitaePark/skala_seoul_bike/tree/feat/optimizer-core/or-tools/rebalancing)를 기준으로 한다.
@@ -65,7 +65,7 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
 
 ## payload 밖의 필수 실행 설정
 
-현재 AsyncAPI 0.2.0-draft의 SolveRequest에도 차고지와 입력 스냅샷 기준 시각 필드가 없다. 호출자가
+현재 AsyncAPI 0.3.0-draft의 SolveRequest에도 차고지와 입력 스냅샷 기준 시각 필드가 없다. 호출자가
 `SolveContext(depot, as_of)`와 `travel_time` 공급자를 명시한다.
 실행기는 권역 설정·입력 스냅샷 메타데이터에서 이를 제공해야 한다. 해당 연결은 아직 남아 있다.
 
@@ -131,6 +131,17 @@ eventId와 requestId의 저장 기록을 확인하며, 같은 requestId의 완�
 잘못된 봉투·설정 누락·상태 손상·전송 실패는 미완료 입력을 commit하지 않고 중단한다.
 FAILED·TIMEOUT도 같은 requestId의 최종 계산 결과이며, 새 계산은 새 requestId를 쓴다.
 자동 retry/DLQ의 횟수·간격·독성 메시지 처리는 담당자 합의 후 연결한다.
+
+## MCP 개발 환경·S05 참조 시드
+
+역할 3의 MCP 소스를 4dd5305 기준으로 가져와 독립 컨테이너에서 조회·가짜 계산·승인 차단과
+RAG 검색·원문 Resource를 검증한다. 운영 backend·Kafka 계산과 연결된 환경은 아니다.
+[개인 브랜치 실행 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/mcp/README.md)를 따른다.
+
+역할 6의 ad17528에서 S05 대여소 196곳과 차고지 후보를 추출했다. seeds 모듈은 좌표·중복·거점 수와
+대여소 번호/API ID 대응을 검사하며, 재고·필요량·우선순위·기준 시각을 만들지 않는다.
+ID와 정책의 팀 확정을 대체하지 않으며, wire 형식도 변경하지 않는다.
+[참조 시드 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/optimizer/seeds/README.md)에 원본 커밋·해시·제한을 기록한다.
 
 ## 예시와 단독 호출
 

@@ -4,6 +4,7 @@
 공통 모듈 이전과 운영 배포 연결은 포함하지 않는다.
 공통 메시지를 처리하는 [독립 Kafka 실행기](../../infra/optimizer/KAFKA.md)는 별도로 제공한다.
 독립 실행용 [OSRM 개발 환경](../../infra/optimizer/README.md)은 별도로 제공한다.
+[MCP 독립 컨테이너](../../infra/mcp/README.md)와 [S05 참조 시드 검증](../../infra/optimizer/seeds/README.md)도 제공한다.
 
 ## 실행
 

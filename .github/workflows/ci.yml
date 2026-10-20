@@ -31,6 +31,27 @@ jobs:
         if: always()
         run: docker compose -f infra/optimizer/compose.kafka.yaml down --volumes
 
+  mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r infra/mcp/requirements-dev.txt -e business-mcp -e rag-mcp
+      - name: MCP 기존 도구·문서 테스트
+        run: python -m pytest -q -o asyncio_mode=auto business-mcp/tests rag-mcp/tests
+      - name: 독립 MCP 컨테이너 시작
+        run: docker compose -f infra/mcp/compose.dev.yaml up -d --build --wait
+      - name: Streamable HTTP 도구·Resource 검증
+        env:
+          MCP_SMOKE_BUSINESS_URL: http://127.0.0.1:19101/mcp
+          MCP_SMOKE_RAG_URL: http://127.0.0.1:19102/mcp
+        run: python -m pytest -q infra/mcp/tests
+      - name: 독립 MCP 테스트 환경 정리
+        if: always()
+        run: docker compose -f infra/mcp/compose.dev.yaml down
+
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -86,3 +107,4 @@ jobs:
           sh -n infra/optimizer/prepare-osrm.sh
           docker compose -f infra/optimizer/compose.dev.yaml --profile prepare --profile tools config -q
           docker compose -f infra/optimizer/compose.kafka.yaml config -q
+          docker compose -f infra/mcp/compose.dev.yaml config -q

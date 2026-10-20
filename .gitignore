@@ -3,6 +3,7 @@
 # Purpose: Keeps the virtualenv and Python caches out of version control.
 
 .venv/
+.venv-mcp/
 __pycache__/
 *.pyc
 .DS_Store

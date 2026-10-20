@@ -1,0 +1,37 @@
+# Independent fake-backend integration environment; no production services.
+name: seoul-bike-mcp-dev
+
+x-healthcheck: &healthcheck
+  test: [CMD, python, -c, "import os,socket; socket.create_connection(('127.0.0.1',int(os.environ['MCP_PORT'])),2).close()"]
+  interval: 5s
+  timeout: 3s
+  start_period: 15s
+  retries: 12
+
+services:
+  business-mcp:
+    build:
+      context: ../..
+      dockerfile: infra/mcp/Dockerfile
+      args: {MCP_PACKAGE: business-mcp}
+    command: [python, -m, business_mcp]
+    environment:
+      INTERNAL_MODE: fake
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "9101"
+    ports: ["127.0.0.1:${BUSINESS_MCP_PORT:-19101}:9101"]
+    healthcheck: *healthcheck
+
+  rag-mcp:
+    build:
+      context: ../..
+      dockerfile: infra/mcp/Dockerfile
+      args: {MCP_PACKAGE: rag-mcp}
+    command: [python, -m, rag_mcp]
+    environment:
+      RAG_DOCS_DIR: /data/docs
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "9102"
+    ports: ["127.0.0.1:${RAG_MCP_PORT:-19102}:9102"]
+    volumes: ["../../docs/rag:/data/docs:ro"]
+    healthcheck: *healthcheck
