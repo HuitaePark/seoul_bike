@@ -23,10 +23,11 @@
 .venv/bin/python analysis/validate_stock.py            # 역산 재고 검증 (stock-validation.md)
 .venv/bin/python analysis/export_region.py 강남-05     # 공유 묶음
 .venv/bin/python -m sim --terr 강남-05 --date 2025-06-11       # 정책별 지표
-.venv/bin/python -m forecast --terr 강남-05 --month 2025-06    # 예측기 채점
+.venv/bin/python -m forecast --terr 강남-05 --month 2025-06    # 베이스라인 채점
+.venv/bin/python -m forecast.lgbm --terr 강남-05               # LightGBM 학습·검증 (약 2분)
 ```
 
-시험: `.venv/bin/python -m unittest sim.tests.test_engine forecast.tests.test_baseline`, `(cd or-tools && ../.venv/bin/python -m unittest discover -s tests -t .)`, `(cd analysis/collect && /usr/bin/python3 -m unittest test_bikelist)`.
+시험: `.venv/bin/python -m unittest sim.tests.test_engine forecast.tests.test_baseline forecast.tests.test_lgbm`, `(cd or-tools && ../.venv/bin/python -m unittest discover -s tests -t .)`, `(cd analysis/collect && /usr/bin/python3 -m unittest test_bikelist)`.
 
 대여이력 원본과 역산 중간 결과는 6의 노트북에만 있다(대여이력 74GB, 깃헙 파일 한도 100MB). 다른 역할은 `stations.csv`만 받으면 된다.
 
@@ -147,18 +148,23 @@
 | `empty_min` | `emptyStationMinutes` | 그날 운영한 대여소의 재고 0 시간 합. 주 지표 |
 | `over_min` | `overflowStationMinutes` | 재고가 거치대 수를 넘은 시간 합 |
 | `moved_per_truck_h` | `bikesMovedPerTruckHour` | 회수한 대수 ÷ 트럭 운행 시간 |
-| `failed` | `failedRentals` (추가 제안) | 재고가 없어 실패한 대여 수 |
+| `failed` (기록된 대여만 재생) | `failedRentals` (추가 제안) | 재고가 없어 실패한 대여 수. 효과의 하한 |
+| `failed` (억눌린 수요를 더해 재생) | `failedRentalsAdjusted` (추가 제안) | 실제로 비어 있던 시간의 수요까지 넣은 값. 위쪽 추정 |
 
 **판단 기준 (2026-10-20 결정):** 두 지표를 모두 보고하고, 정책의 좋고 나쁨은 실패 대여로 판단한다. 빈 대여소-분은 이용이 적은 대여소를 채워도 줄어든다. 처음 정의한 단순 규칙(넘치면 모두 회수)은 2025-06-11 강남-05에서 빈 대여소-분을 39,724에서 35,980으로 줄였지만 실패 대여는 469에서 572로 늘렸다. 아침 주거지와 낮 업무지구에서 곧 대여될 자전거를 빼 갔기 때문이다. 그래서 단순 규칙은 고정 회수 대여소에서만 회수한다.
 
-| 정책 | 2025-06-11 실패 대여 | 2025-06-04 실패 대여 |
-| --- | --- | --- |
-| `NONE` | 469 | 390 |
-| `GREEDY` | 411 | 411 |
-| `CURRENT_OPS` | 130 | 46 |
+| 정책 | 06-11 실패 (보정 전) | 06-11 실패 (보정 후) | 06-04 실패 (보정 전) | 06-04 실패 (보정 후) |
+| --- | --- | --- | --- | --- |
+| `NONE` | 469 | 1,800 | 390 | 1,492 |
+| `GREEDY` | 411 | 1,762 | 411 | 1,451 |
+| `CURRENT_OPS` | 130 | 1,518 | 46 | 1,151 |
 
 **검증:** 현행 운영 재현으로 하루를 돌린 끝 재고는 다음 날 0시에 따로 복원한 재고와 거의 같다(06-11 합계 2,164 vs 2,158대, 대여소별 평균 절대 차 0.87대). 엔진과 재고 복원이 같은 기준으로 맞물린다.
 
-**한계:** 대여 기록은 실제 트럭이 채워 둔 곳에서만 생겼다. 그래서 `CURRENT_OPS`는 구조상 실패가 적게 나오고, 실제로 비어 있던 곳의 억눌린 수요는 기록에 없어 다른 정책이 그곳을 채워도 점수를 받지 못한다. 지금 비교는 현행 운영에 유리하고 본 시스템의 효과는 하한이다. M4의 재고 0 구간 보정에서 억눌린 수요를 재생에 넣어 이 편향을 줄인다.
+**억눌린 수요 보정 (`sim/latent.py`):** 대여 기록은 실제로 자전거가 있던 곳에서만 생겼다. 그대로 재생(보정 전)하면 `CURRENT_OPS`는 구조상 실패가 적게 나오고, 실제로 비어 있던 시간을 채워 두는 정책은 점수를 받지 못한다. 그래서 실제로 재고가 0이던 시간에 빌리려던 사람을 만들어 더한다(보정 후). 대여율은 앞선 4주 같은 요일 유형·같은 시각의 대여 수를 자전거가 있던 시간으로 나눈 값이고, 목적지와 이용 시간은 그 대여소의 실제 대여에서 뽑는다. 06-11 강남-05에서는 1,402건(기록된 대여 시도의 약 8%)이 생겼다.
+
+보정 전에는 현행 운영이 재배치 없음보다 실패를 72% 줄이는 것처럼 보이지만, 보정 후에는 16%다. 현행 운영도 실제로 비어 있던 시간의 수요를 대부분 놓치고 있었다. 본 시스템이 줄여야 할 대상이 이 억눌린 수요다.
+
+빈 대여소에서 못 빌린 사람 일부는 근처 대여소에서 빌렸고 그 대여는 이미 기록에 있으므로, 보정 후 값은 억눌린 수요를 크게 잡는다. **정책 효과는 보정 전(하한)과 보정 후 사이로 보고한다.**
 
 결과를 어디에 저장해 backend가 읽을지(`sim.runs`, `sim.metrics` 등)는 M4에 백엔드와 정한다.

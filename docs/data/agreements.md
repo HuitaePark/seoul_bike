@@ -14,6 +14,7 @@
 | 2 | 구역 ID `regionId` | 활동 구역 17개를 **`N01`~`N08`(강북), `S01`~`S09`(강남)**. 화면에는 이름(`강남-05`)을 따로 보여 준다 | `gangnam-05`처럼 영문 이름, 한글 그대로(`강남-05`. URL·Kafka 키에 불편) | `openapi` `/api/regions/{regionId}`, `/api/kpi`, 근무조 ID, `ref_regions.csv` | 제안 |
 | 3 | 근무조 ID와 시각 | `{regionId}:{yyyy-MM-dd}:{AM\|PM\|EVE}` (팀 명세 그대로). **AM 07:00–10:00, PM 13:00–16:00, EVE 19:00–21:00**, 계획 초안은 30분 전 (PRD 7.4) | EVE를 19:00–20:00로 (PRD 표기 "19–20시"를 끝 시각으로 읽기) | 근무조 ID, LangGraph `thread_id`, `SolveTruck.availableUntil`, 시뮬레이터 `SHIFTS` | 제안 |
 | 4 | 시각 표기 | 데이터 파일은 KST이고 시간대 표기가 없다. **API의 `date-time`은 `+09:00`을 붙인다** (`2026-10-21T07:00:00+09:00`) | UTC(`Z`)로 통일 | 모든 API·Kafka 메시지의 시각 필드 | 제안 |
+| 29 | 예측 구간 `horizonH` | 최대 **5시간**, 기본 3시간(PRD FR-01 그대로). 선행 연구가 5시간까지 예측했고, 예측기는 1~5시간 뒤를 따로 학습해 시간별 정확도를 낸다 | 지금 명세의 최대 6시간 유지 | `openapi` `/api/regions/{regionId}/stations`, `internal-api` `/internal/stations/risk`·`/internal/forecasts`, `get_forecast` 도구 | 제안 |
 | 5 | 이름 바꾸는 규칙 | 데이터 파일·DB 열은 snake_case, API는 camelCase. 같은 뜻은 같은 단어를 쓴다 (`docks` ↔ 거치대 수, `elevation_m` ↔ `elevationM`, `model_version` ↔ `modelVersion`) | | 시드, 예측, 시뮬레이터 결과 | 제안 |
 
 ## 백엔드 (4)
@@ -24,10 +25,10 @@
 | 7 | `ref.regions` 시드 열 | `region_id`, `name`, `side`(`NORTH`·`SOUTH`), `stations`, `depot_lat`, `depot_lon`, `trucks_min`(바쁜 날 동시 트럭 하한). 파일: `analysis/out/ref_regions.csv` (17행) | 구역 목록, 트럭 기본값 | 제안 |
 | 8 | 시드 갱신 | 6이 주 1회 대여소 정보를 다시 받아 시드를 새로 낸다. backend는 `station_id`로 덮어쓰고(upsert), 새 시드에 없는 대여소는 지우지 않고 운영 종료로 표시한다(지난 계획이 참조하므로) | 시드 적재 방식 | 제안 |
 | 9 | 역할 표시 | 고정 회수 = `FIXED_PICKUP`, 고정 배치 = `FIXED_DROPOFF`, 변동 = `VARIABLE`. 2025년 이용 기록이 없는 대여소(신설)는 `VARIABLE` | `StationRole` | 제안 |
-| 10 | 성과 지표에 실패 대여 추가 | `PolicyKpi.failedRentals`(integer, 재고가 없어 실패한 대여 수)를 더한다. 정책 판단은 실패 대여로 한다(빈 대여소-분은 이용이 적은 곳을 채워도 줄어든다) | `/api/kpi`, 성과 리포트 화면 | 제안 |
-| 11 | 시뮬레이터 결과를 넘기는 방법 | 6이 정책·구역·날짜별 결과를 `sim_kpi.csv`(`date`, `region_id`, `policy`, `failed_rentals`, `empty_station_minutes`, `overflow_station_minutes`, `bikes_moved_per_truck_hour`)로 내고 backend가 적재해 `/api/kpi`로 준다 | DB 테이블을 6이 직접 쓰기 | `/api/kpi` | 제안 (M4) |
-| 12 | 실시간 재고 수집 이관 | M4에 backend 스케줄러로 넘긴다. 테이블 열: `observed_at`(timestamptz), `station_id`, `bikes`, `docks`. 넘길 때 하루 동안 둘을 겹쳐 돌려 값을 비교한 뒤 6의 수집을 끈다 | | `StationStatus.bikes`, `observedAt` | 제안 (M4) |
-| 13 | `/internal/forecasts`의 값 | backend가 optimizer 컨테이너의 예측기를 불러 그때 계산한다 | 6이 미리 계산해 DB에 저장 | `get_forecast` 도구 | 질문 |
+| 10 | 성과 지표에 실패 대여 추가 | `PolicyKpi.failedRentals`(기록된 대여만 재생, 효과의 하한)와 `failedRentalsAdjusted`(실제로 비어 있던 시간의 억눌린 수요까지 넣은 값, 위쪽 추정)를 더한다. 정책 판단은 실패 대여로 하고 두 값 사이로 보고한다 | `/api/kpi`, 성과 리포트 화면 | 제안 |
+| 11 | 시뮬레이터 결과를 넘기는 방법 | 6이 정책·구역·날짜별 결과를 `sim_kpi.csv`(`date`, `region_id`, `policy`, `failed_rentals`, `failed_rentals_adjusted`, `empty_station_minutes`, `overflow_station_minutes`, `bikes_moved_per_truck_hour`)로 내고 backend가 적재해 `/api/kpi`로 준다. 다른 선택지: DB 테이블을 6이 직접 쓰기 | `/api/kpi` | 제안 (M4) |
+| 12 | 실시간 재고 수집 이관 | M4에 backend 스케줄러로 넘긴다. 테이블 열: `observed_at`(timestamptz), `station_id`, `bikes`, `docks`. 넘길 때 하루 동안 둘을 겹쳐 돌려 값을 비교한 뒤 6의 수집을 끈다 | `StationStatus.bikes`, `observedAt` | 제안 (M4) |
+| 13 | `/internal/forecasts`의 값 | backend가 optimizer 컨테이너의 예측기를 불러 그때 계산한다. 다른 선택지: 6이 미리 계산해 DB에 저장 | `get_forecast` 도구 | 질문 |
 
 ## 최적화 (5)
 
