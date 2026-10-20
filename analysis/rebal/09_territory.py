@@ -6,6 +6,7 @@
         한 트럭(조)이 그 구역을 맡는다는 해석이 그럴듯해진다. 자치구를 구역으로 썼을 때와 비교한다.
 입력: out/gaps_2025.parquet, station_master.csv / 출력: out/territory.csv(대여소별 구역), out/territory_map.png, 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
@@ -15,7 +16,8 @@ import pandas as pd
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 NORTH = ("종로구", "중구", "용산구", "성동구", "광진구", "동대문구", "중랑구", "성북구", "강북구", "도봉구", "노원구",
          "은평구", "서대문구", "마포구")
 c = duckdb.connect()

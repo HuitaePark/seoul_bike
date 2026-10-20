@@ -13,7 +13,7 @@
       analysis/rebal/out/territory.csv (역산 활동 구역), station_roles.csv (2025-04~10 하루 평균 이용·재배치),
       dareungi 2025 대여이력 Parquet(확인용)
 출력: analysis/out/stations.csv, 화면에 확인표
-실행: /Users/junyeop/dareungi/.venv/bin/python analysis/stations.py
+실행: .venv/bin/python analysis/stations.py
 """
 import csv
 import json

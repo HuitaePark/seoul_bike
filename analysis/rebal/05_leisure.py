@@ -4,6 +4,7 @@
         ① 평일·주말 하루 대여와 재배치 반입·반출 ② 주말 시각별 회수·배치 방문 ③ 이용이 평소의 2배를 넘은 날(행사 후보)의 재배치를 본다.
 입력: out/gaps_2025.parquet, out/visits_2025.parquet, station_master.csv / 출력: 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
@@ -18,7 +19,8 @@ SELECT s.st_no, s.st_name, s.district,
   CASE WHEN regexp_matches(st_name, '한강공원|나들목|선착장|마리나|유원지역|여의나루|노들섬') AND st_name NOT LIKE '나들목공원%' THEN '한강'
        WHEN we_share >= 0.33 AND n >= 2000 THEN '공원·여가'
        ELSE '나머지' END AS g
-FROM read_csv('/Users/junyeop/dareungi/data/interim/station_master.csv') s JOIN w ON w.st = s.st_no""")
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+FROM read_csv('{DAR}/data/interim/station_master.csv') s JOIN w ON w.st = s.st_no""")
 print(c.sql("SELECT g, count(*) n_st FROM grp GROUP BY 1"))
 
 # 날짜별 그룹 대여·재배치 반입·반출 (재배치는 방문 창 중간 시각의 날짜)

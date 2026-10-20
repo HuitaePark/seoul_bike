@@ -8,6 +8,7 @@
     또 트럭이 오는 직전 재고 분포가 '언제 재배치하나(트리거)'의 근거가 된다.
 입력: out/gaps_2025.parquet, out/bike_pick·bike_drop.parquet, station_master.csv / 출력: 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
@@ -32,7 +33,8 @@ CREATE TABLE ser AS
 SELECT st, ts, sum(dx) OVER (PARTITION BY st ORDER BY ts, dx ROWS UNBOUNDED PRECEDING) AS stock,
        lead(ts) OVER (PARTITION BY st ORDER BY ts, dx) AS ts_next
 FROM (SELECT st, s AS ts, 1 AS dx FROM iv UNION ALL SELECT st, e, -1 FROM iv)""")
-c.execute(f"CREATE TABLE s AS SELECT * FROM read_csv('/Users/junyeop/dareungi/data/interim/station_master.csv')")
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+c.execute(f"CREATE TABLE s AS SELECT * FROM read_csv('{DAR}/data/interim/station_master.csv')")
 
 print("점검: 새벽 4시 전체 재고(매일) 중앙값 =",
       c.sql(f"""SELECT median(tot) FROM (SELECT d, sum(stock) tot FROM (

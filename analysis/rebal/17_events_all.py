@@ -7,6 +7,7 @@
 대여소 폐쇄형(불꽃축제·탄핵 선고)은 이용 감소만 따로 본다.
 입력: 대여이력 2024·2025(읽기만), out/gaps_<연도>, visits_<연도>, bike_pick/drop(_2024) / 출력: out/events_all.csv, 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
@@ -14,7 +15,8 @@ import pandas as pd
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 V = {"상암": (37.5683, 126.8972), "KSPO": (37.5203, 127.1268), "고척": (37.4982, 126.8671),
      "여의도": (37.5284, 126.9326), "광화문": (37.5720, 126.9769)}
 

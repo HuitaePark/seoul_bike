@@ -9,7 +9,7 @@
 입력: analysis/out/stations.csv (stations.py),
       dareungi 2025 대여이력 Parquet (경계 이동, 행사일 대여)
 출력: 화면 (docs/data/regions.md에 옮김)
-실행: /Users/junyeop/dareungi/.venv/bin/python analysis/regions.py
+실행: .venv/bin/python analysis/regions.py
 """
 from pathlib import Path
 

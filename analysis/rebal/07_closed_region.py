@@ -6,6 +6,7 @@
 주의: 반납 대여소가 비어 있는 대여(2025년 0.5%)는 양쪽 끝을 모두 빼야 남는/모자람이 한쪽으로 쏠리지 않는다.
 입력: 본 프로젝트 대여이력 2025·station_master.csv(읽기만) / 출력: 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
@@ -14,7 +15,8 @@ import numpy as np
 from sklearn.neighbors import BallTree
 
 HERE = Path(__file__).parent
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 NORTH = ("종로구", "중구", "용산구", "성동구", "광진구", "동대문구", "중랑구", "성북구", "강북구", "도봉구", "노원구",
          "은평구", "서대문구", "마포구")
 c = duckdb.connect()

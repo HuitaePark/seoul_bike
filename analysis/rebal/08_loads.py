@@ -5,6 +5,7 @@
         개별 트럭 번호는 공개 데이터에 없으므로 '적재'까지가 관측 가능한 최소 단위다.
 입력: out/gaps_2025.parquet, out/bike_pick·bike_drop.parquet, station_master.csv / 출력: out/loads_2025.parquet, out/load_edges_2025.parquet
 """
+import os
 from pathlib import Path
 
 import duckdb
@@ -12,7 +13,8 @@ import networkx as nx
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 NORTH = ("종로구", "중구", "용산구", "성동구", "광진구", "동대문구", "중랑구", "성북구", "강북구", "도봉구", "노원구",
          "은평구", "서대문구", "마포구")
 c = duckdb.connect()

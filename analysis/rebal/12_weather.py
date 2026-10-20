@@ -5,13 +5,15 @@
 날씨 분류(우선순위 순, 임시 기준): 눈(적설 > 0) / 비 10mm 이상 / 비 1~10mm / 한파(일평균 −4℃ 이하) / 폭염(최고 33℃ 이상) / 보통
 입력: out/gaps_2025.parquet, out/visits_2025.parquet, 본 프로젝트 대여이력·daily_master_v2(읽기만) / 출력: 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 c = duckdb.connect()
 c.execute(f"""CREATE TABLE w AS SELECT date::DATE d, rain_mm, snow_cm, tavg, tmax, is_off::BOOLEAN is_off, month(date) mo,
   CASE WHEN snow_cm > 0 THEN 'a 눈' WHEN rain_mm >= 10 THEN 'b 비 10mm+' WHEN rain_mm >= 1 THEN 'c 비 1~10mm'

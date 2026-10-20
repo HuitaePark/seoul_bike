@@ -6,13 +6,15 @@
         ④ 비교: 같은 달 회수가 없었는데 빈 경우(대여소×시간) 1시간당 '10분 안 재대여' 횟수
 입력: out/gaps_2025.parquet, out/bike_pick·bike_drop.parquet, out/visits_2025.parquet, 대여이력(읽기만) / 출력: 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 c = duckdb.connect()
 c.execute(f"SET memory_limit='8GB'; SET temp_directory='{HERE / 'tmp'}'")
 for A, B in [("2025-05-01", "2025-06-01"), ("2025-09-01", "2025-10-01")]:

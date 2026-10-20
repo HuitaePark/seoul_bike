@@ -5,13 +5,15 @@
 입력: 대여이력 2025(읽기만), out/visits_2025.parquet, station_master.csv, 공휴일(ops.duckdb 읽기 전용)
 출력: out/event_days.csv, 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 VENUES = {"광화문": (37.5720, 126.9769), "잠실종합운동장": (37.5150, 127.0730), "서울월드컵경기장": (37.5683, 126.8972),
           "올림픽공원": (37.5207, 127.1215), "고척스카이돔": (37.4982, 126.8671), "여의도한강공원": (37.5284, 126.9326)}
 c = duckdb.connect()

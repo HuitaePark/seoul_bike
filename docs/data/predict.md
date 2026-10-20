@@ -33,7 +33,7 @@ class Forecast:
     start: datetime                 # 예측 구간 시작 (KST, 정시)
     rentals_h: tuple[float, ...]    # 시간별 예상 대여 (대), 길이 = horizon_h
     returns_h: tuple[float, ...]    # 시간별 예상 반납 (대)
-    model: str                      # "baseline-v1" 등. 거점별 근거(FR-03)에 표시
+    model_version: str              # "baseline-4w" 등. API Forecast의 modelVersion. 거점별 근거(FR-03)에 표시
 
     @property
     def rentals(self) -> float:     # 구간 합계. 기존 healthy_band가 쓰는 값

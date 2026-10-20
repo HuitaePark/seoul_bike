@@ -6,13 +6,15 @@
       그래서 '창 1시간 이하 & 5~15대(트럭 한 대분)'인 엄격한 표본으로 따로 확인한다.
 입력: out/gaps_2025.parquet, out/bike_pick·bike_drop.parquet, station_master.csv / 출력: 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 c = duckdb.connect()
 c.execute(f"CREATE TABLE s AS SELECT st_no, lat, lon FROM read_csv('{R}/data/interim/station_master.csv') WHERE st_no IS NOT NULL")
 c.execute(f"""CREATE TABLE b AS

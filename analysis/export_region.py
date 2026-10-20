@@ -8,7 +8,7 @@
 입력: analysis/out/stations.csv, dareungi 대여이력 Parquet(2024~2025), dareungi.duckdb wx_h(읽기 전용),
       dareungi/data/raw/calendar/holidays_2016_2026.csv, analysis/rebal/out/visits_2024·2025.parquet
 출력: data/shared/<구역>/ stations.csv, trips.parquet, weather_hourly.parquet, holidays.csv, rebal_visits.parquet, README.md
-실행: /Users/junyeop/dareungi/.venv/bin/python analysis/export_region.py 강남-05
+실행: .venv/bin/python analysis/export_region.py 강남-05
 """
 import sys
 from pathlib import Path

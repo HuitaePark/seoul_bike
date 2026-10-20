@@ -7,12 +7,14 @@
 입력: out/gaps_2025.parquet, 본 프로젝트 station_master.csv·station_cluster.csv(읽기만)
 출력: out/station_roles.csv, 화면 출력
 """
+import os
 from pathlib import Path
 
 import duckdb
 
 HERE = Path(__file__).parent
-R = "/Users/junyeop/dareungi/data/interim"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = f"{DAR}/data/interim"
 c = duckdb.connect()
 c.execute(f"""
 CREATE TABLE g AS SELECT *, (moved AND NOT had_report AND gap_h < 72 AND dist_m BETWEEN 150 AND 10000) AS rebal

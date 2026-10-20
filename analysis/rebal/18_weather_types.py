@@ -8,13 +8,15 @@
 대여소 유형(2025 기준 station_roles): 역 이름 / 업무형(아침 도착 위주 군집) / 주거형(아침 출발·저녁 도착 군집) / 언덕 위(자치구 중앙값 +10m 이상)
 입력: 대여이력 2024·2025, daily_master_v2, out/wx_h.parquet, out/visits_2024·2025, out/station_roles.csv / 출력: 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 c = duckdb.connect()
 c.execute(f"SET memory_limit='8GB'; SET temp_directory='{HERE / 'tmp'}'")
 c.execute(f"""CREATE TABLE wx AS

@@ -7,13 +7,15 @@
 입력: 대여이력 2025(읽기만), out/gaps_2025.parquet, out/visits_2025.parquet, out/bike_pick·bike_drop.parquet, station_master.csv
 출력: 화면
 """
+import os
 from pathlib import Path
 
 import duckdb
 
 HERE = Path(__file__).parent
 O = HERE / "out"
-R = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+R = DAR
 EVENTS = [("2025-05-11", "서울자전거대행진(도착)", 12, 8, 12), ("2025-06-10", "한국-쿠웨이트", 20, 17, 22),
           ("2025-07-31", "FC서울-바르셀로나", 20, 17, 22), ("2025-08-03", "토트넘-뉴캐슬", 20, 17, 22),
           ("2025-11-02", "JTBC 서울마라톤(출발)", 8, 5, 8)]   # (날짜, 이름, 시작시, 반납 집계 시작시, 대여 집계 시작시)

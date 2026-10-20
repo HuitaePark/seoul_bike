@@ -8,11 +8,13 @@
 실행: python 01_gaps.py 2025-05   (한 달 시험)  /  python 01_gaps.py 2025   (한 해)
 """
 import sys
+import os
 from pathlib import Path
 
 import duckdb
 
-ROOT = "/Users/junyeop/dareungi"
+DAR = os.environ.get("DAREUNGI", "/Users/junyeop/dareungi")  # 따릉이 고장신고 프로젝트(대여이력 원본) 위치. README 참고
+ROOT = DAR
 HERE = Path(__file__).parent
 (HERE / "out").mkdir(exist_ok=True)
 (HERE / "tmp").mkdir(exist_ok=True)
