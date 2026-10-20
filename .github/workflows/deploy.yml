@@ -41,12 +41,45 @@ jobs:
       - name: Docker 확인
         run: docker info --format 'Docker {{.ServerVersion}} · {{.Architecture}}'
 
-      - name: 서버 .env 확인
+      # 값의 원본은 GitHub production 환경의 secret·variable이다 (infra/README "비밀값").
+      # 서버 .env는 배포마다 새로 쓴다. 빈 값은 쓰지 않아 compose 기본값을 따른다. 값은 로그에 찍지 않는다.
+      - name: 서버 .env 만들기
+        shell: bash
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          VECTOR_PASSWORD: ${{ secrets.VECTOR_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SEED_USER_PASSWORD: ${{ secrets.SEED_USER_PASSWORD }}
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+          VECTOR_DB: ${{ vars.VECTOR_DB }}
+          VECTOR_USER: ${{ vars.VECTOR_USER }}
+          FAKE_AGENT_ENABLED: ${{ vars.FAKE_AGENT_ENABLED }}
+          MCP_INTERNAL_MODE: ${{ vars.MCP_INTERNAL_MODE }}
+          AGENT_LLM: ${{ vars.AGENT_LLM }}
+          MCP_FAKE: ${{ vars.MCP_FAKE }}
+          OLLAMA_HOST: ${{ vars.OLLAMA_HOST }}
         run: |
-          if [ ! -f "$HOME/seoul-bike/.env" ]; then
-            echo "::error::$HOME/seoul-bike/.env가 없다. infra/.env.example을 참고해 만든다."
-            exit 1
-          fi
+          required="POSTGRES_PASSWORD VECTOR_PASSWORD JWT_SECRET"
+          optional="SEED_USER_PASSWORD INTERNAL_TOKEN OLLAMA_API_KEY POSTGRES_DB POSTGRES_USER VECTOR_DB VECTOR_USER
+                    FAKE_AGENT_ENABLED MCP_INTERNAL_MODE AGENT_LLM MCP_FAKE OLLAMA_HOST"
+          for k in $required; do
+            if [ -z "${!k}" ]; then
+              echo "::error::production 환경 secret $k가 없다 (Settings → Environments → production)"
+              exit 1
+            fi
+          done
+          umask 077
+          mkdir -p "$HOME/seoul-bike"
+          out="$HOME/seoul-bike/.env.new"
+          : > "$out"
+          for k in $required $optional; do
+            if [ -n "${!k}" ]; then printf '%s=%s\n' "$k" "${!k}" >> "$out"; fi
+          done
+          mv "$out" "$HOME/seoul-bike/.env"
+          echo "서버 .env를 production 환경 값 $(wc -l < "$HOME/seoul-bike/.env" | tr -d ' ')개로 새로 썼다"
 
       - name: 이미지 받기·빌드
         run: |
