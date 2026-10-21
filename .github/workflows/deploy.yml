@@ -21,6 +21,8 @@ on:
       - "docs/evidence/**"
       # backend가 jar에 넣는 구역·대여소 기준 정보 (compose additional_contexts refdata). 매주 갱신된다.
       - "analysis/out/ref_*.csv"
+      # 실시간 재고 collector 이미지 (루트 context, infra/collector/Dockerfile)
+      - "analysis/collect/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
@@ -59,6 +61,7 @@ jobs:
           INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          SEOUL_API_KEY: ${{ secrets.SEOUL_API_KEY }}
           POSTGRES_DB: ${{ vars.POSTGRES_DB }}
           POSTGRES_USER: ${{ vars.POSTGRES_USER }}
           VECTOR_DB: ${{ vars.VECTOR_DB }}
@@ -70,7 +73,7 @@ jobs:
           OLLAMA_HOST: ${{ vars.OLLAMA_HOST }}
         run: |
           required="POSTGRES_PASSWORD VECTOR_PASSWORD JWT_SECRET"
-          optional="SEED_USER_PASSWORD INTERNAL_TOKEN OPENAI_API_KEY OLLAMA_API_KEY POSTGRES_DB POSTGRES_USER VECTOR_DB VECTOR_USER
+          optional="SEED_USER_PASSWORD INTERNAL_TOKEN OPENAI_API_KEY OLLAMA_API_KEY SEOUL_API_KEY POSTGRES_DB POSTGRES_USER VECTOR_DB VECTOR_USER
                     FAKE_AGENT_ENABLED MCP_INTERNAL_MODE AGENT_LLM MCP_FAKE OLLAMA_HOST"
           for k in $required; do
             if [ -z "${!k}" ]; then
