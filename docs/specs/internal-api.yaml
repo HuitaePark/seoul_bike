@@ -1,11 +1,16 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.6.1-draft
+  version: 0.8.0-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
-    **초안 v0.6.** MCP·에이전트 담당 확인 전이다.
+    **초안 v0.8.** MCP·에이전트 담당 확인 전이다.
 
+    - v0.8: 대여소·예측 도구 3개(`get_risk_stations`·`get_station_detail`·`get_forecast`) 구현 규칙. 위험·필요 대수·우선순위·예상 빈 시각 계산,
+      예측 행을 고르는 규칙, 404 `REGION_NOT_FOUND`·`STATION_NOT_FOUND`(고칠 후보 `suggestions`)·`STATION_STATUS_NOT_FOUND`, 400 범위.
+    - v0.7.1: backend가 내보내는 모든 `date-time`은 서울 시각 오프셋 `+09:00`을 붙인다 (합의 4). 입력은 어떤 RFC 3339 오프셋이든 받는다.
+    - v0.7: `Forecast`에 시간별 값 `rentalsH`·`returnsH`(선택, 길이 `horizonH`)를 더한다 (합의 15). 합계만으로는 구간
+      중간에 비는 대여소를 놓친다. 6번이 근무조 시작 30분 전에 미리 계산해 DB에 둔 값을 그대로 준다 (합의 13).
     - v0.6: 현재 계획 조회·계획 활성화·경로 적용 구현 범위. 승인 하나에 한 번(재시도는 처음 결과), 기준 버전이 바뀐 후보는 409,
       SUBMIT_PLAN 카드는 `planId`로 활성화할 계획을 가리킨다. 활성화에 404 `PLAN_NOT_FOUND`.
     - v0.5: `get_audit` → `GET /internal/shifts/{shiftId}/audit`, `AuditEvent` (ISS-06).
@@ -47,6 +52,10 @@ paths:
     get:
       operationId: getRiskStations
       summary: 빈·과적재 위험 대여소
+      description: |
+        `risk`가 EMPTY·OVERFLOW인 대여소만 `priority` 내림차순(같으면 대여소 ID 순)으로 `limit`개. 어느 대여소·관측·예측을 쓰는지와
+        위험 기준은 공개 API `GET /api/regions/{regionId}/stations`와 같다 (운영 중이고 관측이 있는 대여소, 가장 최근 관측, 끝나지 않은 가장 이른 예측 구간).
+        `regionId`가 없거나 `horizonH`·`limit`가 범위 밖이면 400 `INVALID_REQUEST`.
       parameters:
         - name: regionId
           in: query
@@ -66,12 +75,17 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/RiskStation' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
         '404': { $ref: '#/components/responses/RegionNotFound' }
 
   /internal/stations/{stationId}:
     get:
       operationId: getStationDetail
       summary: 대여소 상세
+      description: |
+        `horizonH` 인자가 없어 예측 재고·위험은 기본값 3시간으로 본다. `recentReports`는 근무조와 상관없이 이 대여소의 최근 현장 보고 5건(최근 것부터).
+        운영하지 않거나 없는 대여소는 404 `STATION_NOT_FOUND`. 운영 중이지만 실시간 재고 관측이 아직 없으면 404 `STATION_STATUS_NOT_FOUND`
+        (수집기가 5분마다 넣으므로 잠시 뒤 다시 부른다).
       parameters:
         - name: stationId
           in: path
@@ -89,6 +103,11 @@ paths:
     get:
       operationId: getForecasts
       summary: 대여소별 예측
+      description: |
+        `start`와 `horizonH`가 **정확히 같은** 예측 행만 준다 (예측기는 근무조 시작 시각을 `start`로 넣는다). 같은 대여소·`start`·`horizonH`가
+        여러 행이면 가장 나중에 넣은 것. 순서는 요청한 `stationIds` 순서이고 같은 ID는 한 번만, 그 예측이 없는 대여소는 빠진다(오류가 아니다).
+        운영하지 않거나 없는 대여소가 하나라도 있으면 404 `STATION_NOT_FOUND`(그 대여소들을 모두 적는다). `stationIds`가 비었거나 200개를 넘거나
+        `horizonH`가 범위 밖이면 400 `INVALID_REQUEST`.
       parameters:
         - name: stationIds
           in: query
@@ -114,6 +133,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Forecast' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
         '404': { $ref: '#/components/responses/StationNotFound' }
 
   /internal/shifts/{shiftId}/plan:
@@ -351,7 +371,11 @@ components:
             code: APPROVAL_REQUIRED
             detail: approvalId 8f1c…는 PENDING 상태다. 승인 후 다시 호출한다.
     StationNotFound:
-      description: 없는 대여소. 다시 호출할 수 있게 후보를 준다
+      description: |
+        없거나 운영하지 않는 대여소 (STATION_NOT_FOUND). 다시 호출할 수 있게 `suggestions`에 후보를 준다:
+        운영하지 않게 된 대여소면 같은 구역의 가까운 운영 대여소 3곳, 대여소번호(`102` 등)를 넣었으면 그 번호의 대여소 ID,
+        아니면 이름에 그 글자가 든 대여소(최대 5곳, 없으면 `suggestions` 없음).
+        대여소 상세에서 운영 중이지만 관측이 아직 없으면 STATION_STATUS_NOT_FOUND (후보 없음).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ToolProblem' }
@@ -360,10 +384,10 @@ components:
             title: 대여소 없음
             status: 404
             code: STATION_NOT_FOUND
-            detail: "'ST-9999' 대여소가 없다. 권역 안의 가까운 대여소: ST-1023, ST-1031"
-            suggestions: [ST-1023, ST-1031]
+            detail: "'ST-9999'(○○역 앞)는 운영하지 않는 대여소다. 같은 구역의 가까운 대여소: ST-1023, ST-1031, ST-1040."
+            suggestions: [ST-1023, ST-1031, ST-1040]
     RegionNotFound:
-      description: 없는 권역
+      description: 없는 권역 (REGION_NOT_FOUND). `suggestions`에 구역 ID 17개
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ToolProblem' }
@@ -377,6 +401,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ToolProblem' }
+    InvalidRequest:
+      description: 인자 형식·범위 오류 (INVALID_REQUEST). `detail`에 어느 인자인지 적는다
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ToolProblem' }
 
   schemas:
     RiskStation:
@@ -387,12 +416,20 @@ components:
           properties:
             neededBikes:
               type: integer
-              description: 양수 회수, 음수 배치
-            priority: { type: number }
+              description: |
+                양수 회수, 음수 배치. EMPTY는 재고 궤적(openapi `RiskKind`)의 최저점이 3대가 되게(최저점 − 3) 배치하되 지금 빈 거치대
+                (거치대 수 − 재고, 음수면 0)를 넘지 않는다. OVERFLOW는 최고점이 거치대 수가 되게(최고점 − 거치대 수) 회수하되 지금 재고를
+                넘지 않는다. 그래서 EMPTY라도 거치대가 다 찼으면 0일 수 있다
+            priority:
+              type: number
+              description: |
+                |neededBikes| × 유형 가중치(EMPTY 2, OVERFLOW 1) × 임박도 1/(1 + k), 소수 둘째 자리 반올림.
+                k는 **관측 시각부터** 궤적이 위험 기준에 처음 닿는 점까지의 시간(시간 단위 소수, 지금이면 0).
+                빈 대여소가 과적재보다 급하다 (PRD 7.1-4). PRD의 수요 강도는 아직 곱하지 않는다
             emptyAt:
               type: [string, 'null']
               format: date-time
-              description: 예상 빈 시각
+              description: 예상 빈 시각. 궤적이 처음 0대 이하가 되는 점의 시각(구간 시작 + n시간 경계, 지금 0대면 관측 시각). 그런 점이 없으면 null
             reasons:
               type: array
               items: { type: string }
@@ -414,8 +451,16 @@ components:
         stationId: { type: string }
         start: { type: string, format: date-time }
         horizonH: { type: integer }
-        rentals: { type: number }
-        returns: { type: number }
+        rentals: { type: number, description: 구간 합계 예상 대여 (대) }
+        returns: { type: number, description: 구간 합계 예상 반납 (대) }
+        rentalsH:
+          type: array
+          items: { type: number }
+          description: 시간별 예상 대여 (대). 길이는 `horizonH`, 합은 `rentals`. 예측기가 시간별 값을 내지 않으면 없다
+        returnsH:
+          type: array
+          items: { type: number }
+          description: 시간별 예상 반납 (대). 길이는 `horizonH`, 합은 `returns`. 예측기가 시간별 값을 내지 않으면 없다
         modelVersion: { type: string }
 
     TruckState:

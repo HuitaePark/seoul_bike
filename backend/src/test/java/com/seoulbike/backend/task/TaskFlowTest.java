@@ -25,6 +25,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import com.seoulbike.backend.DeadLetters;
 import com.seoulbike.backend.IntegrationTest;
 import com.seoulbike.backend.common.ApiException;
 import com.seoulbike.backend.route.RouteChangeGrade;
@@ -224,6 +225,42 @@ class TaskFlowTest {
 		}
 		JsonNode failed = json.readTree(call("GET", "/api/ai/tasks/" + taskId, manager, null).body());
 		assertThat(failed.path("status").asString()).isEqualTo("FAILED");
+	}
+
+	/**
+	 * 팀 합의 5: backend가 내보내는 시각은 +09:00이다. 화면(REST·SSE)과 agent(ai.tasks)가 같은 서울 시각을 본다.
+	 * agent가 Z로 보낸 시각도 SSE로는 같은 순간의 +09:00으로 나간다.
+	 */
+	@Test
+	void emittedTimesCarrySeoulOffset() throws Exception {
+		String manager = login("manager");
+		String shiftId = "N01:2026-11-09:EVE";
+		var created = call("POST", "/api/ai/tasks", manager,
+				"{\"type\":\"REQUEST\",\"shiftId\":\"" + shiftId + "\",\"text\":\"시각 오프셋 확인\"}");
+		assertThat(created.statusCode()).isEqualTo(202);
+		String taskId = json.readTree(created.body()).path("taskId").asString();
+
+		JsonNode task = json.readTree(call("GET", "/api/ai/tasks/" + taskId, manager, null).body());
+		assertThat(task.path("createdAt").asString()).endsWith("+09:00");
+		assertThat(task.path("updatedAt").asString()).endsWith("+09:00");
+
+		JsonNode command = json.readTree(DeadLetters.await(kafka, Topics.AI_TASKS, taskId).value());
+		assertThat(command.path("occurredAt").asString()).endsWith("+09:00");
+
+		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), manager, null)) {
+			String marker = "offset-" + UUID.randomUUID();
+			ObjectNode token = json.createObjectNode()
+				.put("eventId", UUID.randomUUID().toString())
+				.put("schemaVersion", 1)
+				.put("shiftId", shiftId)
+				.put("taskId", taskId)
+				.put("type", "TOKEN")
+				.put("occurredAt", "2026-11-09T10:00:00Z")
+				.put("token", marker);
+			kafka.send(Topics.AI_EVENTS, shiftId, json.writeValueAsString(token)).get(10, TimeUnit.SECONDS);
+			JsonNode data = json.readTree(stream.readUntil(e -> e.data().contains(marker)).getLast().data());
+			assertThat(data.path("occurredAt").asString()).isEqualTo("2026-11-09T19:00:00+09:00");
+		}
 	}
 
 	@Test

@@ -27,6 +27,8 @@ services:
       context: ../backend
       additional_contexts:
         specs: ../docs/specs
+        # 구역·대여소 기준 정보 CSV. 6번이 매주 갱신하면 deploy.yml paths가 다시 배포한다.
+        refdata: ../analysis/out
       args:
         GIT_SHA: ${GIT_SHA:-local}
     environment:

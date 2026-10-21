@@ -1,11 +1,13 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.12.0-draft
+  version: 0.13.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
-    **초안 v0.12.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
+    **초안 v0.13.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.13: 현황 지도 `GET /api/regions/{regionId}/stations` 구현 규칙 (어느 대여소가 나오는지, 어느 관측·예측을 쓰는지, 위험 판단 기준). 없는 구역 404 `REGION_NOT_FOUND`, `horizonH` 범위 밖 400.
+    - v0.12.1: 응답·SSE의 시각은 모두 서울 오프셋 `+09:00`으로 쓴다 (예 `2026-10-21T07:00:00+09:00`). 형식(RFC 3339)은 그대로다.
     - v0.12: 비활성 계정을 다시 여는 `POST /api/admin/users/{userId}/enable` (승인된 적 있는 계정만, 비활성화 전에 받은 토큰은 다시 열어도 401). `Account.approvedAt` 추가.
     - v0.11.1: 예측 구간 `horizonH` 최대 5 (합의 29).
     - v0.11: 미처리 대여소 사유 `Unserved.reason`을 값 목록으로 (optimizer가 내던 소문자 코드를 대문자로 고정한다).
@@ -23,6 +25,7 @@ info:
     - LLM이 필요한 요청은 작업으로 접수해 **202**를 돌려주고, 진행 상황은 **SSE**로 보낸다.
     - 화면은 이 API만 호출한다. AI 서버 주소는 화면에 드러내지 않는다.
     - 오류 본문은 RFC 9457 `application/problem+json`이다.
+    - 모든 `date-time` 값은 RFC 3339이고 backend가 내보낼 때는 서울 오프셋 `+09:00`을 붙인다 (예 `2026-10-21T07:00:00+09:00`, 팀 합의 5). 요청에는 어느 오프셋이든 받는다.
 servers:
   - url: https://baki-macbookpro.tail3286a4.ts.net
     description: 배포 서버 (Tailscale Funnel)
@@ -388,11 +391,18 @@ paths:
       operationId: listRegionStations
       tags: [stations]
       summary: 권역 대여소 현황과 예측 (현황 지도)
+      description: |
+        로그인한 모든 역할(관리자·기사·책임자)이 본다. 운영 중인 대여소 가운데 실시간 재고 관측이 하나라도 있는 것만 대여소 ID 순으로 준다.
+        관측이 없는 대여소는 빠진다 (위험을 판단할 재고가 없다). 관측이 하나도 없는 구역은 빈 목록이다.
+        `bikes`·`docks`·`observedAt`은 대여소마다 **가장 최근 관측**이다.
+        예측은 `horizonH`가 같고 **아직 끝나지 않은 구간**(시작 + `horizonH`시간 > 지금) 중 시작이 가장 이른 것을 쓴다:
+        진행 중인 근무조의 예측이 있으면 그것, 없으면 다음 근무조 예측(시작 30분 전에 들어온다). 지난 근무조 예측은 쓰지 않는다.
+        고를 예측이 없으면 `forecastBikes`는 null이고 위험은 현재 재고로만 판단한다. 판단 기준은 `RiskKind`.
       parameters:
         - name: regionId
           in: path
           required: true
-          schema: { type: string, examples: [gwangjin-seongdong] }
+          schema: { type: string, examples: [N02] }
         - name: horizonH
           in: query
           description: 예측 구간(시간)
@@ -405,7 +415,17 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/StationStatus' }
+        '400':
+          description: '`horizonH`가 1~5 밖 (INVALID_REQUEST)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: 없는 구역 (REGION_NOT_FOUND). `suggestions`에 구역 ID 17개
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /api/shifts/{shiftId}/plan:
     get:
@@ -552,7 +572,7 @@ components:
       in: path
       required: true
       description: "{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. Kafka 메시지 키로도 쓴다"
-      schema: { type: string, examples: ['gwangjin-seongdong:2026-11-03:AM'] }
+      schema: { type: string, examples: ['N02:2026-11-03:AM'] }
     Page:
       name: page
       in: query
@@ -869,6 +889,13 @@ components:
     RiskKind:
       type: string
       enum: [EMPTY, OVERFLOW, NONE]
+      description: |
+        재고 궤적으로 판단한다. 궤적은 관측 시각의 재고에서 시작해, 예측 구간 가운데 **관측 시각 뒤에 남은 부분**의 순유입(반납 − 대여)만
+        더한 점들이다 (구간이 진행 중이면 지난 몫은 이미 관측 재고에 들어 있다). 시간별 예측이 있으면 매시 경계(구간 시작 + k시간)마다
+        점을 만들고 관측 시각이 걸친 시간은 남은 비율만큼만 더한다. 시간별 예측이 없으면 합계가 고르게 퍼진다고 보고 남은 비율만큼 더한
+        구간 끝 한 점. 각 점은 반올림한 대수. 예측이 없으면 현재 재고 한 점.
+        `EMPTY`: 한 점이라도 **2대 이하** (빈 위험, 합의 27). `OVERFLOW`: EMPTY가 아니고 한 점이라도 **거치대 수를 넘음**
+        (운영 상한 초기값 = 거치대 수, PRD 7.1). `NONE`: 둘 다 아님.
 
     StationStatus:
       type: object
@@ -878,12 +905,12 @@ components:
         name: { type: string }
         lat: { type: number }
         lon: { type: number }
-        docks: { type: integer, description: 거치대 수 }
-        bikes: { type: integer, description: 현재 재고 }
-        observedAt: { type: string, format: date-time }
+        docks: { type: integer, description: 거치대 수 (가장 최근 관측) }
+        bikes: { type: integer, description: 현재 재고 (가장 최근 관측) }
+        observedAt: { type: string, format: date-time, description: 그 관측 시각 }
         forecastBikes:
           type: [integer, 'null']
-          description: horizonH 뒤 예상 재고
+          description: 예측 구간 끝의 예상 재고 = 재고 궤적의 끝 점 (0 밑으로 내려가지 않는다). 고를 예측이 없으면 null
         risk: { $ref: '#/components/schemas/RiskKind' }
         role: { $ref: '#/components/schemas/StationRole' }
         elevationM: { type: [number, 'null'] }
@@ -1040,3 +1067,7 @@ components:
         code:
           type: string
           description: 화면 분기용 코드 (예 APPROVAL_SUPERSEDED, TRUCK_NOT_OWNED)
+        suggestions:
+          type: array
+          items: { type: string }
+          description: 다시 요청할 때 쓸 수 있는 후보 ID (예 REGION_NOT_FOUND면 구역 ID). 줄 후보가 있을 때만 있다

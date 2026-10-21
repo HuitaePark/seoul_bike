@@ -14,7 +14,7 @@
 
 ## 만드는 법
 
-저장소 루트에서 실행한다. 환경은 `python3 -m venv .venv && .venv/bin/pip install -r requirements-data.txt`(최적화기의 `requirements.txt`를 포함한다).
+저장소 루트에서 실행한다. 환경은 `python3.12 -m venv .venv && .venv/bin/pip install -r requirements-data.txt`(최적화기의 `requirements.txt`를 포함한다). Python 3.12를 쓴다: 최적화기가 고정한 `ortools==9.14.6206`이 3.14용으로는 없고, CI도 3.12다.
 
 ```bash
 /usr/bin/python3 analysis/collect/stations_api.py      # 대여소 정보 API 원본 (주 1회)
@@ -41,9 +41,9 @@
 
 ## 이 초안이 정한 것
 
-- 대여소는 **대여소번호**로 부른다. 파일에서는 `st_no`(정수), API의 `stationId`에서는 앞의 0을 뺀 번호 문자열(`"108"`)이다. 실시간 API의 `ST-xxx`는 수집할 때 한 번만 바꾼다.
+- 대여소는 데이터 파일 안에서 **대여소번호**(`st_no`, 정수)로 부른다. API·DB의 `stationId`는 실시간 API ID `ST-xxx`다 (합의 1번, [ADR 0001](../adr/0001-station-id-is-realtime-api-id.md)). 두 번호는 숫자가 맞지 않으므로 대응표로 바꾼다.
 - 시각은 모두 KST다.
-- 계획 단위는 활동 구역 17개다 ([regions.md](regions.md)). 개발 기준 구역은 강남-05를 제안한다.
+- 계획 단위는 활동 구역 17개다 ([regions.md](regions.md)). 개발·시연 범위는 서울 전체다 (합의 25번, 2026-10-21 결정).
 - 계획과 시드에는 운영 중인 대여소(`active`)만 쓴다. 과거 대여이력을 붙일 때는 전체를 쓴다.
 - 역할은 PRD 7.1 그대로다(하루 평균 |반납 − 대여| ≥ 10). API `StationRole`과는 고정 회수 = `FIXED_PICKUP`, 고정 배치 = `FIXED_DROPOFF`, 변동 = `VARIABLE`로 대응한다.
 - 예측은 시간별 값으로 준다. 합계는 API `Forecast`의 `rentals`·`returns`와 같고, `model_version`은 `modelVersion`이다.
@@ -61,7 +61,7 @@
 
 | 열 | 형식 | 설명 |
 | --- | --- | --- |
-| `st_no` | int | 대여소번호. 기준 키. 실시간 대여소 이름 앞 번호와 같다 (`102. 망원역 1번출구 앞` → 102) |
+| `st_no` | int | 대여소번호. 데이터 파일 안의 기준 키. 실시간 대여소 이름 앞 번호와 같다 (`102. 망원역 1번출구 앞` → 102). API·DB에서 대여소를 부르는 ID는 `st_id`다 (합의 1번, [ADR 0001](../adr/0001-station-id-is-realtime-api-id.md)) |
 | `st_id` | text | 실시간 API의 대여소 ID (`ST-xxx`) |
 | `st_name` | text | 대여소 이름 |
 | `district` | text | 자치구 |

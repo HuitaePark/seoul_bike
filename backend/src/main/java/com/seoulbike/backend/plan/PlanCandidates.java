@@ -16,6 +16,7 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import com.seoulbike.backend.common.SeoulTime;
 import com.seoulbike.backend.route.RouteChangeGrade;
 import com.seoulbike.backend.route.RouteChangeGrader;
 import com.seoulbike.backend.route.RouteDiff;
@@ -44,7 +45,7 @@ class PlanCandidates {
 	@Transactional
 	ObjectNode create(String shiftId, String requestId, UUID taskId, JsonNode result) {
 		plans.lockShift(shiftId);
-		ArrayNode routes = array(result.path("routes"));
+		ArrayNode routes = seoulEtas(array(result.path("routes")));
 		ArrayNode unserved = array(result.path("unserved"));
 		String planId = "PL-" + UUID.randomUUID();
 		int version = plans.nextVersion(shiftId);
@@ -123,6 +124,19 @@ class PlanCandidates {
 
 	private JsonNode[] empty() {
 		return new JsonNode[] { json.createArrayNode(), json.createArrayNode() };
+	}
+
+	/** optimizer는 eta를 UTC로 준다. 계획 API·승인 카드가 이 저장 값을 그대로 보내므로 저장 전에 +09:00으로 바꾼다. */
+	private static ArrayNode seoulEtas(ArrayNode routes) {
+		for (JsonNode route : routes) {
+			for (JsonNode stop : route.path("stops")) {
+				JsonNode eta = stop.get("eta");
+				if (eta != null && eta.isString()) {
+					((ObjectNode) stop).put("eta", SeoulTime.normalize(eta.asString()));
+				}
+			}
+		}
+		return routes;
 	}
 
 	private ArrayNode array(JsonNode node) {

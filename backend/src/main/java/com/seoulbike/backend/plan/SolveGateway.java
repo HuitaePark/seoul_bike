@@ -1,7 +1,6 @@
 package com.seoulbike.backend.plan;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -23,6 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import com.seoulbike.backend.common.ApiException;
+import com.seoulbike.backend.common.SeoulTime;
 
 /**
  * solve.requests로 경로 계산을 맡기고 solve.results를 기다린다 (계약 asyncapi SolveRequest·SolveResult).
@@ -151,7 +151,7 @@ public class SolveGateway {
 		ObjectNode request = json.createObjectNode();
 		request.put("eventId", UUID.randomUUID().toString());
 		request.put("schemaVersion", 1);
-		request.put("occurredAt", Instant.now().toString());
+		request.put("occurredAt", SeoulTime.now());
 		request.put("shiftId", shiftId);
 		if (traceId != null) {
 			request.put("traceId", traceId);
@@ -159,8 +159,21 @@ public class SolveGateway {
 		request.put("requestId", requestId);
 		request.put("kind", kind.name());
 		request.setAll(inputs.deepCopy());
+		seoulTimes(request);
 		requests.insert(requestId, shiftId, planVersion, seq, kind, taskId, json.writeValueAsString(request));
 		return request;
+	}
+
+	/** agent가 넘긴 시각도 같은 순간의 +09:00으로 보낸다 (팀 합의 5). optimizer는 어느 오프셋이든 받는다. */
+	private static void seoulTimes(ObjectNode request) {
+		if (request.path("asOf").isString()) {
+			request.put("asOf", SeoulTime.normalize(request.path("asOf").asString()));
+		}
+		for (JsonNode truck : request.path("trucks")) {
+			if (truck.path("availableUntil").isString()) {
+				((ObjectNode) truck).put("availableUntil", SeoulTime.normalize(truck.path("availableUntil").asString()));
+			}
+		}
 	}
 
 	/**

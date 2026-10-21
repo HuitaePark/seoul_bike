@@ -1,3 +1,5 @@
+import { registerHooks } from 'node:module'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseBlock, splitBlocks } from '../src/shared/composables/sse.ts'
@@ -127,4 +129,57 @@ test('근무 시간대는 서울 시각으로 고른다 (13시 전 오전, 19시
   assert.equal(slotAt(new Date('2026-10-21T09:59:00Z')), 'PM') // 18:59 KST
   assert.equal(slotAt(new Date('2026-10-21T10:00:00Z')), 'EVE') // 19:00 KST
   assert.equal(slotAt(new Date('2026-10-20T17:00:00Z')), 'AM') // 다음 날 02:00 KST
+})
+
+test('화면을 떠난 뒤 늦게 끝난 목록 읽기·묻기는 스트림을 열지 않는다', async () => {
+  // useShiftFeed는 vite식 확장자 없는 import를 쓴다. node가 읽도록 '.ts'를 붙여 찾는 hook을 건 뒤에야 불러올 수 있어 동적 import다.
+  registerHooks({
+    resolve(specifier, context, next) {
+      try {
+        return next(specifier, context)
+      } catch (e) {
+        if (specifier.startsWith('.') && !/\.\w+$/.test(specifier)) return next(`${specifier}.ts`, context)
+        throw e
+      }
+    },
+  })
+  const { effectScope } = await import('vue')
+  const { api } = await import('../src/shared/api/client.ts')
+  const { useShiftFeed } = await import('../src/features/dashboard/useShiftFeed.ts')
+
+  // 목록·묻기 응답은 화면을 떠난 뒤에 손으로 풀고, 스트림 요청(fetch)은 수만 센다
+  const lists: ((r: unknown) => void)[] = []
+  const posts: ((r: unknown) => void)[] = []
+  const streamed: string[] = []
+  Object.assign(globalThis, { window: globalThis })
+  globalThis.fetch = ((url: string) => {
+    streamed.push(url)
+    return Promise.withResolvers<Response>().promise
+  }) as typeof fetch
+  api.GET = (() => {
+    const { promise, resolve } = Promise.withResolvers()
+    lists.push(resolve)
+    return promise
+  }) as typeof api.GET
+  api.POST = (() => {
+    const { promise, resolve } = Promise.withResolvers()
+    posts.push(resolve)
+    return promise
+  }) as typeof api.POST
+
+  const scope = effectScope()
+  const feed = scope.run(() => useShiftFeed('s'))!
+  const asking = feed.ask('지금 급한 곳은?')
+  scope.stop()
+
+  const page = { data: { items: [task(TASK, 'WAITING_APPROVAL', '2026-10-21T06:00:00Z', approval('ap-1'))] } }
+  for (const resolve of lists) resolve(page)
+  for (const resolve of posts) resolve({ data: task('question-1', 'QUEUED', '2026-10-21T06:01:00Z') })
+  await asking
+  // 처음 목록 읽기(refresh)는 밖으로 드러나지 않아 대기 중인 마이크로태스크를 모두 비운 뒤 본다
+  await nextTurn()
+
+  assert.ok(lists.length > 0 && posts.length === 1)
+  assert.deepEqual(streamed, [])
+  assert.equal(feed.pending.value.length, 0)
 })
