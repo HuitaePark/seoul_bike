@@ -1,55 +1,103 @@
+/* 공통 디자인 토큰. 화면별 스타일은 각 컴포넌트의 <style scoped>에 둔다. */
 :root {
-  font-family: -apple-system, 'Apple SD Gothic Neo', 'Pretendard', sans-serif;
-  color: #111827;
-  background: #f8fafc;
+  --brand: #0f9d58;
+  --brand-strong: #0b7a44;
+  --brand-soft: #e7f6ee;
+  --ink: #0f172a;
+  --ink-2: #334155;
+  --ink-3: #64748b;
+  --line: #e2e8f0;
+  --line-2: #cbd5e1;
+  --bg: #f4f6f9;
+  --surface: #fff;
+  --nav: #0b1220;
+  --empty: #ef4444;
+  --empty-soft: #fee2e2;
+  --overflow: #f59e0b;
+  --overflow-soft: #fef3c7;
+  --ok: #10b981;
+  --info: #3b82f6;
+  --info-soft: #dbeafe;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px rgb(15 23 42 / 0.05);
+
+  font-family: 'Pretendard', -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
 }
+* { box-sizing: border-box; }
 body { margin: 0; }
-main { max-width: 1100px; margin: 24px auto; padding: 0 20px; }
-h1, h2, h3 { margin: 0 0 12px; }
-h2 { font-size: 17px; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+main { max-width: 1280px; margin: 24px auto; padding: 0 24px; }
+a { color: var(--brand-strong); }
+h1, h2, h3 { margin: 0 0 12px; letter-spacing: -0.01em; }
+h1 { font-size: 22px; }
+h2 { font-size: 16px; display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 h3 { font-size: 15px; }
 
-.topbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; background: #111827; color: #f9fafb; }
-.topbar nav { display: flex; gap: 14px; align-items: center; font-size: 14px; }
-.topbar a { color: #93c5fd; }
+/* 상단 바 */
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 0 24px; height: 56px; background: var(--nav); color: #e2e8f0; position: sticky; top: 0; z-index: 10; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: #fff; text-decoration: none; }
+.brand-mark { width: 30px; height: 30px; border-radius: 9px; background: var(--brand); display: grid; place-items: center; }
+.brand small { font-weight: 500; color: #94a3b8; font-size: 12px; }
+.topbar nav { display: flex; gap: 4px; align-items: center; font-size: 14px; }
+.topbar nav a { color: #cbd5e1; text-decoration: none; padding: 6px 10px; border-radius: 8px; }
+.topbar nav a:hover { background: rgb(255 255 255 / 0.06); color: #fff; }
+.topbar a.router-link-active { color: #fff; background: rgb(255 255 255 / 0.1); font-weight: 600; }
+.topbar .who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #cbd5e1; margin-left: 12px; padding-left: 14px; border-left: 1px solid #1e293b; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: #1e293b; color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
 
-.card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; }
-.login { max-width: 360px; margin: 80px auto; display: flex; flex-direction: column; gap: 12px; }
+/* 카드·레이아웃 */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.page-head h1 { margin: 0; }
+.page-head p { margin: 4px 0 0; color: var(--ink-3); font-size: 14px; }
+.login { max-width: 380px; margin: 72px auto; display: flex; flex-direction: column; gap: 12px; }
 .console { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; }
 @media (max-width: 900px) { .console { grid-template-columns: minmax(0, 1fr); } }
+
+/* 폼 */
 form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
-label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #374151; }
-input, select, textarea { font: inherit; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); font-weight: 500; }
+input, select, textarea { font: inherit; padding: 9px 11px; border: 1px solid var(--line-2); border-radius: 10px; background: #fff; color: var(--ink); }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
 
-button { font: inherit; padding: 8px 14px; border: 0; border-radius: 8px; background: #4f46e5; color: #fff; cursor: pointer; }
+button { font: inherit; font-weight: 600; padding: 9px 16px; border: 0; border-radius: 10px; background: var(--brand); color: #fff; cursor: pointer; transition: background 0.15s; }
+button:hover:not(:disabled) { background: var(--brand-strong); }
 button:disabled { opacity: 0.5; cursor: default; }
-button.ghost { background: transparent; color: inherit; border: 1px solid #d1d5db; }
-.topbar button.ghost { color: #f9fafb; border-color: #4b5563; }
-h2 button.ghost { padding: 2px 8px; font-size: 12px; }
+button.ghost { background: transparent; color: inherit; border: 1px solid var(--line-2); }
+button.ghost:hover:not(:disabled) { background: rgb(15 23 42 / 0.04); }
+.topbar button.ghost { color: #e2e8f0; border-color: #334155; padding: 5px 12px; font-size: 13px; }
+.topbar button.ghost:hover { background: rgb(255 255 255 / 0.06); }
+h2 button.ghost { padding: 2px 8px; font-size: 12px; margin-left: auto; }
 
+/* 작업 목록 */
 .tasks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.tasks li { padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer; font-size: 13px; }
-.tasks li.active { border-color: #4f46e5; background: #eef2ff; }
-.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; margin-right: 6px; background: #e5e7eb; }
-.badge.RUNNING { background: #dbeafe; }
-.badge.WAITING_APPROVAL { background: #fef3c7; }
-.badge.DONE { background: #dcfce7; }
-.badge.FAILED { background: #fee2e2; }
+.tasks li { padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-size: 13px; }
+.tasks li:hover { border-color: var(--line-2); }
+.tasks li.active { border-color: var(--brand); background: var(--brand-soft); }
 
+/* 배지 */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; margin-right: 6px; background: #eef2f6; color: var(--ink-2); }
+.badge.RUNNING { background: var(--info-soft); color: #1d4ed8; }
+.badge.WAITING_APPROVAL, .badge.PENDING { background: var(--overflow-soft); color: #92400e; }
+.badge.DONE, .badge.ACTIVE { background: #dcfce7; color: #166534; }
+.badge.FAILED { background: var(--empty-soft); color: #991b1b; }
+.badge.DISABLED { background: #eef2f6; color: var(--ink-3); }
+.dummy-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; color: #7c3aed; background: #f3e8ff; letter-spacing: 0.02em; }
+
+/* 작업 콘솔 */
 .answer { white-space: pre-wrap; line-height: 1.6; min-height: 24px; }
 .tool { color: #4338ca; }
-.approval { border: 2px solid #f59e0b; border-radius: 12px; padding: 16px; margin: 12px 0; background: #fffbeb; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.approval { border: 2px solid var(--overflow); border-radius: var(--radius); padding: 16px; margin: 12px 0; background: #fffbeb; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .approval button { margin-right: 8px; }
 .sources ul { padding-left: 18px; }
-.muted { color: #6b7280; font-size: 13px; }
-.hint { color: #6b7280; font-size: 12px; }
+.muted { color: var(--ink-3); font-size: 13px; }
+.hint { color: var(--ink-3); font-size: 12px; }
 .error { color: #b91c1c; font-size: 13px; }
 
-.topbar a.router-link-exact-active { color: #fff; font-weight: 700; }
+/* 계정 관리 */
 .accounts { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }
-.accounts td { padding: 8px 6px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+.accounts td { padding: 10px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
 .accounts td button { margin-right: 6px; }
-.badge.PENDING { background: #fef3c7; }
-.badge.ACTIVE { background: #dcfce7; }
-.badge.DISABLED { background: #e5e7eb; color: #6b7280; }
-.accounts input, .accounts select { width: 100%; max-width: 160px; box-sizing: border-box; }
+.accounts input, .accounts select { width: 100%; max-width: 160px; }

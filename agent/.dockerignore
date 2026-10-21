@@ -1,0 +1,12 @@
+# Author: Jung Minkyu
+# Date: 20OCT2026
+# Purpose: agent 이미지 빌드 맥락. 이미지에 들어가는 것만 허용한다 (.env 비밀값·.venv·테스트는 빌드 맥락에도 보내지 않는다).
+
+*
+!pyproject.toml
+!harness.yaml
+!prompts
+!harness
+!evaluation
+!graph
+**/__pycache__
