@@ -13,9 +13,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import tools.jackson.databind.JsonNode;
@@ -23,14 +21,13 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 
 /**
  * 계획 조회·활성화·경로 적용 (internal-api, openapi). 계획·후보·승인 행은 DB에 바로 넣는다: 승인 흐름 자체는 TaskFlowTest가 보고,
  * 여기서는 변경 API가 그 승인을 어떻게 확인하고 버전을 어떻게 바꾸는지만 본다. 테스트마다 새 근무조를 쓴다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = TestInfra.PROPS)
-@Import(TestInfra.class)
+@IntegrationTest
 class PlanApiTest {
 
 	private static final String TOKEN = "test-internal-token";

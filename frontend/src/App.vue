@@ -44,6 +44,6 @@ const initial = computed(() => auth.user?.name.slice(0, 1) ?? '')
         </span>
       </nav>
     </header>
-    <main><RouterView /></main>
+    <main :class="{ wide: route.meta.wide }"><RouterView /></main>
   </template>
 </template>

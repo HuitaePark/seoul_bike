@@ -10,17 +10,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 
 /** 상태 API가 두 의존성을 실제로 확인하는지, 로그인 없이 열리는지 본다. */
-@SpringBootTest(properties = TestInfra.PROPS)
-@AutoConfigureMockMvc
-@Import(TestInfra.class)
+@IntegrationTest
 class SystemStatusControllerTest {
 
 	@Autowired
