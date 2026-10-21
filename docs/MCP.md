@@ -81,7 +81,7 @@
    - `propose_route_change`: `request_route_plan` 결과의 `requiredApprovers` 순서. MINOR는 `[DRIVER]` 한 장, MAJOR는 `[MANAGER, DRIVER]` 두 장. **기사 카드 승인이 곧 기사 수락**이라 따로 수락 단계가 없다 (specs openapi v0.3, HARNESS 10절 (나)). 앞 카드가 거절되면 뒤 카드는 보내지 않고 기존 경로를 유지한다.
 3. 사람이 승인하면 backend가 기록하고 `ai.tasks` `RESUME`(approvalId)을 보낸다.
 4. Harness가 마지막 카드의 approvalId와 taskId를 채워 도구를 실행한다. business-mcp는 값을 요청 본문의 `approvalId`, `taskId`로 옮긴다. 값이 없으면 `APPROVAL_REQUIRED`.
-   승인 규칙이 없는 `request_route_plan`은 Harness가 `task_id`를 채우지 않으므로, Harness가 모든 MCP 호출에 붙이는 `X-Task-Id` 헤더로 `requestedBy.taskId`를 채운다.
+   승인 규칙이 없는 `request_route_plan`은 Harness가 `task_id`를 채우지 않는다. business-mcp는 `X-Task-Id` 헤더가 오면 그 값으로 `requestedBy.taskId`를 채운다 (Harness 헤더 주입기에 `X-Task-Id` 추가를 2번에게 제안).
 5. backend가 필요한 승인이 순서대로 모두 `APPROVED`인지 한 번 더 확인한다 (아니면 403). 경로 변경의 기사 승인은 그 트럭 기사의 것이어야 한다.
 
 grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부르지 않는다.
@@ -147,7 +147,7 @@ agent --rag_search_docs--> rag-mcp: 질문 임베딩 -> 코사인 후보 -> 키�
 
 결과: `{as_of, source, embedding{model, dim}, chunks[], truncated}`. `as_of`는 색인을 만든 시각이다.
 
-에이전트는 이 모양을 그대로 읽는다: 그래프 `doc_sources`(PR #11)와 Harness `contract.sources`(이 PR)가 `chunks[]`를 계약 `Source{kind: DOC}`로 옮긴다. 제목은 `title · section`, uri는 chunk `uri`, excerpt는 `text` 앞 120자 (ISSUES ISS-23).
+그래프 `doc_sources`(PR #11, 머지됨)가 이 모양의 `chunks[]`를 계약 `Source{kind: DOC}`로 옮긴다 (제목 `title · section`, uri는 chunk `uri`, excerpt는 `text` 앞 120자). Harness `contract.sources`도 같은 모양을 읽도록 2번에게 제안했다 (ISSUES ISS-23).
 
 | chunk 필드 | 뜻 | `Source` 대응 |
 | --- | --- | --- |
