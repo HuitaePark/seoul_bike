@@ -8,8 +8,8 @@ declare module 'vue-router' {
     public?: boolean
     /** 이 역할만 연다. 화면을 고르는 용도이고, 권한은 backend가 다시 막는다. */
     roles?: Schemas['Role'][]
-    /** mobile이면 상단 바 없이 화면이 틀을 직접 그린다 (기사 앱) */
-    layout?: 'mobile'
+    /** 상단 바 없이 화면이 틀을 직접 그린다. mobile은 기사 앱, full은 로그인·회원가입 */
+    layout?: 'mobile' | 'full'
   }
 }
 
@@ -24,8 +24,8 @@ const home: Record<Schemas['Role'], string> = {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/login', component: () => import('./features/login/LoginView.vue'), meta: { public: true } },
-    { path: '/signup', component: () => import('./features/login/SignupView.vue'), meta: { public: true } },
+    { path: '/login', component: () => import('./features/login/LoginView.vue'), meta: { public: true, layout: 'full' } },
+    { path: '/signup', component: () => import('./features/login/SignupView.vue'), meta: { public: true, layout: 'full' } },
     {
       path: '/dashboard',
       component: () => import('./features/dashboard/DashboardView.vue'),
