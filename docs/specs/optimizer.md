@@ -1,12 +1,12 @@
 # 최적화 · 인프라 명세
 
-상태: **계산·Kafka 실행기·지도 검토 구현, 운영 backend 연결 대기**. 담당: 역할 5.
+상태: **계산·Kafka 실행기·지도 검토 구현, 운영 Compose 편입, 실제 입력·도로 통합 대기**. 담당: 역할 5.
 공통 기준은 아래 문서 버전을 따른다.
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.11.0-draft |
-| 내부 API (OpenAPI) | 0.6.0-draft |
+| 공개 API (OpenAPI) | 0.12.0-draft |
+| 내부 API (OpenAPI) | 0.6.1-draft |
 | Kafka (AsyncAPI) | 0.5.0-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
@@ -32,7 +32,8 @@ TaskEventMessage의 seq는 backend가 부여하는 작업 이벤트 정보이며
 `contract.solve_request()`는 변환·계산·결과 생성 함수이며 자체 저장·전송은 하지 않는다.
 별도 worker가 Kafka 소비·발행, 결과 파일 저장·중복 제거, offset commit을 맡는다.
 독립 개발용 solve·requests.retry·requests.dlq 토픽 초기화와 제한 재시도를 제공한다.
-main의 backend SolveGateway·SolveResultConsumer 구현과 실제 worker를 잇는 운영 연결은 후속 범위다.
+PR #46으로 운영 Compose에 worker·상태 볼륨·backend healthy 이후 기동·소비자 그룹 헬스체크가 추가됐다.
+이동 시간은 하버사인 추정치다. 실제 수요·트럭 입력을 만드는 `/internal/plans/solve`와 전체 업무 연결은 후속 범위다.
 
 ## 공통 요청 대응
 
@@ -118,13 +119,15 @@ OSRM 도로 거리·시간을 조회하며 중복 제거·요청 분할·순서 
 정적 car 프로필은 실시간 교통·트럭 높이/중량을 보장하지 않는다.
 
 [독립 개발 환경](../../infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
-운영 Compose·backend 연결·운영 retry/DLQ 관제·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
+운영 worker는 Compose에 편입됐고, OSRM의 운영 연결·실제 수요 입력·retry/DLQ 관제·서버 부하·전체 10초 검증은 후속 작업이다.
 CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
 
 ## Kafka 실행기
 
 [Kafka 실행 안내](../../infra/optimizer/KAFKA.md)를 따른다.
 키 shiftId 검증, traceId·traceparent 전달, 발행 ACK 후 해당 입력 offset의 동기 commit을 수행한다.
+결과·retry·DLQ 발행은 Java producer와 같은 `murmur2_random`을 사용한다. 같은 키·같은 파티션 수에서
+파티션 번호를 맞추며 토픽 사이의 전체 순서나 기존 레코드의 재배치를 보장하지 않는다.
 eventId와 requestId의 저장 기록을 확인하며, 같은 requestId의 완료 결과를 새로 생성하지 않는다.
 계산 입력이 달라진 ID 재사용은 해당 메시지를 DLQ로 보낸다. 결과 파일은 업무 DB와 별개인 실행기 전용 상태다.
 

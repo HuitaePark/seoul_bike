@@ -1,6 +1,6 @@
 # 공통 solve 명세 대응 기록
 
-공개 API 0.11.0-draft, 내부 API 0.6.0-draft·Kafka 0.5.0-draft를 따른다.
+공개 API 0.12.0-draft, 내부 API 0.6.1-draft·Kafka 0.5.0-draft를 따른다.
 공유 YAML을 유지하고 구현 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
@@ -16,7 +16,8 @@
 | 공통에 없는 결과 필드 | 거리·기간·별도 처리 상태를 wire에 추가하지 않고 코어에서 유지 |
 
 차고지·기준 시각은 메시지의 depot·asOf에서 읽는다. 도로 공급자는 travel_time으로 명시한다.
-requestId별 runtime 파일 의존을 제거했으며 실제 권역·스냅샷 값을 생산자가 넣는 운영 연결은 남아 있다.
+requestId별 runtime 파일 의존을 제거했다. PR #46으로 worker는 운영 Compose에 편입됐으며,
+실제 권역·스냅샷·트럭 입력을 생산자가 구성하는 연결과 전체 업무 검증은 남아 있다.
 독립 worker는 Kafka 결과 발행·offset commit과 단일 상태 볼륨의 파일 중복 방지를 구현했다.
 발행 직후 장애에서는 같은 결과 eventId가 재전달될 수 있어 backend 소비자 중복 제거도 필요하다.
 worker의 요청 제한 재시도·DLQ를 구현했고 backend가 요청 retry/DLQ 토픽도 생성한다. 운영 상태 저장·관제·배포 정책은 담당자와 연결해야 한다.
@@ -38,5 +39,6 @@ ai.events 재시도/DLQ와 solve.results 재시도/DLQ는 backend가 담당한�
 새 TaskEvent.code를 SolveResult에 추가하지 않는다.
 작업 이벤트 seq도 backend가 부여하므로 SolveResult에 추가하지 않는다.
 
-공개 API v0.10의 계획 조회 권한·기사의 오늘 경로 규칙을 유지하며 v0.11의 미처리 사유 값 목록을 따른다.
+공개 API v0.12의 계정 상태·조회 권한과 v0.11의 미처리 사유 값 목록을 따른다.
+계획 검토의 예측 구간은 합의 29에 맞춰 최대 5시간으로 제한한다.
 명세·예시와 역할 5 구현·인프라는 같은 저장소에 있으며, [실행 안내](README.md)도 상대 경로로 연결한다.

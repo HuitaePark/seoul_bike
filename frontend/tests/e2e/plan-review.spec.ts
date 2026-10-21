@@ -116,6 +116,22 @@ test('제외 후 새 버전을 다시 검토해야 최종 승인할 수 있다',
   await page.getByRole('button', { name: '현재 안 거절' }).click()
   await expect(page.getByText('거절됨', { exact: true })).toBeVisible()
 })
+test('계획 검토는 계약 상한인 5시간까지 선택하고 조회한다', async ({ page }) => {
+  await mockApi(page)
+  const horizons: string[] = []
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/stations')) horizons.push(url.searchParams.get('horizonH') ?? '')
+  })
+  await page.goto(liveUrl)
+  const horizon = page.getByRole('combobox', { name: /^예측 구간/ })
+  await expect(horizon).toHaveValue('3')
+  await expect(horizon.locator('option[value="6"]')).toHaveCount(0)
+  await horizon.selectOption('5')
+  await page.getByRole('button', { name: '계획 조회', exact: true }).click()
+  await expect.poll(() => horizons.includes('5')).toBe(true)
+  expect(horizons).not.toContain('6')
+})
 test('실제 모드: 명세의 공개 API·승인 ID로 한 번만 결정한다', async ({ page }) => {
   const calls = await mockApi(page)
   await page.goto(liveUrl)

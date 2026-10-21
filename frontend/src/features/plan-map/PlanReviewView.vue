@@ -40,7 +40,7 @@ function selectTruck(id: string) {
     <form class="panel query-form" aria-label="계획 조회" @submit.prevent="review.search">
       <RegionPicker v-model="query.regionId" label="권역 ID" :readonly="demo" :disabled="sending" required />
       <label class="shift-field">근무조 ID<input v-model="query.shiftId" :readonly="demo" :disabled="sending" required placeholder="권역:날짜:근무조"></label>
-      <label>예측 구간<select v-model.number="query.horizonH" :disabled="demo || sending"><option v-for="h in 6" :key="h" :value="h">{{ h }}시간 후</option></select></label>
+      <label>예측 구간<select v-model.number="query.horizonH" :disabled="demo || sending"><option v-for="h in 5" :key="h" :value="h">{{ h }}시간 후</option></select></label>
       <button type="submit" :disabled="sending">계획 조회</button>
       <p v-if="errors.query" class="form-message error" role="alert">{{ errors.query }}</p>
     </form>

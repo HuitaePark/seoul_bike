@@ -90,7 +90,7 @@ export function approvalBlockReason(plan: Plan | null, task: Task | null, shiftI
 }
 export function validateQuery(query: Query): string {
   if (!query.regionId.trim() || !query.shiftId.trim()) return '권역과 근무조를 입력하세요.'
-  if (!Number.isInteger(query.horizonH) || query.horizonH < 1 || query.horizonH > 6) return '예측 구간은 1~6시간입니다.'
+  if (!Number.isInteger(query.horizonH) || query.horizonH < 1 || query.horizonH > 5) return '예측 구간은 1~5시간입니다.'
   return ''
 }
 export function isTaskId(value: string): boolean {

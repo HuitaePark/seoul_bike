@@ -2,8 +2,11 @@
 
 계산 함수의 입출력은 공통 AsyncAPI 그대로다.
 `solve.requests → 계산 → solve.results`와 요청 retry/DLQ를 실제 독립 브로커로 검증했다.
-main에는 backend의 SolveGateway·SolveResultConsumer도 구현됐다. 실제 worker와의 운영 통합,
-실제 권역/스냅샷 입력 공급과 운영 Compose 연결은 아직 검증하지 않았다.
+main에는 backend의 SolveGateway·SolveResultConsumer와 운영 Compose의 optimizer 서비스가 구현됐다.
+[PR #46](https://github.com/HuitaePark/skala_seoul_bike/pull/46)의 로컬 전체 스택 기록에서 healthy·6파티션 구독,
+예시 요청→결과, 재시작 뒤 중복 결과 미발행을 확인했다. 이 문서의 명령은 별도 개발 환경용이다.
+운영 worker는 하버사인 추정치를 사용하며 실제 수요·트럭 입력을 만드는 `/internal/plans/solve`,
+실제 도로와 전체 업무 통합은 후속이다. 운영 기동·상태 볼륨은 [배포 안내](../README.md#optimizer-경로-계산-worker)를 따른다.
 
 ## 실행
 
@@ -169,8 +172,19 @@ OPTIMIZER_KAFKA_BOOTSTRAP=127.0.0.1:19092 ../.venv/bin/python -m pytest -q tests
 테스트는 자체 group-id·requestId·임시 상태를 사용하고 완료 후 소비자를 닫는다.
 테스트용 요청이 토픽에 남으므로 이후 예시 worker를 시작할 때는 이전 테스트 상태와 섞지 않은
 별도 Compose 프로젝트·브로커를 사용한다. 운영 브로커에서 이 테스트를 실행하지 않는다.
-일반 테스트 실행에서는 실제 브로커 테스트 2건을 건너뛰며, CI는 별도 단계에서 브로커를 띄워 실행한다.
+추가 6파티션 검사는 Java Kafka 4.2.1로 계산한 기대값과 결과·retry·DLQ의 분배·키별 발행 순서를 비교한다.
+이 검사는 고유 토픽을 만들고 종료 후 해당 토픽만 지운다.
+일반 테스트 실행에서는 실제 브로커 테스트 3건을 건너뛰며, CI는 별도 단계에서 브로커를 띄워 실행한다.
+
+## 파티션 정합
+
+결과·retry·DLQ producer는 `partitioner: murmur2_random`을 사용한다.
+Java backend와 같은 UTF-8 키·같은 파티션 수이면 동일한 번호로 발행한다.
+[공식 설정](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#topic-configuration-properties)의 Java 호환 분배 방식이다.
+키가 없는 독성 요청은 원래 키를 보존하므로 파티션 일치를 보장하지 않는다.
+토픽 사이의 전체 처리 순서는 보장하지 않으며 기존 CRC32 방식으로 기록한 메시지는 재배치하지 않는다.
+운영 전환 시 기존 요청·retry의 지연과 미처리 레코드를 확인한다.
 
 SDK의 [발행 ACK·동기 commit API](https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html)를 사용한다.
-실제 worker와 backend 연결, 운영 retry/DLQ 관제·재처리, 실제 OSRM 도로 데이터,
-전체 10초 목표와 서버 배포는 이번 검증 범위 밖이다.
+실제 backend의 입력 생성부터 계획 승인까지의 전체 업무 연결, 운영 retry/DLQ 관제·재처리,
+실제 OSRM 도로 데이터·전체 10초 목표는 후속 검증이다. 이번 후속 작업에서 운영 서버를 직접 변경하지 않았다.

@@ -40,7 +40,11 @@ test('동일 근무조·계획의 관리자 승인 카드만 결정할 수 있�
 test('조회 조건과 작업 UUID를 검증한다', () => {
   assert.equal(validateQuery({ regionId: DEMO_REGION, shiftId: DEMO_SHIFT, horizonH: 3 }), '')
   assert.ok(validateQuery({ regionId: '', shiftId: DEMO_SHIFT, horizonH: 3 }))
-  assert.ok(validateQuery({ regionId: DEMO_REGION, shiftId: DEMO_SHIFT, horizonH: 7 }))
+  assert.equal(validateQuery({ regionId: DEMO_REGION, shiftId: DEMO_SHIFT, horizonH: 1 }), '')
+  assert.equal(validateQuery({ regionId: DEMO_REGION, shiftId: DEMO_SHIFT, horizonH: 5 }), '')
+  for (const horizonH of [0, 6, 7, 1.5, Number.NaN]) {
+    assert.ok(validateQuery({ regionId: DEMO_REGION, shiftId: DEMO_SHIFT, horizonH }))
+  }
   assert.equal(isTaskId(DEMO_TASK_ID), true)
   assert.equal(isTaskId('../tasks'), false)
 })

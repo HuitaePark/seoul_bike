@@ -4,6 +4,7 @@
 
 - 최초 확인 origin/main: 221caf5. main f3e5cd7에서 시작했고 PR #34의 35e5b48(공개 API v0.9·내부 API v0.5·Kafka v0.5)을 추가 반영했다.
 - 최신 main ded2abe의 계획 활성화·조회 권한·대시보드 개편·의존성 보안 패치와 데이터 PR #10을 반영했다. PR #34의 43b87ad가 추가한 요청 retry/DLQ 토픽 생성도 유지한다. 공개 API v0.11·내부 API v0.6·Kafka v0.5 기준이며 PR #34는 CI 8개 통과 후 ded2abe로 main에 병합됐다. 지도 초기화 수정·최신 문서 정리는 hyunmoo의 후속 변경으로 보관한다.
+- 최신 main 39d5d4d의 운영 worker(PR #46)·Java 25/CI·대시보드·권역 선택·근거 패널·계정 재활성화·예측 구간 합의(최대 5시간)를 추가 반영했다. 현재 명세는 공개 API v0.12·내부 API v0.6.1·Kafka v0.5다.
 - 현재 개발 브랜치: `hyunmoo`(main f3e5cd7에서 시작). 기존 `feat/optimizer-core`의 PR #29는 병합 완료됐다.
 - 기존 원격 작업: `aeaa62c`(최적화 코어), `e0d3d36`(실행 안내·명세 초안).
 - `9460226`에서 최신 main을 개인 브랜치에 충돌 없이 병합했다.
@@ -31,12 +32,12 @@ Spring Boot 백엔드는 backend/로 이동했고 Vue 공통 뼈대는 frontend/
 ai.events 소비의 retry/DLQ와 로그인 실패·승인 대기 가입 수 제한도 반영됐다.
 현장 보고 생성, 내부 서비스 토큰, 현장 보고 조회·제약 추가·감사 로그가 구현됐다.
 PR #32로 backend의 SolveGateway·SolveResultConsumer·요청 상태 저장과 solve 토픽이 추가됐다.
-실제 worker와의 통합은 실제 메시지 입력 공급·운영 배포가 남아 있다. 계획 조회·활성화·경로 적용과 기사 오늘 경로 조회는 구현됐고, 대여소·성과 API와 나머지 내부 API는 아직 계약 단계다.
+worker는 운영 Compose에 편입됐고 실제 메시지 입력 공급·전체 업무 통합이 남아 있다. 계획 조회·활성화·경로 적용과 기사 오늘 경로 조회는 구현됐고, 대여소·성과 API와 나머지 내부 API는 아직 계약 단계다.
 비활성화한 계정은 기존 JWT도 다음 요청부터 401이며, 이미 열린 SSE는 즉시 종료하지 않는다.
 backend 포트는 서버 로컬로 제한했고 화면 nginx에는 지도 외부 자원을 고려한 보안 헤더가 반영됐다.
 경로 변경은 backend가 정한 requiredApprovers 순서로 승인한다. MINOR는 기사, MAJOR는 관리자 → 기사다.
 변경 등급·승인 순서 검사와 Harness의 공통 계약 대응도 반영했다.
-최적화 코어·OSRM·Kafka 실행기와 지도 검토는 같은 저장소에서 제공한다. 운영 backend 연결은 후속이다.
+최적화 코어·OSRM·Kafka 실행기와 지도 검토는 같은 저장소에서 제공한다. 운영 worker의 이동 시간은 하버사인 추정이며 OSRM·실제 수요 입력·전체 업무 통합은 후속이다.
 
 ## 내가 진행한 구현
 
@@ -63,6 +64,16 @@ backend 포트는 서버 로컬로 제한했고 화면 nginx에는 지도 외부
 별도 contract.solve_request()는 공통 메시지의 계산된 neededBikes를 받으며,
 메시지의 depot·asOf와 명시적 이동 공급자를 사용한다. worker는 requestId별 runtime 파일 없이 Kafka를 처리한다. backend 요청 생성·결과 소비 구현은 main에 있지만 실제 worker와 운영 통합 검증은 남아 있다.
 
+## 이번 후속 정합 작업
+
+- PR #46의 요청에 맞춰 결과·retry·DLQ producer를 Java 호환 murmur2_random으로 맞췄다.
+  실제 6파티션 브로커에서 7개 UTF-8 키·출력 3토픽·키별 2건(총 42건)의 분배·헤더·순서를 확인했다.
+- 합의 29(예측 구간 최대 5시간)를 계획 검토 선택지·입력 검증·명세에 반영했다.
+- 운영 worker의 Compose 편입과 PR #46의 로컬 스모크 기록을 안내에 반영했다.
+  아직 없는 실제 수요 입력 생성·OSRM·전체 업무 통합을 완료로 표시하지 않는다.
+- 최적화 268개·subtest 24개, 프론트 단위 24개·Chromium 25개, 빌드·타입 생성 일치·Compose 검사 통과.
+  운영 서버 변경이나 새 CI 잡은 추가하지 않았다.
+
 ## 협의·연결이 필요한 항목
 
 재경로·p95·메모리 캐시 비교와 worker 실행 로그 보강을 완료했다.
@@ -73,7 +84,7 @@ backend 포트는 서버 로컬로 제한했고 화면 nginx에는 지도 외부
 아래 운영 통합 항목은 아직 남아 있다.
 백엔드 제안에 동의해 depot{lat,lon}·시간대 있는 asOf·오류/미처리 사유 enum의 계약 PR은 역할 4가 맡고,
 역할 5는 solve.requests.retry → .dlq와 PR #34의 메시지 설정·실패 필드·대문자 사유 대응을 구현했다.
-backend가 요청 retry/DLQ 토픽도 app.kafka.partitions(기본 6)로 생성한다. backend healthy 이후 worker 시작·배포 검증은 역할 4와 맞춘다. main에 병합된 데이터 PR #10은 forecast/에 datetime 예측기를 제공하며, or-tools 어댑터 통합은 별도 후속이다.
+backend가 요청 retry/DLQ 토픽도 app.kafka.partitions(기본 6)로 생성한다. backend healthy 이후 worker 시작·상태 볼륨·헬스체크는 PR #46에 반영됐다. main에 병합된 데이터 PR #10은 forecast/에 datetime 예측기를 제공하며, or-tools 어댑터 통합은 별도 후속이다.
 
 1. **운영 설정·backend 연결:** [공통 대응 명세](../specs/optimizer.md)를 기준으로
    권역·스냅샷의 차고지·기준 시각을 자동 공급하는 경로를 담당자와 확인한다.
@@ -87,7 +98,7 @@ backend가 요청 retry/DLQ 토픽도 app.kafka.partitions(기본 6)로 생성�
    실제 입력 공급을 연결한 뒤 새 후보 승인 흐름을 실제 서버와 통합 검증한다. [화면 명세](../specs/plan-review.md)에 현재 제공되지 않는 상세 항목을 기록했다.
    지도 점선은 방문 순서로 표시한다. 실제 도로선은 OSRM Route 조회와 공개 응답을 역할 4와 협의해 추가한다.
 4. **서버 운영 담당과 통합:** 지도 전처리 메모리·디스크 예산과 배포 절차를 확인한 뒤
-   운영 Compose에 연결하고 전체 실행·재경로 10초를 검증한다.
+   OSRM을 운영 Compose에 연결하고 전체 실행·재경로 10초를 검증한다.
 
 ## 설명 정리가 필요한 부분
 
