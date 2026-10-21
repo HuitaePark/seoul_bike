@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sim.engine import Day, replay, resample_demand
 from sim.latent import poisson_arrivals
-from sim.policies import Agent, CurrentOps, CurrentOpsLastWeek, NoRebalancing, Policy, SimpleRule
+from sim.policies import Agent, CurrentOps, CurrentOpsLastWeek, NoRebalancing, Policy, SimpleRule, exp_short, fails_avoided
 from forecast import Forecast
 from rebalancing.models import Plan, Route, Station, Stop, Truck
 
@@ -117,6 +117,13 @@ class ReplayTest(unittest.TestCase):
         r = replay(Day(T0, stations, trips, (37.500, 127.0)), Hourly(frozenset({1})), trucks=1)
         self.assertEqual(r.stock[2], 5)   # 07시 경로가 B를 채웠다
         self.assertEqual(r.stock[1], 10)  # A에서 거치대 수까지 뺐다
+
+    def test_current_ops_same_supply_picks_before_drops_at_the_same_time(self):
+        # 같은 시각에 A(번호 큼)에서 회수하고 B(번호 작음)에 배치한다. 회수가 먼저 처리돼야 거점 예비 0대로도 배치된다
+        stations = {1: Station(1, "B", 37.50, 127.00, 10, 0), 2: Station(2, "A", 37.51, 127.01, 10, 6)}
+        day = Day(T0, stations, [], (37.505, 127.005), visits=[(at(8), 1, +5), (at(8), 2, -5)])
+        r = replay(day, CurrentOps(same_supply=True), trucks=0)
+        self.assertEqual(r.stock, {1: 5, 2: 1})
 
     def test_route_cut_at_replan_unloads_before_the_new_plan_loads(self):
         # 트럭 1대(거점 예비 7대). 07시: 8.9km 떨어진 C에 1대 → 08시에 끊겨 6대를 싣고 거점에 돌아온다.
@@ -275,6 +282,13 @@ class ReplayTest(unittest.TestCase):
         with mock.patch("sim.policies.plan_routes") as routes:
             agent.plan(at(7), [Station(1, "A", 37.5, 127.0, 10, 1)], (37.5, 127.0), trucks, 15)
         self.assertEqual([t.available_time_s for t in routes.call_args.args[3]], [3 * 3600, 1800])
+
+    def test_expected_shortfall_and_fails_avoided_values(self):
+        # E[max(0, Y)], Y ~ N(gap, var)의 닫힌 꼴과 그 차이(막는 실패 기대값)를 손으로 계산한 값에 고정한다
+        for (gap, var), want in {(0, 1): 0.398942, (-1, 1): 0.083315, (1, 1): 1.083315, (2, 4): 2.166631, (3, 0): 3, (-3, 0): 0}.items():
+            self.assertAlmostEqual(exp_short(gap, var), want, places=5)
+        self.assertAlmostEqual(fails_avoided([1, -3, -7, -11], [0, 4, 8, 12], 13), 10.394588, places=5)
+        self.assertAlmostEqual(fails_avoided([1, -3, -7, -11], [0, 4, 8, 12], 5), 4.942136, places=5)
 
     def test_fail_priority_skips_empty_station_where_no_rentals_come(self):
         # A: 비었지만 3시간 동안 대여 예측이 0(LOW만큼 2대 모자람). B: 재고 1, 시간당 4대씩 빠진다(13대 모자람).

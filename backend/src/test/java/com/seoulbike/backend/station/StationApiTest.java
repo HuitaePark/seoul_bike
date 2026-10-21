@@ -55,6 +55,10 @@ class StationApiTest {
 	void clean() {
 		jdbc.sql("delete from live.station_status").update();
 		jdbc.sql("delete from forecast.station_forecasts").update();
+		// 다른 테스트가 남긴 현장 보고가 이 구역 재고를 바꾸지 않게 (보고가 수집보다 늦으면 재고로 쓴다)
+		jdbc.sql("delete from field_reports where station_id in (select station_id from ref.stations where region_id = :r)")
+			.param("r", REGION)
+			.update();
 		st = jdbc.sql("select station_id from ref.stations where region_id = :r and active order by station_id limit 8")
 			.param("r", REGION)
 			.query(String.class)
@@ -254,6 +258,62 @@ class StationApiTest {
 		assertThat(call("/internal/forecasts?stationIds=" + a, null, TOKEN).statusCode()).isEqualTo(400);
 	}
 
+	@Test
+	void 재고는_실시간_수집에_현장_보고를_반영한다() throws Exception {
+		String reported = st.get(0), older = st.get(1), unloaded = st.get(2), loaded = st.get(3);
+		String mismatch = st.get(4), oldMismatch = st.get(5);
+		observe(reported, 1, 10, 30);
+		report(reported, 10, null, null, null, 10); // 앱은 1대였지만 기사가 와 보니 꽉 차 있었다
+		observe(older, 1, 10, 5);
+		report(older, 10, null, null, null, 20); // 불일치 보고가 아니면 그 뒤 수집이 기준이다
+		observe(unloaded, 1, 10, 30);
+		report(unloaded, 1, null, 6, null, 10); // 도착 1대, 6대 내림 → 7대
+		observe(loaded, 1, 10, 30);
+		report(loaded, 8, 5, null, null, 10); // 도착 8대, 5대 실음 → 3대
+		// 불일치 보고 뒤에 수집이 와도 앱 숫자는 여전히 틀렸다: 보고 때 앱 1대, 실제 10대 → 그 뒤 수집 2대 + 9 = 11대
+		observe(mismatch, 1, 10, 30);
+		report(mismatch, 10, null, null, "INVENTORY_MISMATCH", 20);
+		observe(mismatch, 2, 10, 5);
+		// 3시간이 지난 불일치 보고는 쓰지 않는다
+		observe(oldMismatch, 1, 10, 200);
+		report(oldMismatch, 10, null, null, "INVENTORY_MISMATCH", 190);
+		observe(oldMismatch, 1, 10, 5);
+
+		JsonNode full = station(reported);
+		assertThat(full.path("bikes").asInt()).isEqualTo(10);
+		assertThat(full.path("risk").asString()).isEqualTo("NONE");
+		OffsetDateTime reportedAt = jdbc.sql("select reported_at from field_reports where station_id = :id")
+			.param("id", reported)
+			.query(OffsetDateTime.class)
+			.single();
+		assertThat(OffsetDateTime.parse(full.path("observedAt").asString()).toInstant()).isEqualTo(reportedAt.toInstant());
+
+		JsonNode stale = station(older);
+		assertThat(stale.path("bikes").asInt()).isEqualTo(1);
+		assertThat(stale.path("risk").asString()).isEqualTo("EMPTY");
+
+		assertThat(station(unloaded).path("bikes").asInt()).isEqualTo(7);
+		assertThat(station(loaded).path("bikes").asInt()).isEqualTo(3);
+
+		JsonNode corrected = station(mismatch);
+		assertThat(corrected.path("bikes").asInt()).isEqualTo(11);
+		assertThat(corrected.path("risk").asString()).isEqualTo("OVERFLOW");
+		OffsetDateTime lastObserved = jdbc.sql("select max(observed_at) from live.station_status where station_id = :id")
+			.param("id", mismatch)
+			.query(OffsetDateTime.class)
+			.single();
+		assertThat(OffsetDateTime.parse(corrected.path("observedAt").asString()).toInstant())
+			.isEqualTo(lastObserved.toInstant());
+
+		assertThat(station(oldMismatch).path("bikes").asInt()).isEqualTo(1);
+	}
+
+	private JsonNode station(String stationId) throws Exception {
+		var res = call("/internal/stations/" + stationId, null, TOKEN);
+		assertThat(res.statusCode()).as(res.body()).isEqualTo(200);
+		return json.readTree(res.body());
+	}
+
 	// ── 데이터 ────────────────────────────
 
 	private void observe(String stationId, int bikes, int docks, int minutesAgo) {
@@ -303,14 +363,23 @@ class StationApiTest {
 	}
 
 	private void report(String stationId, int actualBikes, int minutesAgo) {
+		report(stationId, actualBikes, null, null, null, minutesAgo);
+	}
+
+	private void report(String stationId, int actualBikes, Integer loaded, Integer unloaded, String issue,
+			int minutesAgo) {
 		jdbc.sql("""
-				insert into field_reports (report_id, shift_id, truck_id, station_id, actual_bikes, reported_by, reported_at)
-				values (:id, 'S05:2026-10-22:AM', 'TR-01', :station, :bikes, 'u-driver-1',
+				insert into field_reports (report_id, shift_id, truck_id, station_id, actual_bikes, loaded, unloaded,
+				                           issue, reported_by, reported_at)
+				values (:id, 'S05:2026-10-22:AM', 'TR-01', :station, :bikes, :loaded, :unloaded, :issue, 'u-driver-1',
 				        now() - make_interval(mins => :ago))
 				""")
 			.param("id", UUID.randomUUID())
 			.param("station", stationId)
 			.param("bikes", actualBikes)
+			.param("loaded", loaded)
+			.param("unloaded", unloaded)
+			.param("issue", issue)
 			.param("ago", minutesAgo)
 			.update();
 	}
