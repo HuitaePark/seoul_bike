@@ -80,6 +80,10 @@ WAITING_APPROVAL, SUBMIT_PLAN/MANAGER 카드, 카드와 현재 계획 ID 일치�
 PR #83으로 대여소 현황 API는 main에 구현됐다. 관측 없는 구역의 200 빈 목록과
 예측 없는 대여소의 `forecastBikes: null`을 정상 응답으로 표시한다. 계획이 없어도 대여소 목록·상세를 조회할 수 있다. 실제 live/forecast 적재와 승인 왕복은 별도 통합 검사다.
 
+PR #89 후보는 비-PENDING 방문 뒤에 새 방문을 합치고 기존 최대 seq 뒤에서 번호를 잇는다.
+화면은 원본 seq·상태를 보존해 정렬하며, 빈 트럭도 조회할 수 있다. backend 탐욕 임시안은
+provisional 경고·explanation을 표시하고 같은 승인 절차를 따른다.
+
 ## 완료·검증 범위
 
 단독 화면, 계약 기반 API 어댑터·가상 시연, 빈 결과·현황 일부 실패·서버 오류·재시도,

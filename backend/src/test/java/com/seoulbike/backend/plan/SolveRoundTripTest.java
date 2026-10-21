@@ -74,7 +74,7 @@ class SolveRoundTripTest {
 		ArrayNode routes = routes(route("TR-01", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-2", "DROPOFF", 5, 20)));
 		optimizer.answers.put(shift, r -> List.of(result(r, "OK", routes, null, false, null)));
 
-		SolveOutcome first = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, "trace-a");
+		SolveOutcome first = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, "trace-a", null);
 
 		assertThat(first.status()).isEqualTo(SolveOutcome.Status.OK);
 		assertThat(first.requestId()).isEqualTo(shift + ":0:1");
@@ -108,7 +108,7 @@ class SolveRoundTripTest {
 		assertThat(json.readTree(jdbc.sql("select request::text from solve_requests where request_id = :id")
 			.param("id", first.requestId()).query(String.class).single())).isEqualTo(sent);
 
-		SolveOutcome second = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, "trace-b");
+		SolveOutcome second = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, "trace-b", null);
 		assertThat(second.requestId()).isEqualTo(shift + ":0:2");
 		assertThat(second.candidate().path("plan").path("version").asInt()).isEqualTo(2);
 	}
@@ -140,7 +140,7 @@ class SolveRoundTripTest {
 			.param("shift", shift)
 			.update();
 
-		SolveOutcome fromReport = gateway.solve(shift, SolveGateway.Kind.REPLAN, inputs(), fieldReportTask, null);
+		SolveOutcome fromReport = gateway.solve(shift, SolveGateway.Kind.REPLAN, inputs(), fieldReportTask, null, null);
 
 		assertThat(fromReport.requestId()).isEqualTo(shift + ":1:1");
 		ObjectNode candidate = fromReport.candidate();
@@ -155,7 +155,7 @@ class SolveRoundTripTest {
 		assertThat(truck1.path("addedMinutes").asDouble()).isEqualTo(-6.0);
 		assertThat(diffs.get(1).path("before")).isEqualTo(diffs.get(1).path("after"));
 
-		SolveOutcome fromManager = gateway.solve(shift, SolveGateway.Kind.REPLAN, inputs(), null, null);
+		SolveOutcome fromManager = gateway.solve(shift, SolveGateway.Kind.REPLAN, inputs(), null, null, null);
 		assertThat(fromManager.requestId()).isEqualTo(shift + ":1:2");
 		assertThat(fromManager.candidate().path("grade").asString()).isEqualTo("MAJOR");
 		assertThat(fromManager.candidate().path("requiredApprovers"))
@@ -171,9 +171,9 @@ class SolveRoundTripTest {
 			return List.of(once, once);
 		});
 
-		SolveOutcome first = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null);
+		SolveOutcome first = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null, null);
 		// 같은 키라 같은 파티션이다. 두 번째 요청의 결과를 받았으면 그 앞의 중복 결과도 처리가 끝났다.
-		SolveOutcome second = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null);
+		SolveOutcome second = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null, null);
 
 		assertThat(first.status()).isEqualTo(SolveOutcome.Status.OK);
 		assertThat(second.status()).isEqualTo(SolveOutcome.Status.OK);
@@ -189,7 +189,7 @@ class SolveRoundTripTest {
 		optimizer.answers.put(shift,
 				r -> List.of(result(r, "FAILED", null, "NO_SOLUTION", false, "solver returned no solution")));
 
-		SolveOutcome failed = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null);
+		SolveOutcome failed = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null, null);
 
 		assertThat(failed.status()).isEqualTo(SolveOutcome.Status.FAILED);
 		assertThat(failed.code()).isEqualTo("NO_SOLUTION");
@@ -199,7 +199,7 @@ class SolveRoundTripTest {
 
 		optimizer.answers.put(shift,
 				r -> List.of(result(r, "TIMEOUT", null, "OSRM_BUDGET_EXCEEDED", true, "OSRM matrix budget exceeded")));
-		SolveOutcome timeout = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null);
+		SolveOutcome timeout = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null, null);
 		assertThat(timeout.status()).isEqualTo(SolveOutcome.Status.TIMEOUT);
 		assertThat(timeout.code()).isEqualTo("OSRM_BUDGET_EXCEEDED");
 		assertThat(timeout.retryable()).isTrue();
@@ -213,7 +213,7 @@ class SolveRoundTripTest {
 		String shift = shift();
 		Instant start = Instant.now();
 
-		SolveOutcome outcome = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null);
+		SolveOutcome outcome = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null, null);
 
 		Duration waited = Duration.between(start, Instant.now());
 		assertThat(outcome.status()).isEqualTo(SolveOutcome.Status.TIMED_OUT);

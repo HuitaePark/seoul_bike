@@ -123,17 +123,21 @@ class PlanRepository {
 			.single();
 	}
 
-	void insertCandidate(String planId, String shiftId, int version, String routesJson, String unservedJson,
-			String requestId) {
+	/** @param provisional optimizer가 답하지 못해 backend가 만든 임시안 (계약 Plan.provisional) */
+	void insertCandidate(String planId, String shiftId, int version, boolean provisional, String routesJson,
+			String unservedJson, String explanation, String requestId) {
 		jdbc.sql("""
-				insert into plans (plan_id, shift_id, version, status, provisional, routes, unserved, request_id)
-				values (:planId, :shiftId, :version, 'PROPOSED', false, cast(:routes as jsonb), cast(:unserved as jsonb), :requestId)
+				insert into plans (plan_id, shift_id, version, status, provisional, routes, unserved, explanation, request_id)
+				values (:planId, :shiftId, :version, 'PROPOSED', :provisional, cast(:routes as jsonb), cast(:unserved as jsonb),
+				        :explanation, :requestId)
 				""")
 			.param("planId", planId)
 			.param("shiftId", shiftId)
 			.param("version", version)
+			.param("provisional", provisional)
 			.param("routes", routesJson)
 			.param("unserved", unservedJson)
+			.param("explanation", explanation)
 			.param("requestId", requestId)
 			.update();
 	}

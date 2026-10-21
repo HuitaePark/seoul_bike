@@ -6,7 +6,7 @@
 | 참조 명세 | 문서 버전 |
 | --- | --- |
 | 공개 API (OpenAPI) | 0.13.1-draft |
-| 내부 API (OpenAPI) | 0.8.1-draft |
+| 내부 API (OpenAPI) | 0.8.2-draft |
 | Kafka (AsyncAPI) | 0.5.1-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
@@ -33,7 +33,8 @@ TaskEventMessage의 seq는 backend가 부여하는 작업 이벤트 정보이며
 별도 worker가 Kafka 소비·발행, 결과 파일 저장·중복 제거, offset commit을 맡는다.
 독립 개발용 solve·requests.retry·requests.dlq 토픽 초기화와 제한 재시도를 제공한다.
 PR #46으로 운영 Compose에 worker·상태 볼륨·backend healthy 이후 기동·소비자 그룹 헬스체크가 추가됐다.
-이동 시간은 하버사인 추정치다. 실제 수요·트럭 입력을 만드는 `/internal/plans/solve`와 전체 업무 연결은 후속 범위다.
+이동 시간은 하버사인 추정치다. PR #89로 `/internal/plans/solve`의 실제 입력 조립·요청/응답·탐욕 임시안이
+main에 구현됐다. 실데이터 적재·실제 worker와 승인까지의 전체 운영 검증은 별도다.
 
 ## 공통 요청 대응
 
@@ -64,6 +65,21 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
 완료 거점은 backend가 남은 후보를 구성할 때 제거한다. 관리자 제외·현장 차단은 `stations`에 남기고
 `blockedStationIds`로 지정해야 `BLOCKED` 미처리로 반환된다. stations에 없는 차단 ID는 거부한다.
 현재 wire에 없는 completedStationIds·excludeStationIds를 새로 정의하지 않는다.
+
+## backend 입력·후보 저장과의 경계 (PR #89)
+
+- backend는 asOf를 현재 시각과 근무조 시작 중 늦은 시각으로, availableUntil을 근무조 끝으로 보낸다.
+  운영 요청의 asOf는 비정시도 가능하다. 아래 로컬 예측기의 정시 조건을 이미 계산된 neededBikes 요청에 적용하지 않는다.
+- PLAN은 구역의 실제 활성 트럭·차고지·적재 0을, REPLAN은 마지막 DONE 위치·적재량과 남은 근무시간을 보낸다.
+  완료 정류장과 재계산하지 않는 트럭의 작업은 생산자가 후보에서 제거하고, 처리 차량을 유지할 작업만 fixedStationIds로 보낸다.
+- optimizer 결과는 이번 계산의 방문만 seq 1부터 담는다. 사용하지 않은 트럭은 결과에서 생략할 수 있다.
+  backend가 입력 차량의 빈 경로를 채우고, REPLAN에서는 이전 비-PENDING 정류장 뒤에 새 방문을 병합한다.
+  최종 seq는 이전 정류장의 최대 seq 다음부터이며 전체 계획·이전 startLoad·재계산하지 않은 트럭은 backend가 보존한다.
+- optimizer의 FAILED/TIMEOUT 또는 60초 대기는 backend가 같은 입력의 탐욕 임시안으로 처리한다.
+  PlanCandidate의 TIMEOUT_PROVISIONAL·plan.provisional·explanation, 승인·후보 활성화는 backend 책임이다.
+  optimizer가 별도 PlanCandidate를 만들거나 저장 결과의 차량/seq를 확장하지 않는다.
+- priority는 backend가 계산한 점수를 그대로 받으며 기본 penaltyScale만 생략 시 3000을 사용한다.
+  내부 API의 요청/응답·오류·제약 상세는 [internal-api.yaml](internal-api.yaml)의 /internal/plans/solve를 따른다.
 
 ## 로컬 수요 예측 연결
 
@@ -146,7 +162,8 @@ OSRM 도로 거리·시간을 조회하며 중복 제거·요청 분할·순서 
 정적 car 프로필은 실시간 교통·트럭 높이/중량을 보장하지 않는다.
 
 [독립 개발 환경](../../infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
-운영 worker는 Compose에 편입됐고, OSRM의 운영 연결·실제 수요 입력·retry/DLQ 관제·서버 부하·전체 10초 검증은 후속 작업이다.
+운영 worker는 Compose에 편입됐고 실제 입력 조립은 PR #89의 backend가 맡는다. 실데이터 적재·OSRM 운영 연결·
+retry/DLQ 관제·서버 부하·전체 10초 검증은 후속 작업이다.
 CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
 
 ## Kafka 실행기

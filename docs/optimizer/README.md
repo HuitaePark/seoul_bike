@@ -101,7 +101,8 @@ CLI는 계속 규칙 기반 시연이며 `--start`만으로 학습 모델이나 
 실행 예시와 지도 파일 준비는 [독립 개발 환경](../../infra/optimizer/README.md)을 따른다.
 공통 메시지는 [AsyncAPI](../specs/asyncapi.yaml)를 따른다. 변환·계산 함수와 실행 설정은
 [역할 5 명세](../specs/optimizer.md)에 있다. Kafka 실행기는 전용 파일 상태로 결과를 재사용하며,
-요청의 제한 재시도·DLQ도 제공한다. 실제 backend 연결·운영 토픽/관제·분산 중복 방지 저장소는 후속 작업이다.
+요청의 제한 재시도·DLQ도 제공한다. 실제 요청 조립과 backend 임시안은 PR #89에 구현됐다.
+실데이터를 통한 왕복·운영 토픽/관제·분산 중복 방지 저장소는 후속 작업이다.
 
 ## 미처리 사유
 
@@ -196,3 +197,8 @@ Kafka 대기·backend·LLM을 포함한 "현장 보고부터 변경안 생성까
 
 현재 기본 3시간은 구간 끝 정책에 적용한다. backend의 StationRisk(내부 API 0.8)는 별도의 관측 시각·시간별 궤적 규칙으로
 neededBikes와 priority를 만든다. worker는 그 계산된 값을 그대로 소비하며 로컬 예측 데모의 정책으로 다시 계산하지 않는다.
+
+
+PR #89의 운영 SolveRequest는 이미 계산된 neededBikes/priority를 받으므로 비정시 asOf도 허용한다.
+위 로컬 예측기의 정시 start 조건과 별개다. 결과에 생략한 미사용 트럭의 빈 경로, 이전 완료/건너뜀 방문과의 병합,
+최종 seq 번호 및 탐욕 임시안 후보는 backend가 처리한다. [명세의 경계](../specs/optimizer.md#backend-입력후보-저장과의-경계-pr-89)를 따른다.
