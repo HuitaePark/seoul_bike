@@ -46,12 +46,13 @@ optimizer worker는 생산자의 neededBikes/priority를 덮어쓰거나 업무 
    운영 수요 수치는 역할 4·6의 API 입력에서 가져오고, 로컬 mock이나 CSV 평균 차고지로 대체하지 않는다.
 2. [OSRM 안내](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)의 순서로 도로를 전처리한다.
    산출 data-version과 PBF/이미지 정보를 기록하고 N01 좌표·차고지의 Table 응답/단절 오류를 확인한다.
+   [포함 범위 검사](../../infra/optimizer/README.md#도로-자료-포함-범위-검사) `rebalancing.roadcheck`를 실제 차고지(`--depot`)로 실행하고 JSON을 남긴다.
    배포 시에는 기존 optimizer 한 개를 overlay 구성으로 교체한다. 같은 상태 볼륨을 두 worker가 동시에 열지 않는다.
    서버 env 파일은 배포마다 새로 쓰는 `~/seoul-bike/.env`이다. 현재 `deploy.yml`의 `up --remove-orphans`는 overlay를 모르므로
    다음 main 배포에서 osrm을 지우고 optimizer를 하버사인으로 되돌린다. 배포 스위치가 생기기 전에는 측정을 배포 사이에 끝내고,
    배포 뒤 거리 계산 방식을 다시 확인한다. runner 작업 폴더 안의 전처리 결과는 checkout이 지우므로 그 밖에 보관한다([OSRM 안내](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)).
 3. 같은 도로 버전으로 N01 265곳·5대 PLAN/REPLAN을 cold/warm 각각 반복 측정하고 원시 표본·p95·캐시·입력 해시를 남긴다.
-   300곳은 기존 합성 좌표가 도로 추출물에 모두 포함되는지 먼저 확인하거나 같은 도로 범위의 명시적 300곳 입력을 준비한다.
+   300곳은 기존 합성 좌표가 도로 추출물에 모두 포함되는지 `roadcheck --mock-stations 300`으로 먼저 확인하거나 같은 도로 범위의 명시적 300곳 입력을 준비한다.
    지역 참조 작업량은 여전히 합성이며 실제 업무 성능과 별도로 기록한다.
 4. 실제 데이터로 backend→Kafka→worker→후보 저장을 실행한다. 미사용 트럭의 빈 경로, 이전 DONE/SKIPPED 뒤 seq,
    원래 startLoad와 재계산 대상 외 트럭 보존, EVE 21:00 종료·차단/고정 거점·중복/재시도를 확인한다.

@@ -52,12 +52,31 @@ Linux AMD64·ARM64 manifest를 확인했다. 버전을 바꿀 때는 Compose 이
 JSON의 `cache_hits`, `cache_misses`는 그 프로세스에서의 조회 횟수다.
 Docker 실행은 별도 `matrix-cache` 볼륨을 사용하므로 호스트 캐시와 공유하지 않는다.
 
+### 도로 자료 포함 범위 검사
+
+전처리한 자료로 성능을 재기 전에, 대상 대여소와 차고지가 모두 도로에 스냅되고 서로 양방향으로 닿는지 확인한다.
+solver의 행렬은 도달 불가 셀 하나만 있어도 전체를 거부하므로, 이 검사로 어느 거점이 문제인지 먼저 찾는다.
+성능 측정이 아니므로 시간 예산은 기본 120초다.
+
+```bash
+# 구역 참조 대여소 + 참조 차고지(좌표 평균). 실제 차고지가 정해지면 --depot LAT,LON 으로 넘긴다.
+../.venv/bin/python -m rebalancing.roadcheck --region N01 --osrm-url http://127.0.0.1:5000 \
+  --osrm-data-version "$(cat ../infra/optimizer/data/processed/data-version)" > ../.cache/roadcheck-N01.json
+# 300곳 benchmark와 같은 합성 좌표(seed 7)
+../.venv/bin/python -m rebalancing.roadcheck --mock-stations 300 --osrm-url http://127.0.0.1:5000
+```
+
+종료 코드는 0(모두 통과)·1(스냅 실패나 도달 불가 거점 있음)·2(OSRM 오류)다. JSON의 `unsnapped`는 반경 안에
+도로가 없는 점, `unreachable`은 일부 방향으로 닿지 않는 점과 그 개수, 차고지와의 방향별 단절 여부다.
+섬처럼 고립된 거점이 있으면 그 거점과 연결된 다른 거점에도 1~2개의 단절이 함께 표시된다. 개수가 큰 쪽부터 확인한다.
+
 ## 범위와 후속 검증
 
 - car 프로필의 정적 도로 시간이다. 실시간 교통·차량 높이·중량 등 트럭 전용 제약을 보장하지 않는다.
 - 거리 값은 OSRM의 **가장 빠른 도로 경로의 거리**다. 두 점의 최단 거리와 다를 수 있다.
 - 도로 스냅 탐색 반경은 기본 1km다. 권역 데이터에 맞춰 `--osrm-snap-radius-metres`로 조정한다.
 - 도로망 단절, 지도 밖 좌표, HTTP 실패는 오류로 종료한다. 추정치로 자동 대체하지 않는다.
+  어느 거점이 원인인지는 위의 포함 범위 검사로 찾는다.
 - 원본·전처리 파일과 캐시는 Git에서 제외한다. 지도 출처·라이선스·취득일은 권역 확정 후 별도 기록한다.
 - Kafka 실행기와 개발용 solve 토픽 초기화는 [독립 Kafka 환경](KAFKA.md)에 있다.
   운영 Compose의 worker·상태 볼륨·기동 순서는 PR #46에 반영됐다. 실제 입력 조립은 PR #89에 반영됐다. 실데이터 적재·OSRM 운영 연결과 retry/DLQ 관제는 후속이다.
