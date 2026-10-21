@@ -6,7 +6,7 @@
 | 참조 명세 | 문서 버전 |
 | --- | --- |
 | 공개 API (OpenAPI) | 0.12.0-draft |
-| 내부 API (OpenAPI) | 0.6.1-draft |
+| 내부 API (OpenAPI) | 0.7.0-draft |
 | Kafka (AsyncAPI) | 0.5.0-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
@@ -80,6 +80,9 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
   목표 상한보다 안전 하한이 크면 기존처럼 하한을 우선하며, 거치대 수로 재고나 필요량을 잘라내지 않는다.
 - 이 단계는 기존 **구간 끝 재고 정책**이다. 시간별 배열을 받더라도 중간의 빈 시각·재고 궤적 안전을 보장하지 않는다.
   기본 3시간 전환·궤적 정책·비정시 재경로 예측 정렬은 후속 협의 범위다.
+
+데이터 예측기의 Station.id는 대여소번호를 사용한다. API·Kafka의 stationId는 ADR 0001의 `ST-` ID이며
+서로 숫자가 다르므로, 내보내는 생산자가 ref.stations/CSV 대응표로 변환한다. 접두사를 붙이거나 잘라 변환하지 않는다.
 
 이는 로컬 예측·시뮬레이션 연결이며 Kafka worker의 역할을 확장하지 않는다.
 worker는 계속 이미 계산된 `neededBikes`를 받는다. 운영 수요·우선순위·재고 입력 생성과 예측 DB 적재는
