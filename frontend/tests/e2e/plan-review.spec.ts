@@ -16,6 +16,8 @@ async function login(page: Page, role = 'MANAGER') {
     user: { userId: 'fixture-user', loginId: 'fixture', name: '검토자', role, status: 'ACTIVE' },
   })), role)
 }
+/** 기사 첫 화면(/driver)이 읽는 API. 경로가 없으면(404) 구역 대여소는 읽지 않는다 */
+const DRIVER_HOME_PATHS = ['/api/drivers/me/route', '/api/ai/tasks']
 const liveUrl = `/plans/review?regionId=${DEMO_REGION}&shiftId=${encodeURIComponent(DEMO_SHIFT)}`
 async function mockApi(page: Page, options: { role?: string; planStatus?: number; stationStatus?: number; task?: Task; plan?: Plan; stations?: Station[]; decisionStatus?: number } = {}) {
   await login(page, options.role)
@@ -61,10 +63,12 @@ for (const { role, home } of [
       await page.goto('/plans/review')
       await expect(page).toHaveURL('http://127.0.0.1:5185/driver')
       await expect(page.locator('.plan-review')).toHaveCount(0)
-      expect(calls).toEqual([])
+      // 기사 첫 화면은 자기 경로와 변경 제안(승인 대기 작업)만 읽는다. 계획 검토 API는 부르지 않는다.
+      const planReviewCalls = () => calls.filter(c => !DRIVER_HOME_PATHS.includes(c.path))
+      expect(planReviewCalls()).toEqual([])
       await page.goto('/plans/review/demo')
       await expect(page.getByText('시연 데이터 · 실제 계획에 반영되지 않습니다')).toBeVisible()
-      expect(calls).toEqual([])
+      expect(planReviewCalls()).toEqual([])
     } else {
       await page.locator('.topbar').getByRole('link', { name: '계획 검토', exact: true }).click()
       await expect(page).toHaveURL('http://127.0.0.1:5185/plans/review')
@@ -156,7 +160,8 @@ test('책임자는 조회 전용, 기사는 전체 계획을 요청하지 않는
   await driver.goto(liveUrl)
   await expect(driver).toHaveURL('http://127.0.0.1:5185/driver')
   await expect(driver.locator('.plan-review')).toHaveCount(0)
-  expect(calls).toEqual([])
+  // 기사 화면은 자기 경로와 변경 제안(승인 대기 작업)만 읽는다
+  expect(calls.filter(c => !DRIVER_HOME_PATHS.includes(c.path))).toEqual([])
 })
 test('401은 로그인으로 이동하고 404는 계획 없음으로 표시한다', async ({ page }) => {
   await mockApi(page, { planStatus: 401 })

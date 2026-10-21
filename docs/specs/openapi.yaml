@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.14.0-draft
+  version: 0.15.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
     **초안 v0.13.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.15: 화면이 더미 없이 실제 자료로 그리도록 (ISS-25). 기사 경로는 `DriverRoute`(경로 + `shiftId`, 현장 보고·구역 대여소 조회에 쓴다). 화면용 계획·기사 경로의 정류장·빠진 대여소에 대여소 이름(`stationName`)을 기준 정보에서 붙인다. 현장 보고가 활성 계획의 그 트럭 정류장 진행(`Stop.status` DONE·SKIPPED)을 남긴다. 무승인 변경 수 `GET /api/shifts/{shiftId}/safety` 추가.
     - v0.14: 관제 지도의 트럭 상태 `GET /api/shifts/{shiftId}/trucks` (관리자·책임자). 에이전트의 트럭 상태 도구와 같은 계산이다. 위치는 GPS가 아니라 마지막으로 끝낸 정류장(`atStationId`), 없으면 차고지(`atStationId` null)다. `TruckState`를 이 문서로 옮겼다 (internal-api가 참조).
     - v0.13.2: 현재 재고(`bikes`)는 실시간 수집에 3시간 안의 가장 최근 기사 현장 보고를 반영한다. 보고가 수집보다 늦으면 보고 재고(도착 재고 − 실은 대수 + 내린 대수)와 보고 시각을 쓰고, 재고 불일치(`INVENTORY_MISMATCH`) 보고는 그 뒤 수집에도 차이(도착 재고 − 보고 때 앱 재고)를 더한다.
     - v0.13.1: 트럭 ID는 서울 전체에서 이어 매기는 `TR-NN`(TR-01~TR-35, 합의 30)이다. 계정 발급·승인에서 기사 트럭이 트럭 목록에 없거나 운행하지 않으면 400 `TRUCK_NOT_FOUND`(`suggestions`에 활성 트럭 ID). 예전 `truck-N` 기사 계정은 `TR-0N`으로 옮겼고 다시 로그인해야 한다.
@@ -453,7 +454,9 @@ paths:
       operationId: getShiftPlan
       tags: [plans]
       summary: 근무조의 현재 계획 (계획 검토·모니터링)
-      description: 관리자·책임자만. 모든 트럭 경로가 들어 있어 기사는 403이다 (기사는 `/api/drivers/me/route`).
+      description: |
+        관리자·책임자만. 모든 트럭 경로가 들어 있어 기사는 403이다 (기사는 `/api/drivers/me/route`).
+        정류장·빠진 대여소의 이름(`stationName`)은 기준 정보에서 붙인다 (경로 계산은 대여소 ID만 넣는다).
       parameters:
         - $ref: '#/components/parameters/ShiftId'
       responses:
@@ -492,6 +495,28 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/shifts/{shiftId}/safety:
+    get:
+      operationId: getShiftSafety
+      tags: [plans]
+      summary: 근무조의 무승인 변경 수 (PRD 9.2, 반드시 0)
+      description: |
+        관리자·책임자만 (계획과 같은 범위). 근무조에서 ACTIVE가 된 적 있는 계획 버전을 센다.
+        활성화한 승인(`activated_by_approval`)이 APPROVED면 승인된 변경, 승인이 없거나 APPROVED가 아니면 무승인 변경이다.
+        계획 활성화와 경로 적용(새 버전)이 변경이다. 현장 보고로 남기는 정류장 진행은 경로를 바꾸지 않아 세지 않는다.
+        계획이 없는 근무조는 둘 다 0이다.
+      parameters:
+        - $ref: '#/components/parameters/ShiftId'
+      responses:
+        '200':
+          description: 승인·무승인 변경 수
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShiftSafety' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /api/drivers/me/route:
     get:
       operationId: getMyRoute
@@ -501,12 +526,14 @@ paths:
         DRIVER만. 다른 트럭 경로는 볼 수 없다 (트럭은 토큰에서 꺼낸다).
         오늘(Asia/Seoul) 날짜 근무조(`shiftId`의 `yyyy-MM-dd`)의 ACTIVE 계획 중 이 트럭이 있고 가장 늦게 활성화된 것의 경로다.
         지난 근무조의 경로는 나오지 않는다. 없으면 404.
+        그 경로의 근무조(`shiftId`)를 같이 준다. 기사 계정에는 근무조가 없어 화면이 현장 보고와 구역 대여소 조회(구역 ID는 `shiftId` 앞부분)에 쓴다.
+        정류장 이름(`stationName`)은 기준 정보에서 붙인다 (경로 계산은 대여소 ID만 넣는다).
       responses:
         '200':
           description: 경로
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Route' }
+              schema: { $ref: '#/components/schemas/DriverRoute' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404':
@@ -524,6 +551,10 @@ paths:
         **DRIVER만** 보고한다. 트럭은 로그인한 기사의 트럭이다 (본문에 받지 않는다).
         보고는 바로 저장하고, **`issue`가 있으면** 재경로 `FIELD_REPORT` 작업을 만들어 `taskId`를 함께 돌려준다.
         `issue`가 없는 보고(진행 기록)는 저장만 하고 `taskId`는 null이다.
+        **정류장 진행:** 그 근무조 ACTIVE 계획의 이 트럭 경로에서 이 대여소의 첫 PENDING 정류장을 끝낸다. 진입 불가·공사(`BLOCKED`·`CONSTRUCTION`)는
+        `SKIPPED`, 그 밖은 `DONE`이다. `DONE`이고 `loaded`·`unloaded`가 있으면 그 정류장 `loadAfter`를 직전에 끝낸 정류장의 적재(없으면 `startLoad`)
+        \+ 실은 대수 − 내린 대수로 다시 센다. 트럭 상태와 재경로는 마지막으로 끝낸 정류장에서 시작한다. 진행은 새 버전을 만들지 않는다.
+        경로에 없거나 이미 끝낸 정류장의 보고는 저장만 한다 (진행은 그대로). 재경로 작업이 있으면 진행을 먼저 남긴다.
         작업 명령(`ai.tasks`)에는 보고 값(`report`)을 같이 실어 agent가 다시 읽지 않게 한다.
         정류장이 그 기사의 경로에 있는지는 경로가 생기면(M3) 확인한다.
       requestBody:
@@ -1005,6 +1036,23 @@ components:
         status:
           type: string
           enum: [PENDING, DONE, SKIPPED]
+
+    DriverRoute:
+      description: 기사 본인 경로. `Route`에 그 경로가 속한 근무조를 더한다
+      allOf:
+        - $ref: '#/components/schemas/Route'
+        - type: object
+          required: [shiftId]
+          properties:
+            shiftId: { type: string, description: '이 경로가 속한 근무조 ID (현장 보고 `shiftId`, 구역 ID는 앞부분)' }
+
+    ShiftSafety:
+      type: object
+      required: [shiftId, approvedChanges, unapprovedChanges]
+      properties:
+        shiftId: { type: string }
+        approvedChanges: { type: integer, description: 승인으로 ACTIVE가 된 계획 버전 수 (계획 활성화 + 경로 적용) }
+        unapprovedChanges: { type: integer, description: '승인 없이 ACTIVE가 된 계획 버전 수. 반드시 0 (PRD 9.2)' }
 
     Route:
       type: object

@@ -1,18 +1,19 @@
 <!--
 관제 대시보드 (PRD 10장, FR-01~09).
 실시간: 승인 대기 카드·묻기 답·결정 결과는 근무조 작업 목록과 작업 SSE로 받는다 (useShiftFeed).
-아직 더미: 대여소 현황과 트럭 위치(계약에 없다). 대여소 API(GET /api/regions/{regionId}/stations, #83)는 생겼지만
-실시간 재고 수집기(#93)가 넣은 대여소만 돌려준다. 계획(GET /api/shifts/{shiftId}/plan)은 대여소 좌표가 있어야 지도에 그릴 수 있어 대여소와 같이 붙인다.
+대여소 현황·계획·무승인 변경 수(GET /api/shifts/{shiftId}/safety)는 useBoard가 주기적으로 읽는다. 구역은 레일에서 고른다.
+대여소 API는 실시간 재고 수집기(#93)가 넣은 대여소만 돌려준다. 트럭 위치·적재는 트럭 상태 API(GET /api/shifts/{shiftId}/trucks, #105)다.
+GPS가 아니라 마지막으로 끝낸 정류장, 없으면 차고지다.
 구성: 왼쪽 근무조 레일 · 화면별 탭(관제/예측/에이전트/경로/빠진 대여소). 트럭 적재는 3D 지도 안에 둔다.
 계획 만들기·상황 반영 요청은 상단 메뉴의 작업 콘솔에서 한다 (같은 곳으로 가는 버튼을 따로 두지 않는다).
 -->
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import type { Schemas } from '../../shared/api/client'
-import { DUMMY_PLAN, DUMMY_REGION, DUMMY_STATIONS, DUMMY_TRUCKS } from '../../shared/dummy'
-import { makeShiftId, SHIFT_SLOTS, slotAt, todayInSeoul, type ShiftSlot } from '../../shared/region/regions'
+import { makeShiftId, REGIONS, SHIFT_SLOTS, slotAt, todayInSeoul, type ShiftSlot } from '../../shared/region/regions'
 import type { ApprovalDecision } from '../approval/approval'
 import { actionLabel } from '../approval/approval'
+import { truckColor } from '../plan-map/map-model'
 import { reasonText } from '../plan-map/model'
 import AgentChat from './AgentChat.vue'
 import AskBar from './AskBar.vue'
@@ -25,33 +26,47 @@ import TruckLoad from './TruckLoad.vue'
 import { riskShades } from './iso'
 import type { LiveCard } from './feed'
 import type { RoutePreview } from './route-view'
-import { legOf, previewOf } from './route-view'
+import { legOf, previewOf, withPlanRoutes } from './route-view'
+import { useBoard } from './useBoard'
 import { useShiftFeed } from './useShiftFeed'
 
-const colors: Record<string, string> = { 'TR-03': '#2563eb', 'TR-04': '#9333ea', 'TR-05': '#0891b2' }
+// 처음 보는 구역은 실서비스 E2E(#91)와 같은 N02. 레일에서 17개 구역 중 고른다.
+const regionId = ref('N02')
+const regionName = computed(() => REGIONS.find((r) => r.id === regionId.value)?.name ?? regionId.value)
 const riskLabel: Record<Schemas['RiskKind'], string> = { EMPTY: '빈 대여소 위험', OVERFLOW: '과적재 위험', NONE: '정상' }
 const roleLabel: Record<Schemas['StationRole'], string> = { FIXED_PICKUP: '고정 회수', FIXED_DROPOFF: '고정 배치', VARIABLE: '변동' }
+const planStatusLabel: Record<Schemas['Plan']['status'], string> = { DRAFT: '초안', PROPOSED: '승인 대기', ACTIVE: '활성', REJECTED: '거절됨', CLOSED: '종료' }
 
-const stations = DUMMY_STATIONS
-const plan = DUMMY_PLAN
-const trucks = DUMMY_TRUCKS
 // 오늘(서울 날짜) 근무조. 시간대는 지금 하고 있거나 다음에 올 것으로 시작하고 레일에서 바꾼다.
 const slot = ref<ShiftSlot>(slotAt())
-const shiftId = computed(() => makeShiftId(DUMMY_REGION.id, todayInSeoul(), slot.value))
+const shiftId = computed(() => makeShiftId(regionId.value, todayInSeoul(), slot.value))
+const board = useBoard(regionId, shiftId)
+const { stations, plan, safety, trucks, stationsState, planState, stationsError, planError } = board
+const routes = computed(() => plan.value?.routes ?? [])
+const unserved = computed(() => plan.value?.unserved ?? [])
+// 계획 검토 화면과 같은 트럭 색 (구역마다 트럭 ID가 달라 계획의 트럭 ID 순서로 고른다)
+const colors = computed<Record<string, string>>(() => Object.fromEntries(routes.value.map((r) => [r.truckId, truckColor(plan.value, r.truckId)])))
 const feed = useShiftFeed(shiftId)
-const { pending, log, qa, status: feedStatus, busy, errors } = feed
+const { log, qa, status: feedStatus, busy, errors } = feed
+// 계획 승인 카드는 MCP 응답 길이 때문에 eta가 빠지고 정류장이 잘릴 수 있어 같은 계획의 전체 경로로 채운다 (#91)
+const pending = computed(() => feed.pending.value.map((c) => withPlanRoutes(c, plan.value)))
+// 새 계획 후보가 오거나 결정 뒤 에이전트가 끝나면(활성화) 계획을 바로 다시 읽는다
+watch(() => [feed.pending.value.map((c) => c.approvalId).join(), log.value.at(-1)?.state], () => void board.refreshPlan())
 const feedLabel = { loading: '연결 중', live: '실시간', offline: '연결 끊김 · 다시 시도 중' } as const
-// 사람 승인 없이 적용된 변경 수. 늘 0이어야 하는 안전 지표다. 더미: 실제로는 감사 로그에서 센다.
-const unapprovedChanges = 0
+// 재고 기준 시각: 대여소마다 다르므로 가장 최근 관측을 보인다
+const observedAt = computed(() => {
+  const ms = Math.max(...stations.value.map((s) => Date.parse(s.observedAt)).filter(Number.isFinite))
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : ''
+})
 type DashboardTab = 'view' | 'trend' | 'agent' | 'routes' | 'dropped'
 const active = ref<DashboardTab>('view')
 const view = ref<'3d' | 'map'>('3d')
-const mapSelected = ref<string | null>('ST-503')
+const mapSelected = ref<string | null>(null)
 const forecastSelected = ref<string | null>(null)
 const routeSelected = ref<string | null>(null)
 const stockPane = ref<HTMLElement | null>(null)
 const focusTruck = ref<string | null>(null)
-const loadTruck = ref('TR-03')
+const loadTruck = ref<string | null>(null)
 const toast = ref('')
 // 승인 대기 변경안을 지도에 겹쳐 본다. 켜져 있으면 그 변경안의 트럭·대여소만 밝게 보인다.
 const preview = ref<RoutePreview | null>(null)
@@ -72,45 +87,71 @@ const detailStationId = computed(() => {
   if (active.value === 'routes') return routeSelected.value
   return null
 })
-const station = computed(() => stations.find((s) => s.stationId === detailStationId.value))
+const station = computed(() => stations.value.find((s) => s.stationId === detailStationId.value))
 const stopOf = computed(() => {
-  for (const r of plan.routes) {
+  for (const r of routes.value) {
     const s = r.stops.find((x) => x.stationId === detailStationId.value)
     if (s) return { ...s, truckId: r.truckId }
   }
   return null
 })
-const unservedOf = computed(() => plan.unserved.find((u) => u.stationId === detailStationId.value))
-const truckOf = (id: string) => trucks.find((t) => t.truckId === id)
-const stationById = new Map(stations.map((s) => [s.stationId, s]))
-const stationOf = (id: string) => stationById.get(id)
+const unservedOf = computed(() => unserved.value.find((u) => u.stationId === detailStationId.value))
+const stationById = computed(() => new Map(stations.value.map((s) => [s.stationId, s])))
+const stationOf = (id: string) => stationById.value.get(id)
+// 계획의 정류장 이름. 경로 계산은 ID만 넣으므로 backend가 붙인 이름, 없으면 구역 대여소 목록의 이름, 그것도 없으면 ID다.
+const nameOf = (s: { stationId: string; stationName?: string | null }) => s.stationName ?? stationOf(s.stationId)?.name ?? s.stationId
+const truckOf = (id: string) => trucks.value.find((t) => t.truckId === id)
+/** 트럭이 지금 있는 곳 (트럭 상태 API: 마지막으로 끝낸 정류장, 없으면 차고지) */
+const whereText = (id: string) => {
+  const t = truckOf(id)
+  if (!t) return '위치 모름'
+  return t.atStationId ? `${stationOf(t.atStationId)?.name ?? t.atStationId} 마침` : '차고지'
+}
 
-const allStops = plan.routes.flatMap((r) => r.stops.map((s) => ({ ...s, truckId: r.truckId })))
-const doneStops = allStops.filter((s) => s.status === 'DONE').length
-const movedBikes = allStops.filter((s) => s.action === 'PICKUP').reduce((n, s) => n + s.bikes, 0)
+const allStops = computed(() => routes.value.flatMap((r) => r.stops.map((s) => ({ ...s, truckId: r.truckId }))))
+const doneStops = computed(() => allStops.value.filter((s) => s.status === 'DONE').length)
+const donePct = computed(() => (allStops.value.length ? Math.round((doneStops.value / allStops.value.length) * 100) : 0))
+const movedBikes = computed(() => allStops.value.filter((s) => s.action === 'PICKUP').reduce((n, s) => n + s.bikes, 0))
 const timeOf = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul' }) : '')
 // API 시각에 +09:00과 Z가 섞여도 실제 도착 순서로 정렬한다.
 const etaMs = (iso?: string | null) => {
   const ms = iso ? Date.parse(iso) : NaN
   return Number.isFinite(ms) ? ms : Infinity
 }
-const nextStop = allStops.filter((s) => (s.status ?? 'PENDING') === 'PENDING').sort((a, b) => etaMs(a.eta) - etaMs(b.eta))[0]
+const nextStop = computed(() => allStops.value.filter((s) => (s.status ?? 'PENDING') === 'PENDING').sort((a, b) => etaMs(a.eta) - etaMs(b.eta))[0])
 
 // 위험 순: 빈 대여소(재고 적은 순) → 과적재(넘치는 순)
-const riskOrder = [...stations]
-  .filter((s) => s.risk !== 'NONE')
-  .sort((a, b) => (a.risk === b.risk ? (a.risk === 'EMPTY' ? a.bikes - b.bikes : (b.forecastBikes ?? b.bikes) - b.docks - ((a.forecastBikes ?? a.bikes) - a.docks)) : a.risk === 'EMPTY' ? -1 : 1))
-const riskCounts = (['EMPTY', 'OVERFLOW', 'NONE'] as const).map((k) => ({ k, n: stations.filter((s) => s.risk === k).length }))
+const riskOrder = computed(() =>
+  stations.value
+    .filter((s) => s.risk !== 'NONE')
+    .sort((a, b) => (a.risk === b.risk ? (a.risk === 'EMPTY' ? a.bikes - b.bikes : (b.forecastBikes ?? b.bikes) - b.docks - ((a.forecastBikes ?? a.bikes) - a.docks)) : a.risk === 'EMPTY' ? -1 : 1)),
+)
+// 재고를 처음 받으면(구역을 바꾼 뒤에도) 가장 급한 대여소를 골라 둔다. 그 뒤에는 사람이 고른 것(선택 해제 포함)을 바꾸지 않는다.
+let autoPick = true
+watch(riskOrder, (r) => {
+  if (!autoPick || !r[0]) return
+  mapSelected.value ??= r[0].stationId
+  autoPick = false
+})
+// 다른 구역의 대여소·트럭 선택은 남기지 않는다
+watch(regionId, () => {
+  mapSelected.value = forecastSelected.value = routeSelected.value = focusTruck.value = null
+  preview.value = null
+  autoPick = true
+})
+const riskCounts = computed(() => (['EMPTY', 'OVERFLOW', 'NONE'] as const).map((k) => ({ k, n: stations.value.filter((s) => s.risk === k).length })))
 
-const routeOf = (id: string) => plan.routes.find((r) => r.truckId === id)!
 function progress(r: Schemas['Route']) {
-  return Math.round((r.stops.filter((s) => s.status === 'DONE').length / r.stops.length) * 100)
+  return r.stops.length ? Math.round((r.stops.filter((s) => s.status === 'DONE').length / r.stops.length) * 100) : 0
 }
-// 트럭이 다음 정류장까지 얼마나 왔는지 (타임라인 선을 그만큼 더 잇는다)
-const legs = Object.fromEntries(plan.routes.map((r) => [r.truckId, legOf(r, truckOf(r.truckId), stationById)]))
+// 트럭이 다음 정류장 구간의 어디쯤인지 (타임라인에 트럭 표시를 둔다)
+const legs = computed(() => Object.fromEntries(routes.value.map((r) => [r.truckId, legOf(r, truckOf(r.truckId), stationById.value)])))
+// 적재 패널의 트럭: 고른 트럭이 이 계획에 없으면(근무조를 바꿨다) 첫 트럭
+const loadTruckId = computed(() => (routes.value.some((r) => r.truckId === loadTruck.value) ? loadTruck.value : routes.value[0]?.truckId ?? null))
 const loadInfo = computed(() => {
-  const t = truckOf(loadTruck.value)!
-  const r = routeOf(loadTruck.value)
+  const r = routes.value.find((x) => x.truckId === loadTruckId.value)
+  const t = r && truckOf(r.truckId)
+  if (!r || !t) return null
   // 지도 진행선(legOf)과 같은 기준: 남은 정류장은 PENDING만. 건너뛴(SKIPPED) 곳은 다음 정류장이 아니다.
   const left = r.stops.filter((s) => (s.status ?? 'PENDING') === 'PENDING')
   return { t, next: left[0], left: left.length }
@@ -135,7 +176,7 @@ function pickTruck(id: string | null) {
 }
 
 function showPreview(card: LiveCard | null, scroll: boolean) {
-  preview.value = card ? previewOf(card, stations) : null
+  preview.value = card ? previewOf(card, stations.value) : null
   if (card && scroll) go('view')
 }
 
@@ -178,7 +219,12 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
     <aside class="rail">
       <section class="rail-card shift">
         <p class="eyebrow">오늘 근무조</p>
-        <strong class="region">{{ DUMMY_REGION.name }}</strong>
+        <label class="slot region-pick">
+          <span class="sr-only">구역</span>
+          <select v-model="regionId" class="region">
+            <option v-for="r in REGIONS" :key="r.id" :value="r.id">{{ r.name }} ({{ r.id }})</option>
+          </select>
+        </label>
         <label class="slot">
           <span class="sr-only">시간대</span>
           <select v-model="slot" :title="shiftId">
@@ -186,16 +232,22 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
           </select>
         </label>
         <div class="shift-badges">
-          <span class="badge ACTIVE">계획 v{{ plan.version }} 활성</span>
-          <!-- 권역 선택이 아직 없어 근무조는 시연 권역(DUMMY_REGION)으로 고정이다 -->
-          <span class="dummy-tag">시연 권역</span>
-          <span class="dummy-tag">계획·지도 더미</span>
+          <span v-if="plan" :class="['badge', plan.status === 'PROPOSED' ? 'WAITING_APPROVAL' : plan.status]">계획 v{{ plan.version }} {{ planStatusLabel[plan.status] }}</span>
+          <span v-else-if="planState === 'ready'" class="badge">계획 없음</span>
         </div>
-        <span v-if="unapprovedChanges === 0" class="safety">
+        <p class="data-state" role="status">
+          <template v-if="stationsError">재고를 읽지 못했다: {{ stationsError }}</template>
+          <template v-else-if="stationsState === 'loading'">재고 읽는 중</template>
+          <template v-else-if="!stations.length">실시간 재고가 아직 없다 (수집기 확인)</template>
+          <template v-else>재고 {{ timeOf(observedAt) }} 기준 · {{ stations.length }}곳</template>
+          <template v-if="planError"><br />계획을 읽지 못했다: {{ planError }}</template>
+        </p>
+        <!-- 무승인 변경 수 (GET /api/shifts/{shiftId}/safety, 반드시 0). 못 읽었으면 표시하지 않는다 -->
+        <span v-if="safety && safety.unapprovedChanges === 0" class="safety" :title="`승인으로 바뀐 계획 ${safety.approvedChanges}건`">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3z" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>
           모든 변경은 사람이 승인했다
         </span>
-        <span v-else class="safety bad">⚠ 승인 없이 바뀐 변경 {{ unapprovedChanges }}건</span>
+        <span v-else-if="safety" class="safety bad">⚠ 승인 없이 바뀐 변경 {{ safety.unapprovedChanges }}건</span>
       </section>
 
       <nav class="rail-nav" aria-label="대시보드 화면">
@@ -203,14 +255,14 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="n.icon" /></svg>
           {{ n.label }}
           <span v-if="n.id === 'agent' && pending.length" class="nav-count">{{ pending.length }}</span>
-          <span v-if="n.id === 'dropped'" class="nav-count gray">{{ plan.unserved.length }}</span>
+          <span v-if="n.id === 'dropped'" class="nav-count gray">{{ unserved.length }}</span>
         </button>
       </nav>
 
       <section class="rail-card stats">
         <p class="eyebrow">근무조 요약</p>
         <dl>
-          <div><dt>운행 트럭</dt><dd>{{ plan.routes.length }}대</dd></div>
+          <div><dt>운행 트럭</dt><dd>{{ routes.length }}대</dd></div>
           <div><dt>정류장</dt><dd>{{ doneStops }}/{{ allStops.length }}곳</dd></div>
           <div><dt>회수할 자전거</dt><dd>{{ movedBikes }}대</dd></div>
           <div><dt>위험 대여소</dt><dd>{{ riskOrder.length }}곳</dd></div>
@@ -230,7 +282,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
             <div class="truck-chips" role="group" aria-label="트럭 경로 골라 보기">
               <button :class="['chip', { on: !focusTruck && !preview }]" :aria-pressed="!focusTruck && !preview" @click="pickTruck(null)">전체</button>
               <button
-                v-for="r in plan.routes"
+                v-for="r in routes"
                 :key="r.truckId"
                 :class="['chip', { on: !preview && focusTruck === r.truckId }]"
                 :style="{ '--c': colors[r.truckId] }"
@@ -242,22 +294,12 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
             </div>
           </div>
 
-          <IsoStationView
-            v-if="view === '3d'"
-            class="scene-svg"
-            :stations="stations"
-            :routes="plan.routes"
-            :trucks="trucks"
-            :colors="colors"
-            :selected="mapSelected"
-            :focus-truck="focusTruck"
-            :preview="preview"
-            @select="mapSelected = $event"
-          />
-          <div v-else class="flat-map">
-            <StationMap
+          <template v-if="stations.length">
+            <IsoStationView
+              v-if="view === '3d'"
+              class="scene-svg"
               :stations="stations"
-              :routes="plan.routes"
+              :routes="routes"
               :trucks="trucks"
               :colors="colors"
               :selected="mapSelected"
@@ -265,33 +307,48 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
               :preview="preview"
               @select="mapSelected = $event"
             />
-          </div>
-          <aside v-if="view === '3d'" class="map-truck-load" aria-label="트럭 적재">
+            <div v-else class="flat-map">
+              <StationMap
+                :stations="stations"
+                :routes="routes"
+                :trucks="trucks"
+                :colors="colors"
+                :selected="mapSelected"
+                :focus-truck="focusTruck"
+                :preview="preview"
+                @select="mapSelected = $event"
+              />
+            </div>
+          </template>
+          <p v-else class="scene-empty">
+            {{ stationsState === 'loading' ? '대여소 재고를 읽는 중' : `${regionName}에 실시간 재고가 들어온 대여소가 아직 없다. 수집기(collector)가 5분마다 넣는다.` }}
+          </p>
+          <aside v-if="view === '3d' && stations.length && loadInfo" class="map-truck-load" aria-label="트럭 적재">
             <div class="map-truck-head">
               <h2>트럭 적재</h2>
               <span>{{ loadInfo.t.load }} / {{ loadInfo.t.capacity }}대</span>
             </div>
             <div class="truck-chips small" role="group" aria-label="적재를 볼 트럭">
               <button
-                v-for="r in plan.routes"
+                v-for="r in routes"
                 :key="r.truckId"
-                :class="['chip', { on: loadTruck === r.truckId }]"
+                :class="['chip', { on: loadTruckId === r.truckId }]"
                 :style="{ '--c': colors[r.truckId] }"
-                :aria-pressed="loadTruck === r.truckId"
+                :aria-pressed="loadTruckId === r.truckId"
                 @click="pickTruck(r.truckId)"
               >{{ r.truckId }}</button>
             </div>
-            <TruckLoad :load="loadInfo.t.load" :capacity="loadInfo.t.capacity" :color="colors[loadTruck]!" />
+            <TruckLoad :load="loadInfo.t.load" :capacity="loadInfo.t.capacity" :color="colors[loadInfo.t.truckId]!" />
             <details class="map-truck-extra">
               <summary>운행·정류장 상세</summary>
               <dl class="map-truck-facts">
-                <div><dt>트럭 · 기사</dt><dd>{{ loadTruck }} · {{ loadInfo.t.driver }}</dd></div>
-                <div><dt>상태</dt><dd>{{ loadInfo.t.moving ? '운행 중' : '정차' }} · {{ loadInfo.t.updatedSec }}초 전</dd></div>
+                <div><dt>트럭</dt><dd>{{ loadInfo.t.truckId }}</dd></div>
+                <div><dt>위치</dt><dd>{{ whereText(loadInfo.t.truckId) }} · 정류장 기준 (GPS 아님)</dd></div>
                 <div><dt>적재</dt><dd>{{ loadInfo.t.load }} / {{ loadInfo.t.capacity }}대</dd></div>
                 <div><dt>남은 정류장</dt><dd>{{ loadInfo.left }}곳</dd></div>
-                <div><dt>다음 정류장</dt><dd v-if="loadInfo.next">{{ loadInfo.next.stationName }} · {{ actionLabel[loadInfo.next.action] }} {{ loadInfo.next.bikes }}대 · {{ timeOf(loadInfo.next.eta) }}</dd><dd v-else>모든 정류장을 마쳤다</dd></div>
+                <div><dt>다음 정류장</dt><dd v-if="loadInfo.next">{{ nameOf(loadInfo.next) }} · {{ actionLabel[loadInfo.next.action] }} {{ loadInfo.next.bikes }}대 · {{ timeOf(loadInfo.next.eta) }}</dd><dd v-else>모든 정류장을 마쳤다</dd></div>
               </dl>
-              <button class="ghost map-truck-focus" @click="pickTruck(loadTruck)">지도에서 이 트럭만 보기</button>
+              <button class="ghost map-truck-focus" @click="pickTruck(loadInfo.t.truckId)">지도에서 이 트럭만 보기</button>
             </details>
           </aside>
           <div v-if="preview" class="preview-banner" role="status">
@@ -308,12 +365,12 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
           </div>
           <div v-if="nextStop" class="next-card">
             <span class="label">다음 도착</span>
-            <strong><i :style="{ background: colors[nextStop.truckId] }" />{{ nextStop.truckId }} → {{ nextStop.stationName }}</strong>
+            <strong><i :style="{ background: colors[nextStop.truckId] }" />{{ nextStop.truckId }} → {{ nameOf(nextStop) }}</strong>
             <span class="big">{{ timeOf(nextStop.eta) }} <small>{{ actionLabel[nextStop.action] }} {{ nextStop.bikes }}대</small></span>
             <span class="label">계획 진행</span>
             <div class="bar-row">
-              <div class="bar"><span :style="{ width: `${(doneStops / allStops.length) * 100}%` }" /></div>
-              <b>{{ Math.round((doneStops / allStops.length) * 100) }}%</b>
+              <div class="bar"><span :style="{ width: `${donePct}%` }" /></div>
+              <b>{{ donePct }}%</b>
             </div>
           </div>
 
@@ -384,8 +441,8 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
           </header>
           <AgentChat
             :pending="pending"
-            :summary="plan.explanation ?? ''"
-            :version="plan.version"
+            :summary="plan?.explanation ?? ''"
+            :version="plan?.version ?? 0"
             :log="log"
             :previewing="preview?.approvalId"
             :busy="busy"
@@ -402,13 +459,13 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
           <section class="card w-ring">
             <header class="w-head"><h2>경로 진행률</h2></header>
             <div class="ring-big">
-              <RingGauge :value="doneStops / allStops.length" :size="128" :stroke="13">
-                <span class="ring-pct">{{ Math.round((doneStops / allStops.length) * 100) }}%</span>
+              <RingGauge :value="donePct / 100" :size="128" :stroke="13">
+                <span class="ring-pct">{{ donePct }}%</span>
                 <span class="ring-sub">{{ doneStops }}/{{ allStops.length }} 정류장</span>
               </RingGauge>
             </div>
             <ul class="per-truck">
-              <li v-for="r in plan.routes" :key="r.truckId" :style="{ '--c': colors[r.truckId] }">
+              <li v-for="r in routes" :key="r.truckId" :style="{ '--c': colors[r.truckId] }">
                 <span class="t-badge">{{ r.truckId }}</span>
                 <div class="mini"><span :style="{ width: `${progress(r)}%` }" /></div>
                 <b>{{ progress(r) }}%</b>
@@ -419,14 +476,16 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
         </div>
         <section class="card route-list">
           <header class="w-head"><h2>트럭별 경로</h2><span class="hint">정류장을 누르면 이 화면에서 자세히 본다</span></header>
-          <div v-for="r in plan.routes" :key="r.truckId" class="route" :style="{ '--c': colors[r.truckId] }">
+          <p v-if="!routes.length" class="hint section-hint">{{ planState === 'loading' ? '계획을 읽는 중' : `근무조 ${shiftId}에 계획이 없다. 작업 콘솔에서 계획 초안을 요청한다.` }}</p>
+          <div v-for="r in routes" :key="r.truckId" class="route" :style="{ '--c': colors[r.truckId] }">
             <div class="route-head">
               <span class="t-badge big">{{ r.truckId }}</span>
               <div class="route-name">
-                <strong>{{ r.truckId }} · {{ truckOf(r.truckId)?.driver }}</strong>
+                <strong>{{ r.truckId }}</strong>
+                <!-- 위치·적재는 트럭 상태 API (마지막으로 끝낸 정류장, 없으면 차고지) -->
                 <span class="hint">
-                  <i :class="['live', { moving: truckOf(r.truckId)?.moving }]" />{{ truckOf(r.truckId)?.moving ? '운행 중' : '정차' }} · 적재 {{ truckOf(r.truckId)?.load }}/{{ truckOf(r.truckId)?.capacity }}
-                  <template v-if="legs[r.truckId]"> · {{ r.stops[legs[r.truckId]!.next]!.stationName }}까지 {{ Math.round(legs[r.truckId]!.ratio * 100) }}% 왔다</template>
+                  {{ whereText(r.truckId) }} · 적재 {{ truckOf(r.truckId)?.load }}/{{ truckOf(r.truckId)?.capacity }}
+                  <template v-if="legs[r.truckId]"> · 다음 {{ nameOf(r.stops[legs[r.truckId]!.next]!) }}</template>
                 </span>
               </div>
               <b class="pct">{{ progress(r) }}%</b>
@@ -442,11 +501,11 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
                 @keydown.enter="selectRouteStation(s.stationId)"
               >
                 <!-- 트럭이 이 정류장으로 오는 중이면 선을 온 만큼 더 잇고 그 끝에 트럭을 둔다 -->
-                <span v-if="legs[r.truckId]?.next === i" class="tl-truck" :title="`${r.truckId} · ${s.stationName}까지 ${Math.round(legs[r.truckId]!.ratio * 100)}% 왔다`" aria-hidden="true">
+                <span v-if="legs[r.truckId]?.next === i" class="tl-truck" :title="`${r.truckId} · 다음 ${nameOf(s)}`" aria-hidden="true">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" /><circle cx="7" cy="18" r="1.6" /><circle cx="17" cy="18" r="1.6" /></svg>
                 </span>
                 <span class="node">{{ s.status === 'DONE' ? '✓' : s.seq }}</span>
-                <span class="tl-name">{{ s.stationName }}</span>
+                <span class="tl-name">{{ nameOf(s) }}</span>
                 <span class="tl-sub">{{ actionLabel[s.action] }} {{ s.bikes }} · {{ timeOf(s.eta) }}</span>
               </li>
             </ol>
@@ -455,14 +514,15 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
       </div>
 
       <section v-show="active === 'dropped'" id="dropped" class="card">
-        <header class="w-head"><h2>이번 계획에서 빠진 대여소</h2><span class="count-pill gray">{{ plan.unserved.length }}</span></header>
+        <header class="w-head"><h2>이번 계획에서 빠진 대여소</h2><span class="count-pill gray">{{ unserved.length }}</span></header>
         <p class="hint section-hint">이번 계획에서 들르지 않는 곳. 숫자는 우선순위(높을수록 급함), 누르면 이유와 재고를 이 자리에서 펼친다</p>
         <ul class="dropped-list">
-          <li v-for="u in plan.unserved" :key="u.stationId" :class="{ open: openDropped === u.stationId }">
+          <li v-if="!unserved.length" class="hint">{{ plan ? '이번 계획은 위험 대여소를 모두 들른다' : '계획이 없다' }}</li>
+          <li v-for="u in unserved" :key="u.stationId" :class="{ open: openDropped === u.stationId }">
             <button class="drop-head" :aria-expanded="openDropped === u.stationId" @click="openDrop(u.stationId)">
               <RingGauge :value="u.priority" :size="40" :stroke="5" color="var(--ink-3)">{{ u.priority.toFixed(2) }}</RingGauge>
               <span class="drop-text">
-                <strong>{{ u.stationName }}</strong>
+                <strong>{{ nameOf(u) }}</strong>
                 <span v-if="stationOf(u.stationId)" class="hint">
                   재고 {{ stationOf(u.stationId)!.bikes }}/{{ stationOf(u.stationId)!.docks }} · 3시간 뒤 {{ stationOf(u.stationId)!.forecastBikes ?? '-' }}대 ·
                   <span :class="['risk', stationOf(u.stationId)!.risk]">{{ riskLabel[stationOf(u.stationId)!.risk] }}</span>
@@ -508,10 +568,12 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .rail { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 12px; }
 .rail-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
 .shift { background: var(--sky); border-color: #d3e7f3; }
-.region { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.region-pick select.region { padding: 2px 4px; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); border-color: transparent; background-color: transparent; }
+.region-pick select.region:hover, .region-pick select.region:focus { border-color: var(--line); }
 .slot select { width: 100%; padding: 5px 8px; font-size: 13px; color: var(--ink-2); }
 .shift-badges { margin: 6px 0 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .shift-badges .badge { margin: 0; }
+.data-state { margin: 0 0 6px; font-size: 11px; color: var(--ink-3); line-height: 1.5; }
 /* 에이전트 소식(SSE) 연결 상태 */
 .feed-state { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
 .feed-state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; }
@@ -525,7 +587,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .rail-nav button { display: flex; align-items: center; gap: 10px; padding: 9px 10px; background: transparent; color: var(--ink-2); font-weight: 600; font-size: 13px; text-align: left; border-radius: 10px; }
 /* 지금 보는 탭은 마우스를 올려도 강조색을 지킨다 (누른 직후 글자가 배경에 묻히지 않게) */
 .rail-nav button:hover:not(:disabled):not(.on) { background: #f4f7f9; }
-.rail-nav button.on { background: var(--brand); color: #fff; box-shadow: 0 4px 10px rgb(15 157 88 / 0.25); }
+.rail-nav button.on { background: var(--brand); color: #fff; }
 .nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px; text-align: center; background: var(--overflow); color: #fff; }
 .nav-count.gray { background: #e2e8f0; color: var(--ink-2); }
 .rail-nav button.on .nav-count { background: #fff; color: var(--brand-strong); }
@@ -537,6 +599,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 /* 3D 관제 뷰 */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) 236px; padding: 0; overflow: hidden; }
 .scene { position: relative; min-height: 560px; background: var(--sky); display: flex; flex-direction: column; }
+.scene-empty { margin: auto; padding: 24px; max-width: 360px; text-align: center; font-size: 14px; color: var(--ink-3); }
 .scene-svg { flex: 1; padding: 56px 8px 8px; max-height: 640px; }
 .flat-map { padding: 60px 16px 16px; }
 .scene-top { position: absolute; top: 14px; left: 14px; right: 14px; display: flex; gap: 10px; flex-wrap: wrap; z-index: 2; }
@@ -655,8 +718,6 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .per-truck b { min-width: 34px; text-align: right; }
 dt { color: var(--ink-3); font-size: 11px; font-weight: 600; }
 dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
-.live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); margin-right: 5px; vertical-align: 1px; }
-.live.moving { background: var(--ok); box-shadow: 0 0 0 3px rgb(16 185 129 / 0.2); }
 
 /* 트럭별 경로 타임라인 · 빠진 대여소 */
 .route { padding: 14px 0; border-top: 1px solid #f1f5f9; }

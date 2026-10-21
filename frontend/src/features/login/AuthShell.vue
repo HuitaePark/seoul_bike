@@ -45,7 +45,7 @@ import CityScene from './CityScene.vue'
 }
 .panel { display: flex; flex-direction: column; padding: 48px 56px 32px; }
 .identity { display: flex; align-items: center; gap: 14px; margin-top: auto; } /* 폼 묶음을 세로 가운데에 */
-.mark { flex: none; width: 52px; height: 52px; border-radius: 15px; background: var(--brand); display: grid; place-items: center; box-shadow: 0 6px 16px rgb(15 157 88 / 0.3); }
+.mark { flex: none; width: 52px; height: 52px; border-radius: 15px; background: var(--brand); display: grid; place-items: center; }
 .company { display: block; font-size: 30px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); line-height: 1.15; }
 .product { display: block; font-size: 15px; font-weight: 600; color: var(--brand-strong); margin-top: 2px; }
 .tagline { margin: 18px 0 32px; font-size: 15px; color: var(--ink-2); }

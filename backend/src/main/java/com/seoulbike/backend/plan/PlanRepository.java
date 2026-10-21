@@ -3,8 +3,11 @@ package com.seoulbike.backend.plan;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -81,14 +84,31 @@ class PlanRepository {
 			.optional();
 	}
 
+	/** 대여소 ID → 이름 (기준 정보, 운영 여부와 상관없이). 계획 JSON에는 ID만 있어 화면 응답에 이름을 붙일 때 쓴다. */
+	Map<String, String> stationNames(Collection<String> stationIds) {
+		if (stationIds.isEmpty()) {
+			return Map.of();
+		}
+		return jdbc.sql("select station_id, name from ref.stations where station_id in (:ids)")
+			.param("ids", stationIds)
+			.query((rs, i) -> Map.entry(rs.getString("station_id"), rs.getString("name")))
+			.list()
+			.stream()
+			.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+	}
+
+	/** 기사 경로와 그 경로가 속한 근무조. 기사 계정에는 근무조가 없어 화면이 현장 보고·구역 대여소 조회에 이 근무조를 쓴다. */
+	record DriverRoute(String shiftId, String routeJson) {
+	}
+
 	/**
 	 * 그날(shiftId `{regionId}:{yyyy-MM-dd}:{slot}`의 날짜) 근무조의 ACTIVE 계획 중 이 트럭이 있고 가장 늦게 활성화된 것의 그 트럭
 	 * 경로(계약 Route JSON). 기사 계정에는 근무조가 없어 트럭과 날짜로 찾는다. 지난 근무조의 ACTIVE는 닫히지 않고 남으므로
 	 * 날짜로 거르지 않으면 어제 경로가 나온다.
 	 */
-	Optional<String> activeRouteOf(String truckId, LocalDate day) {
+	Optional<DriverRoute> activeRouteOf(String truckId, LocalDate day) {
 		return jdbc.sql("""
-				select r.route::text
+				select p.shift_id, r.route::text as route
 				from plans p cross join lateral jsonb_array_elements(p.routes) as r(route)
 				where p.status = 'ACTIVE' and split_part(p.shift_id, ':', 2) = :day and r.route ->> 'truckId' = :truckId
 				order by p.activated_at desc nulls last, p.created_at desc
@@ -96,8 +116,32 @@ class PlanRepository {
 				""")
 			.param("day", day.toString())
 			.param("truckId", truckId)
-			.query(String.class)
+			.query((rs, i) -> new DriverRoute(rs.getString("shift_id"), rs.getString("route")))
 			.optional();
+	}
+
+	/** 같은 버전 안에서 경로 JSON만 고친다 (정류장 진행 기록, RouteProgress). 경로를 바꾸는 변경은 새 버전으로 남긴다. */
+	void updateRoutes(String planId, String routesJson) {
+		jdbc.sql("update plans set routes = cast(:routes as jsonb) where plan_id = :planId")
+			.param("routes", routesJson)
+			.param("planId", planId)
+			.update();
+	}
+
+	/** 근무조에서 활성화된 적 있는 계획 버전 수. 활성화한 승인이 APPROVED가 아니면(없으면) 무승인이다. */
+	record Activations(int approved, int unapproved) {
+	}
+
+	Activations activations(String shiftId) {
+		return jdbc.sql("""
+				select count(*) filter (where a.status = 'APPROVED') as approved,
+				       count(*) filter (where a.status is distinct from 'APPROVED') as unapproved
+				from plans p left join approvals a on a.approval_id = p.activated_by_approval
+				where p.shift_id = :shiftId and p.activated_at is not null
+				""")
+			.param("shiftId", shiftId)
+			.query((rs, i) -> new Activations(rs.getInt("approved"), rs.getInt("unapproved")))
+			.single();
 	}
 
 	/**

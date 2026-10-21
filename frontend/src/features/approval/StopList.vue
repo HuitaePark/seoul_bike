@@ -17,6 +17,10 @@ withDefaults(
   { selectable: false, selected: () => [], marks: () => ({}) },
 )
 const emit = defineEmits<{ toggle: [stationId: string] }>()
+
+// 도착 예정 시각. MCP 응답이 길면 eta가 빠져 오므로 있을 때만 붙인다 (#91: 대시보드는 같은 계획의 경로로 채운다)
+const etaText = (s: Stop) =>
+  s.eta ? ` · ${new Date(s.eta).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul' })}` : ''
 </script>
 
 <template>
@@ -29,10 +33,10 @@ const emit = defineEmits<{ toggle: [stationId: string] }>()
         :aria-pressed="selected.includes(s.stationId)"
         @click="emit('toggle', s.stationId)"
       >
-        {{ s.stationId }} {{ actionLabel[s.action] }} {{ s.bikes }}대
+        {{ s.stationId }} {{ actionLabel[s.action] }} {{ s.bikes }}대{{ etaText(s) }}
       </button>
       <span v-else :class="['stop', s.action, marks[s.stationId]]">
-        {{ s.stationId }} {{ actionLabel[s.action] }} {{ s.bikes }}대
+        {{ s.stationId }} {{ actionLabel[s.action] }} {{ s.bikes }}대{{ etaText(s) }}
       </span>
     </li>
   </ol>

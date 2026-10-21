@@ -9,7 +9,7 @@
     "typecheck": "vue-tsc -b",
     "preview": "vite preview",
     "gen:api": "npx -y openapi-typescript@7.13.0 ../docs/specs/openapi.yaml -o src/shared/api/schema.d.ts",
-    "test": "node --experimental-strip-types --test tests/plan-review.test.ts tests/dashboard.test.ts tests/live-feed.test.ts",
+    "test": "node --experimental-strip-types --test tests/plan-review.test.ts tests/dashboard.test.ts tests/live-feed.test.ts tests/style-rules.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
