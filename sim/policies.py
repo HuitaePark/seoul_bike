@@ -101,7 +101,7 @@ class Agent(Policy):
     공급이 넉넉한 구역에서까지 빼면 뺀 곳의 실패가 더 늘었다(기준 묶음 강남-05 +118건).
     replan_h를 주면 엔진이 근무조 안에서 그 간격마다 다시 부른다(그 시각의 실제 재고와 새 예측으로).
     경로는 5의 plan_routes(OR-Tools)를 그대로 쓴다.
-    경로 탐색은 5의 기본값을 따른다(해 50개에서 멈춤, 실행마다 같은 답). time_limit_s는 주지 않는다(주면 CPU 부하에 따라 답이 바뀐다).
+    경로 탐색은 5의 기본값을 따른다(해 50개에서 멈춤, 거의 늘 같은 답). time_limit_s는 주지 않는다(주면 CPU 부하에 따라 답이 바뀐다).
     carry_trucks이면 엔진이 근무조 안에서 트럭의 현재 위치·적재량·남은 근무 시간을 Truck으로 넘긴다(PRD v0.2 재경로).
     아니면 다시 계획할 때마다 거점에서 반쯤 싣고 출발한다. sim_travel이면 최적화기에 엔진과 같은 이동 시간을 준다(합의 19번).
     fail_priority를 주면 대여소를 포기하는 벌점 점수를 대수 × 가중치 대신 실패 대여 기대값으로 둔다(PRD 우선순위):
@@ -141,7 +141,7 @@ class Agent(Policy):
             sd = [0.0] + [math.sqrt(x) for x in accumulate(f.rentals_h)]
             need = max(LOW + self.z * d - t for t, d in zip(traj, sd))  # 이만큼 더 있어야 버틴다
             spare = -max(LOW + self.z_pick * d - t for t, d in zip(traj, sd))  # 빼도 버티는 양
-            sure = max(t - self.z_pick * d for t, d in zip(traj, sd))  # 궤적 최고의 아래쪽 추정
+            sure = max(t - self.z_pick * d for t, d in zip(traj, sd))  # 궤적 최고의 아래쪽 추정(대여 불확실성만 본다. 반납 쪽은 보지 않는다)
             if need > 0:
                 delta = -math.ceil(need)
             elif s.id in self.sources and s.capacity and max(traj) > s.capacity and spare > 0:
