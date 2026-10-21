@@ -5,6 +5,7 @@ import java.time.Instant;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,7 +25,8 @@ import com.seoulbike.backend.common.ApiException;
 @RestController
 class AuthController {
 
-	record LoginRequest(@NotBlank String loginId, @NotBlank String password) {
+	/** loginId 길이를 막아 둔다 (DB 컬럼 64자). 로그인 실패 제한이 아이디를 메모리 키로 쓴다. */
+	record LoginRequest(@NotBlank @Size(max = 64) String loginId, @NotBlank String password) {
 	}
 
 	record LoginResponse(String accessToken, String tokenType, long expiresIn, CurrentUser user) {
@@ -47,8 +49,8 @@ class AuthController {
 
 	@PostMapping("/api/auth/login")
 	LoginResponse login(@Valid @RequestBody LoginRequest req) {
-		// 막혀 있으면 비밀번호를 보지 않는다. 맞는 비밀번호로도 창이 끝날 때까지 기다려야 대입을 늦춘다.
-		Duration blocked = throttle.blockedFor(req.loginId());
+		// 비밀번호를 보기 전에 시도를 센다. 막혀 있으면 맞는 비밀번호도 보지 않는다 (대입을 늦춘다).
+		Duration blocked = throttle.tryAcquire(req.loginId());
 		if (!blocked.isZero()) {
 			throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_LOGIN_FAILURES",
 					"비밀번호를 여러 번 틀려 잠시 막았다. " + (blocked.toMinutes() + 1) + "분 안에 다시 시도한다");
@@ -56,10 +58,8 @@ class AuthController {
 		// 아이디가 없는 경우와 비밀번호가 틀린 경우를 구분하지 않는다.
 		var stored = users.findByLoginId(req.loginId())
 			.filter(u -> passwords.matches(req.password(), u.passwordHash()))
-			.orElseThrow(() -> {
-				throttle.failed(req.loginId());
-				return new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "아이디 또는 비밀번호가 맞지 않다");
-			});
+			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
+					"아이디 또는 비밀번호가 맞지 않다"));
 		throttle.succeeded(req.loginId());
 		// 상태는 비밀번호가 맞을 때만 알려준다. 남의 계정 상태를 떠보지 못하게 한다.
 		switch (stored.status()) {
