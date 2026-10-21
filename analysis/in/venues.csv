@@ -1,10 +1,31 @@
-venue,place,lat,lon
-상암,서울월드컵경기장,37.5683,126.8972
-KSPO,KSPO DOME(올림픽공원),37.5203,127.1268
-고척,고척스카이돔,37.4982,126.8671
-여의도,여의도한강공원,37.5284,126.9326
-광화문,광화문광장,37.572,126.9769
-잠실야구장,잠실야구장,37.5122,127.0719
-잠실실내체육관,잠실실내체육관,37.5164,127.076
-잠실학생체육관,잠실학생체육관,37.5122,127.0754
-장충체육관,장충체육관,37.5581,127.0067
+venue,place,lat,lon,source
+상암,서울월드컵경기장,37.5683,126.8972,역산 정리 행사 분석 (analysis/rebal/17_events_all.py)
+KSPO,KSPO DOME(올림픽공원),37.5203,127.1268,역산 정리 행사 분석 (analysis/rebal/17_events_all.py)
+고척,고척스카이돔,37.4982,126.8671,역산 정리 행사 분석 (analysis/rebal/17_events_all.py)
+여의도,여의도한강공원,37.5284,126.9326,역산 정리 행사 분석 (analysis/rebal/17_events_all.py)
+광화문,광화문광장,37.572,126.9769,역산 정리 행사 분석 (analysis/rebal/17_events_all.py)
+잠실야구장,잠실야구장,37.5122,127.0719,https://ko.wikipedia.org/wiki/서울종합운동장_야구장
+잠실실내체육관,잠실실내체육관,37.5164,127.076,https://ko.wikipedia.org/wiki/잠실실내체육관
+잠실학생체육관,잠실학생체육관,37.5122,127.0754,https://en.wikipedia.org/wiki/Jamsil_Students%27_Gymnasium
+장충체육관,장충체육관,37.5581,127.0067,https://en.wikipedia.org/wiki/Jangchung_Arena
+국회,국회의사당 앞(여의도),37.52861,126.91750,https://en.wikipedia.org/wiki/National_Assembly_station
+경복궁,광화문(경복궁 정문)·동십자각,37.57604,126.97702,https://en.wikipedia.org/wiki/Gwanghwamun
+안국역,안국역·헌법재판소 앞,37.57644,126.98543,https://en.wikipedia.org/wiki/Anguk_station
+남태령,남태령역,37.46379,126.98912,https://en.wikipedia.org/wiki/Namtaeryeong_station
+한남동,한남동 대통령 관저 앞,37.53800,127.00650,https://en.wikipedia.org/wiki/Hannam-dong
+서부지법,서울서부지방법원(공덕역 좌표로 대신함),37.54306,126.95111,https://en.wikipedia.org/wiki/Gongdeok_station
+서울광장,서울광장,37.56556,126.97806,https://en.wikipedia.org/wiki/Seoul_Plaza
+을지로,을지로입구역,37.56600,126.98261,https://itwiki.kr/w/%EC%9D%84%EC%A7%80%EB%A1%9C%EC%9E%85%EA%B5%AC%EC%97%AD
+숭례문,숭례문,37.56000,126.97528,https://en.wikipedia.org/wiki/Sungnyemun
+서울역,서울역 광장,37.55319,126.97260,https://en.wikipedia.org/wiki/Seoul_Station
+동대문,동대문디자인플라자(DDP),37.5669,127.0094,https://en.wikipedia.org/wiki/Dongdaemun_Design_Plaza
+이태원,이태원역,37.53450,126.99440,https://en.wikipedia.org/wiki/Itaewon_station
+홍대,홍대 앞,37.55528,126.92333,https://en.wikipedia.org/wiki/Hongdae_(area)
+보신각,보신각,37.56990,126.98340,https://en.wikipedia.org/wiki/Bosingak
+종로,종로(보신각 좌표로 대신함),37.56990,126.98340,https://en.wikipedia.org/wiki/Bosingak
+잠수교,잠수교(반포대교 하층),37.51550,126.99600,https://en.wikipedia.org/wiki/Banpo_Bridge
+석촌호수,석촌호수,37.51000,127.10300,https://aroundus.com/p/8339043-seokchon-lake-park
+뚝섬,뚝섬한강공원,37.52935,127.06996,https://mapstr.com/place/Y3MgMm5s3B
+올림픽공원,올림픽공원,37.52070,127.12270,https://en.wikipedia.org/wiki/Olympic_Park%2C_Seoul
+청계천,청계광장,37.5692,126.9776,https://ko.wikipedia.org/wiki/청계광장
+중랑천,중랑장미공원,37.61496,127.07326,https://world.nol.com/en/content/pois/24f299d8-fb86-431f-8b48-7c4da3162e3c
