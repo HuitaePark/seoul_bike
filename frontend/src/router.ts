@@ -10,6 +10,8 @@ declare module 'vue-router' {
     roles?: Schemas['Role'][]
     /** 상단 바 없이 화면이 틀을 직접 그린다. mobile은 기사 앱, full은 로그인·회원가입 */
     layout?: 'mobile' | 'full'
+    /** 본문 폭을 넓게 쓴다 (관제 대시보드) */
+    wide?: boolean
   }
 }
 
@@ -29,7 +31,7 @@ export const router = createRouter({
     {
       path: '/dashboard',
       component: () => import('./features/dashboard/DashboardView.vue'),
-      meta: { roles: ['MANAGER'] },
+      meta: { roles: ['MANAGER'], wide: true },
     },
     {
       path: '/driver',
