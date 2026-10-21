@@ -69,7 +69,6 @@ async function submit() {
         <span>계정이 없으신가요?</span>
         <RouterLink to="/signup">회원가입 신청</RouterLink>
       </div>
-      <p class="hint demo">시연 계정: manager · driver1 · driver2 · executive (비밀번호는 팀에 따로 공유)</p>
     </form>
   </AuthShell>
 </template>

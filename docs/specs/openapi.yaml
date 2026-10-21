@@ -1,12 +1,14 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.9.0-draft
+  version: 0.11.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
-    **초안 v0.9.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
+    **초안 v0.11.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
-    - v0.9: 미처리 대여소 사유 `Unserved.reason`을 값 목록으로 (optimizer가 지금 내는 소문자 코드를 대문자로 고정한다).
+    - v0.11: 미처리 대여소 사유 `Unserved.reason`을 값 목록으로 (optimizer가 내던 소문자 코드를 대문자로 고정한다).
+    - v0.10: 근무조 계획 `GET /api/shifts/{shiftId}/plan`은 관리자·책임자만 (기사는 403, `/api/drivers/me/route`). 기사 경로는 오늘(서울 시각) 근무조만.
+    - v0.9: 기사 경로 `GET /api/drivers/me/route`에 404(오늘 경로 없음). SUBMIT_PLAN 카드의 `planId`는 활성화할 계획이다.
     - v0.8: 로그인 실패 제한을 아이디와 접속 IP 묶음으로 센다 (남이 일부러 틀려도 다른 IP에서는 로그인할 수 있다).
     - v0.7: 로그인 실패 제한(429 `TOO_MANY_LOGIN_FAILURES`), 승인 대기 가입 상한(429 `TOO_MANY_PENDING_SIGNUPS`).
     - v0.6: 비활성화한 계정은 이미 받은 토큰도 다음 요청부터 401 (만료를 기다리지 않는다).
@@ -380,15 +382,17 @@ paths:
       operationId: getShiftPlan
       tags: [plans]
       summary: 근무조의 현재 계획 (계획 검토·모니터링)
+      description: 관리자·책임자만. 모든 트럭 경로가 들어 있어 기사는 403이다 (기사는 `/api/drivers/me/route`).
       parameters:
         - $ref: '#/components/parameters/ShiftId'
       responses:
         '200':
-          description: 가장 최근 버전의 계획
+          description: 가장 최근 버전의 계획 (상태와 상관없이. 승인을 기다리는 후보일 수 있다)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Plan' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/drivers/me/route:
@@ -396,7 +400,10 @@ paths:
       operationId: getMyRoute
       tags: [plans]
       summary: 기사 본인 트럭의 오늘 경로
-      description: DRIVER만. 다른 트럭 경로는 볼 수 없다.
+      description: |
+        DRIVER만. 다른 트럭 경로는 볼 수 없다 (트럭은 토큰에서 꺼낸다).
+        오늘(Asia/Seoul) 날짜 근무조(`shiftId`의 `yyyy-MM-dd`)의 ACTIVE 계획 중 이 트럭이 있고 가장 늦게 활성화된 것의 경로다.
+        지난 근무조의 경로는 나오지 않는다. 없으면 404.
       responses:
         '200':
           description: 경로
@@ -405,6 +412,11 @@ paths:
               schema: { $ref: '#/components/schemas/Route' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: 오늘 경로가 없다 (NOT_FOUND)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /api/reports:
     post:
@@ -780,7 +792,9 @@ components:
         reasons:
           type: array
           items: { type: string }
-        planId: { type: [string, 'null'] }
+        planId:
+          type: [string, 'null']
+          description: SUBMIT_PLAN만. 활성화할 계획. 없거나 다른 계획이면 활성화 API가 403으로 막는다
         diff:
           oneOf:
             - $ref: '#/components/schemas/RouteDiff'

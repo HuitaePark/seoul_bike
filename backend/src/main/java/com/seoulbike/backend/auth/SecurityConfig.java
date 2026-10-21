@@ -87,6 +87,9 @@ class SecurityConfig {
 				.requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/signup").permitAll()
 				.requestMatchers("/api/admin/**").hasRole(Role.MANAGER.name())
 				.requestMatchers(HttpMethod.POST, "/api/reports").hasRole(Role.DRIVER.name())
+				.requestMatchers(HttpMethod.GET, "/api/drivers/me/route").hasRole(Role.DRIVER.name())
+				// 근무조 계획에는 모든 트럭 경로가 있다. 기사는 자기 경로(/api/drivers/me/route)만 본다 (NFR-06).
+				.requestMatchers(HttpMethod.GET, "/api/shifts/*/plan").hasAnyRole(Role.MANAGER.name(), Role.EXECUTIVE.name())
 				.requestMatchers(HttpMethod.GET, "/", "/index.html", "/swagger", "/swagger/**", "/specs/**",
 						"/webjars/**", "/actuator/health/**", "/api/system/status")
 				.permitAll()

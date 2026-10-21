@@ -17,12 +17,22 @@ repositories {
 	mavenCentral()
 }
 
+// 보안 패치: Boot 4.1.1(최신 4.1.x)이 관리하는 버전에 알려진 취약점이 있어 같은 계열 패치 버전으로 올린다.
+// 다음 Boot 4.1.x가 이 버전 이상을 관리하면 지운다.
+ext['tomcat.version'] = '11.0.27'          // CVE-2026-65905, CVE-2026-65182, CVE-2026-68525
+ext['jackson-bom.version'] = '3.1.8'       // CVE-2026-89425, CVE-2026-89407, CVE-2026-91777 외
+ext['jackson-2-bom.version'] = '2.21.8'    // 테스트 전용(spring-kafka-test의 임베디드 Kafka) 경로, 같은 CVE
+
 springBoot {
 	// /api/system/status가 버전과 빌드 시각을 보여주도록 META-INF/build-info.properties를 만든다.
 	buildInfo()
 }
 
 dependencies {
+	constraints {
+		// kafka-clients 4.2.1이 끌어오는 lz4-java 1.10.1의 CVE-2026-106451(HIGH) 외 5건. Kafka 4.2.2도 1.11.2라 직접 맞춘다.
+		implementation 'at.yawk.lz4:lz4-java:1.11.4'
+	}
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'
 	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
