@@ -12,13 +12,14 @@ type Route = Schemas['Route']
 export type Leg = { next: number; ratio: number }
 
 /**
- * 마친 정류장(DONE) 다음 정류장으로 가는 중이면 그 구간을 얼마나 왔는지 구한다.
+ * 지난 정류장(DONE·SKIPPED) 다음 정류장으로 가는 중이면 그 구간을 얼마나 왔는지 구한다.
+ * 다음 정류장은 순서상 첫 PENDING이다. DONE 개수로 세면 사이에 건너뛴(SKIPPED) 정류장이 있을 때 그 정류장을 가리킨다.
  * 트럭 GPS 위치를 직전 정류장 → 다음 정류장 직선 위에 투영한다 (권역이 좁아 경도는 위도 cos만 곱해 평면으로 본다).
  * 아직 첫 정류장 전이거나 다 마쳤으면 이을 구간이 없어 null.
  */
 export function legOf(route: Route, truck: TruckLive | undefined, byId: Map<string, Station>): Leg | null {
-  const next = route.stops.filter((s) => s.status === 'DONE').length
-  if (!truck || next === 0 || next >= route.stops.length) return null
+  const next = route.stops.findIndex((s) => (s.status ?? 'PENDING') === 'PENDING')
+  if (!truck || next <= 0) return null
   const a = byId.get(route.stops[next - 1]!.stationId)
   const b = byId.get(route.stops[next]!.stationId)
   if (!a || !b) return null

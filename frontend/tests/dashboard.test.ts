@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { legOf, previewMarks, previewOf, splitAtTruck } from '../src/features/dashboard/route-view.ts'
-import { makeShiftId, searchRegions, todayInSeoul } from '../src/shared/region/regions.ts'
+import { exactRegion, makeShiftId, searchRegions, todayInSeoul } from '../src/shared/region/regions.ts'
 import type { Schemas } from '../src/shared/api/client'
 
 type Station = Schemas['StationStatus']
@@ -30,6 +30,23 @@ test('첫 정류장 전이거나 다 마쳤으면 이을 구간이 없다', () =
   assert.equal(legOf(route(0), truck(37.54, 127.05), byId), null)
   assert.equal(legOf(route(3), truck(37.54, 127.05), byId), null)
   assert.equal(legOf(route(1), undefined, byId), null)
+})
+
+const routeWith = (...status: string[]): Route => ({
+  truckId: 'truck-1',
+  stops: status.map((s, i) => ({ seq: i + 1, stationId: ['A', 'B', 'C'][i]!, action: 'PICKUP', bikes: 1, status: s })),
+}) as Route
+
+test('건너뛴(SKIPPED) 정류장도 지난 것으로 보고 다음 정류장은 첫 PENDING이다', () => {
+  // DONE 개수(2)로 세면 건너뛴 B를 가리킨다
+  assert.equal(legOf(routeWith('DONE', 'SKIPPED', 'PENDING'), truck(37.545, 127.06), byId)?.next, 2)
+  assert.equal(legOf(routeWith('SKIPPED', 'PENDING', 'PENDING'), truck(37.54, 127.05), byId)?.next, 1)
+})
+
+test('건너뛴 정류장을 섞어 다 마쳤으면 이을 구간이 없다', () => {
+  assert.equal(legOf(routeWith('DONE', 'SKIPPED', 'DONE'), truck(37.54, 127.05), byId), null)
+  assert.equal(legOf(routeWith('DONE', 'DONE', 'SKIPPED'), truck(37.54, 127.05), byId), null)
+  assert.equal(legOf(routeWith('SKIPPED', 'SKIPPED', 'SKIPPED'), truck(37.54, 127.05), byId), null)
 })
 
 test('경로 선은 트럭이 온 지점에서 지난 구간과 남은 구간으로 나뉜다', () => {
@@ -70,4 +87,13 @@ test('근무조 ID는 권역·날짜·시간대를 합치고 날짜는 서울 �
   assert.deepEqual(searchRegions('강남-0').map((r) => r.id).slice(0, 2), ['S01', 'S02'])
   assert.deepEqual(searchRegions('광진').map((r) => r.id), ['gwangjin-seongdong'])
   assert.equal(searchRegions('').length, 18)
+})
+
+test('권역 칸은 ID나 이름과 정확히 같은 글자만 권역으로 받는다', () => {
+  assert.equal(exactRegion(' s05 ')?.id, 'S05')
+  assert.equal(exactRegion('광진·성동')?.id, 'gwangjin-seongdong')
+  assert.equal(exactRegion('강남-05')?.id, 'S05')
+  // 고르다 만 검색어는 값이 되지 않는다 (예전에는 `광진:날짜:AM`이 나갔다)
+  assert.equal(exactRegion('광진'), undefined)
+  assert.equal(exactRegion(''), undefined)
 })
