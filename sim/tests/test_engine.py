@@ -68,7 +68,8 @@ class ReplayTest(unittest.TestCase):
 
         stations = [Station(1, "A", 37.500, 127.000, 10, 1), Station(2, "B", 37.501, 127.001, 10, 30),
                     Station(3, "C", 37.502, 127.002, 10, 29), Station(4, "D", 37.503, 127.003, 10, 30)]
-        plan = Agent(Fake(), frozenset({2, 3}), z=0, time_limit_s=1).plan(at(7), stations, (37.501, 127.001), 1, 15)
+        # 트럭은 거점에서 반쯤 싣고 나간다(depot_trucks). 용량 30이면 15대로 출발해 A에 13대를 내리고 B에서 회수할 수 있다
+        plan = Agent(Fake(), frozenset({2, 3}), z=0).plan(at(7), stations, (37.501, 127.001), 1, 30)
         stops = {s.station_id: (s.action, s.bikes) for r in plan.routes for s in r.stops}
         self.assertEqual(stops.get(1), ("dropoff", 13))        # 최저 1 − 12 = −11 → 2대까지 13대
         self.assertEqual(stops.get(2, ("pickup",))[0], "pickup")

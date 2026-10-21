@@ -57,7 +57,8 @@ async def search(client: Client, **args) -> dict:
 def test_evidence_docs_follow_agreement_head(docs):
     """합의 21번 머리말 6개를 모두 갖고, 그 순서로 시작한다."""
     assert {d.doc_id for d in docs} == {"ops-rebalancing-standard", "notice-seoul-fireworks-2025",
-                                         "handover-shift-summary-template", "ref-forecast-kim-2023"}
+                                         "handover-shift-summary-template", "ref-forecast-kim-2023",
+                                         "rebal-summary"}
     for d in docs:
         assert list(d.meta)[: len(AGREEMENT_HEAD)] == list(AGREEMENT_HEAD), d.doc_id
         assert any(s["role"] == "primary" for s in d.meta["sources"])
@@ -192,7 +193,7 @@ async def test_unknown_resource_errors(client):
 # ── pgvector 색인·검색 (실제 DB) ─────────────────────────
 
 DSN = os.environ.get("RAG_TEST_DSN")
-needs_pg = pytest.mark.skipif(not DSN, reason="RAG_TEST_DSN이 없으면 건너뛴다 (CI는 pgvector 서비스로 실행)")
+needs_pg = pytest.mark.skipif(not DSN, reason="RAG_TEST_DSN이 없으면 건너뛴다. 로컬은 pgvector 컨테이너로 실행 (rag-mcp/eval/README.md 4절), CI는 python (rag-mcp) 잡이 pgvector 서비스로 실행")
 
 
 @pytest.fixture

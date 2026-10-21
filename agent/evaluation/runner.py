@@ -22,7 +22,7 @@ from pathlib import Path
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
-from harness import FieldReport, HarnessAgent, ListSink, load_config
+from harness import HarnessAgent, ListSink, load_config
 from harness.config import HarnessConfig
 from harness.contract import TASK_TYPES, ApprovalMismatch, task_from_command
 from harness.prompts import load_prompt
@@ -58,12 +58,17 @@ class Result:
 def command_for(sc: Scenario) -> dict:
     """The `ai.tasks` TaskCommand the backend would send for this scenario (docs/specs asyncapi)."""
     stamp = time.time_ns()
+    task_id = str(uuid.uuid4())
     return {
         "eventId": str(uuid.uuid4()), "schemaVersion": 1, "occurredAt": "2026-10-24T13:06:00+09:00",
         "shiftId": SHIFT_ID, "traceId": f"eval-{sc.id}-{stamp}",
-        "taskId": str(uuid.uuid4()), "threadId": SHIFT_ID, "type": sc.command_type,
-        "text": sc.text or None, "reportId": sc.report["reportId"] if sc.report else None,
-        "requestedBy": {"userId": f"eval-{sc.role.lower()}", "role": sc.role},
+        "taskId": task_id, "threadId": f"{SHIFT_ID}:{task_id}", "type": sc.command_type,
+        "requestedBy": {
+            "userId": f"eval-{sc.role.lower()}", "role": sc.role,
+            "truckId": sc.report["truckId"] if sc.report and sc.role == "DRIVER" else None,
+        },
+        **({"text": sc.text} if sc.text else {}),
+        **({"reportId": sc.report["reportId"], "report": sc.report} if sc.report else {}),
     }
 
 
@@ -88,8 +93,7 @@ async def run_scenario(sc: Scenario, base: HarnessConfig, model_name: str | None
             project=config.observability.eval_project,
             sleep=asyncio.sleep if real else _no_sleep,
         )
-        report = FieldReport.from_contract(sc.report) if sc.report else None
-        task = task_from_command(command_for(sc), report=report, brief=sc.brief, driver_names=DRIVER_NAMES)
+        task = task_from_command(command_for(sc), brief=sc.brief, driver_names=DRIVER_NAMES)
         started = time.monotonic()
         outcomes = [await agent.start(task)]
         approvals: list[dict] = []

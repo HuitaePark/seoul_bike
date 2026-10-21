@@ -2,4 +2,5 @@
 # Date: 20OCT2026
 # Purpose: Python dependencies for the OR-Tools rebalancing example.
 
-ortools>=9.10
+# Pin the solver so repeated inputs are compared with the same search implementation.
+ortools==9.14.6206

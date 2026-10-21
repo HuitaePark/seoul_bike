@@ -15,8 +15,16 @@ from typing import Any
 
 from fastmcp.exceptions import ToolError
 
-# 403 APPROVAL_REQUIRED는 사람의 승인을 기다려야 하므로 모델이 인자만 바꿔 다시 부를 수 없다.
-NOT_RETRYABLE_STATUS = {401, 403}
+# 본문(problem+json)이 없을 때 상태 코드로 정하는 오류 코드와 메시지.
+STATUS_CODES = {
+    400: ("INVALID_ARGUMENT", "요청 형식이 맞지 않습니다. 인자를 고쳐 다시 호출하세요."),
+    401: ("UNAUTHORIZED", "백엔드가 서비스 토큰을 받지 않았습니다 (X-Internal-Token). 운영자에게 알리세요."),
+    403: ("FORBIDDEN", "백엔드가 이 요청을 거부했습니다. 승인이나 권한이 필요합니다."),
+    404: ("NOT_FOUND", "백엔드에 해당 자원이나 API가 없습니다."),
+    409: ("CONFLICT", "백엔드 상태와 충돌합니다. 최신 상태를 다시 조회하세요."),
+}
+# 인자만 고쳐 다시 부르면 되는 경우. 401·403은 사람(운영자·승인자)이 먼저 움직여야 한다.
+RETRYABLE_STATUS = {400, 422}
 
 
 class InternalApiError(Exception):
@@ -38,13 +46,16 @@ class InternalApiError(Exception):
 
     @classmethod
     def from_problem(cls, status: int, body: dict[str, Any]) -> "InternalApiError":
+        """retryable: 다시 부를 때 쓸 값(suggestions)이 있거나 입력 오류(400·422)일 때만. 401·403은 언제나 false."""
         hint: dict[str, Any] = {}
         if body.get("suggestions"):
             hint["candidates"] = body["suggestions"]
+        default_code, default_message = STATUS_CODES.get(status, ("UPSTREAM_ERROR", f"요청이 거부되었습니다({status})."))
+        retryable = status not in (401, 403) and (bool(hint) or status in RETRYABLE_STATUS)
         return cls(
-            body.get("code") or "INVALID_ARGUMENT",
-            body.get("detail") or body.get("title") or f"요청이 거부되었습니다({status}).",
-            retryable=status not in NOT_RETRYABLE_STATUS,
+            body.get("code") or default_code,
+            body.get("detail") or body.get("title") or default_message,
+            retryable=retryable,
             hint=hint,
         )
 

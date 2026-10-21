@@ -1,0 +1,22 @@
+{
+  "eventId": "09a36711-b19a-4375-aa46-32d1cfb53133",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-20T08:00:00+09:00",
+  "shiftId": "demo:2026-10-20:AM",
+  "traceId": "optimizer-contract-example",
+  "requestId": "demo:2026-10-20:AM:1:1",
+  "kind": "REPLAN",
+  "stations": [
+    {"stationId": "ST-10", "lat": 37.001, "lon": 127.0, "neededBikes": 5, "priority": 7.5, "kind": "OVERFLOW"},
+    {"stationId": "ALT-10", "lat": 37.002, "lon": 127.0, "neededBikes": -5, "priority": 15.25, "kind": "EMPTY"}
+  ],
+  "trucks": [
+    {"truckId": "TR-01", "capacity": 15, "load": 0, "lat": 37.001, "lon": 127.0,
+      "availableUntil": "2026-10-20T09:00:00+09:00"},
+    {"truckId": "TR-02", "capacity": 15, "load": 0, "lat": 37.0, "lon": 127.0,
+      "availableUntil": "2026-10-20T09:00:00+09:00", "fixedStationIds": ["ST-10", "ALT-10"]}
+  ],
+  "blockedStationIds": [],
+  "params": {"solutionLimit": 50, "penaltyScale": 3000.5,
+    "serviceMinutesBase": 3, "serviceMinutesPerBike": 0.5}
+}

@@ -26,6 +26,11 @@ MAX_LEAD = 5  # 예측기가 내다보는 최대 시간(forecast/nowcast.py, 합
 FILL_MIN = 5  # 빈 위험 대여소는 max(거치대 절반, 이 값)까지 채운다 (초기값)
 
 
+def depot_trucks(n: int, capacity: int) -> list[Truck]:
+    # 거점 예비 자전거로 반쯤 싣고 출발한다(엔진의 depot_bikes와 같은 가정). 5의 Truck은 출발 적재량을 솔버가 고르지 않는다
+    return [Truck(i, capacity, load=capacity // 2) for i in range(n)]
+
+
 class Policy:
     """정책의 기본 모양. 근무조 시작마다 plan()을 부르고, events()의 대여소 사건은 그 시각에 그대로 반영한다."""
 
@@ -58,7 +63,7 @@ class SimpleRule(Policy):
                 continue
             # 한 번에 트럭 용량을 넘게는 못 옮긴다(plan_greedy는 용량보다 큰 불균형을 아예 건너뛴다)
             todo.append(Imbalance(s.id, max(-truck_capacity, min(truck_capacity, delta))))
-        return plan_greedy(depot, stations, todo, [Truck(i, truck_capacity) for i in range(trucks)])
+        return plan_greedy(depot, stations, todo, depot_trucks(trucks, truck_capacity))
 
 
 class CurrentOps(Policy):
@@ -82,12 +87,13 @@ class Agent(Policy):
     (2025-06-04·11 강남-05에서 회수한 대여소의 실패가 재배치 없음보다 124~223건 늘었다). 공급처는 전해 역산의 회수 대여소다.
     replan_h를 주면 엔진이 근무조 안에서 그 간격마다 다시 부른다(그 시각의 실제 재고와 새 예측으로).
     경로는 5의 plan_routes(OR-Tools)를 그대로 쓴다.
-    shortcut: 포기 벌점이 우선순위 점수가 아니라 plan_routes의 대당 벌점이고, 시간 차원과 트럭 현재 위치 출발이 없어
-              다시 계획할 때마다 거점에서 출발한다. 5가 OR-Tools를 PRD v0.2(우선순위 벌점, 시간 차원, 재경로)에 맞추면 그 입력으로 바꾼다."""
+    경로 탐색은 5의 기본값을 따른다(해 50개에서 멈춤, 실행마다 같은 답). time_limit_s는 주지 않는다(주면 CPU 부하에 따라 답이 바뀐다).
+    shortcut: plan_routes가 트럭의 현재 위치·적재량·남은 근무 시간을 받게 됐지만(PRD v0.2) 엔진은 다시 계획할 때마다
+              거점에서 빈 트럭으로 출발시킨다. 엔진이 트럭 위치·적재량을 들고 다니게 바꾸면 Truck에 넘긴다."""
 
     def __init__(self, predictor, sources: frozenset[int], z: float = 1.0, replan_h: int | None = None,
-                 horizon: int | None = None, time_limit_s: int = 2, z_pick: float | None = None, bridge: bool = False,
-                 shifts: tuple = SHIFTS, solution_limit: int | None = None):
+                 horizon: int | None = None, time_limit_s: int | None = None, z_pick: float | None = None, bridge: bool = False,
+                 shifts: tuple = SHIFTS):
         self.predictor = predictor
         self.sources = sources
         self.z = z  # 배치 여유
@@ -97,7 +103,6 @@ class Agent(Policy):
         self.bridge = bridge  # 근무조 마지막 계획은 다음 근무조 시작까지(최대 MAX_LEAD시간) 버티게 본다
         self.time_limit_s = time_limit_s
         self.shifts = shifts  # 엔진도 이 근무조로 계획 시각을 잡는다
-        self.solution_limit = solution_limit  # 주면 경로 탐색을 해 개수로 멈춘다(실행마다 같은 답). time_limit_s는 안전 상한
 
     def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int) -> Plan:
         h0, h1 = next((a, b) for a, b in self.shifts if a <= now.hour < b)
@@ -120,5 +125,4 @@ class Agent(Policy):
                 continue
             if delta:  # 회수량을 내림하면 0이 될 수 있다
                 todo.append(Imbalance(s.id, max(-truck_capacity, min(truck_capacity, delta))))
-        return plan_routes(depot, stations, todo, [Truck(i, truck_capacity) for i in range(trucks)], time_limit_s=self.time_limit_s,
-                           solution_limit=self.solution_limit)
+        return plan_routes(depot, stations, todo, depot_trucks(trucks, truck_capacity), time_limit_s=self.time_limit_s)

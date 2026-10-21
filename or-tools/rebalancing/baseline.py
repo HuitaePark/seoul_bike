@@ -1,49 +1,54 @@
-# Author: Jung Minkyu
-# Date: 20OCT2026
-# Purpose: Nearest-neighbour greedy dispatcher used as a yardstick for the OR-Tools plan.
-
-"""Nearest-neighbour greedy dispatcher: what a human dispatcher would roughly do.
-
-Exists only as a yardstick so the value of the OR-Tools plan can be quantified.
-"""
+"""Nearest feasible station baseline using the same physical constraints as OR-Tools."""
 from __future__ import annotations
 
-from .geo import haversine_m
-from .models import Imbalance, Plan, Route, Station, Stop, Truck
+from .models import Imbalance, Plan, Route, RoutingStation, Station, Stop, Truck
+from .problem import PlanningOptions, prepare_problem
+from .travel_time import LatLon, TravelTime
 
 
 def plan_greedy(
-    depot: tuple[float, float],
-    stations: list[Station],
+    depot: LatLon,
+    stations: list[Station | RoutingStation],
     imbalances: list[Imbalance],
     trucks: list[Truck],
+    *,
+    travel_time: TravelTime | None = None,
+    options: PlanningOptions | None = None,
+    completed_station_ids: frozenset[int] = frozenset(),
+    blocked_station_ids: frozenset[int] = frozenset(),
 ) -> Plan:
-    by_id = {s.id: s for s in stations}
-    todo = {i.station_id: i for i in imbalances}
+    problem = prepare_problem(
+        depot, stations, imbalances, trucks, travel_time=travel_time, options=options,
+        completed_station_ids=completed_station_ids, blocked_station_ids=blocked_station_ids,
+    )
+    todo = dict(enumerate(problem.imbalances, start=1))
     routes: list[Route] = []
-
-    for truck in trucks:
-        pos, load = depot, truck.capacity // 2
+    served: set[int] = set()
+    distances, durations = problem.matrix.distances_m, problem.matrix.durations_s
+    for vehicle, truck in enumerate(problem.trucks):
+        position, load, elapsed = problem.starts[vehicle], truck.load, 0
         route = Route(truck_id=truck.id, start_load=load)
         while True:
             feasible = [
-                i for i in todo.values()
-                if 0 <= load + i.delta <= truck.capacity
+                node for node, imbalance in todo.items()
+                if 0 <= load + imbalance.delta <= truck.capacity
+                and problem.fixed_vehicles.get(node, vehicle) == vehicle
+                and elapsed + durations[position][node] + problem.service_s(node) + durations[node][0]
+                <= truck.available_time_s
             ]
             if not feasible:
                 break
-            nxt = min(
-                feasible,
-                key=lambda i: haversine_m(*pos, by_id[i.station_id].lat, by_id[i.station_id].lon),
-            )
-            s = by_id[nxt.station_id]
-            route.distance_m += haversine_m(*pos, s.lat, s.lon)
-            load += nxt.delta
-            route.stops.append(Stop(nxt.station_id, nxt.action, abs(nxt.delta), load))
-            pos = (s.lat, s.lon)
-            del todo[nxt.station_id]
+            node = min(feasible, key=lambda n: (distances[position][n], todo[n].station_id))
+            imbalance = todo.pop(node)
+            arrival = elapsed + durations[position][node]
+            elapsed = arrival + problem.service_s(node)
+            load += imbalance.delta
+            route.distance_m += distances[position][node]
+            route.stops.append(Stop(imbalance.station_id, imbalance.action, abs(imbalance.delta), load, arrival, elapsed))
+            served.add(imbalance.station_id)
+            position = node
         if route.stops:
-            route.distance_m += haversine_m(*pos, *depot)
+            route.distance_m += distances[position][0]
+            route.duration_s = elapsed + durations[position][0]
             routes.append(route)
-
-    return Plan(routes=routes, unserved=list(todo.values()), solver="greedy")
+    return problem.plan(routes, served, "greedy")

@@ -734,8 +734,9 @@ export interface operations {
                 };
             };
             /**
-             * @description 같은 아이디로 비밀번호를 여러 번(기본 10번) 틀려 잠시 막힘 (TOO_MANY_LOGIN_FAILURES).
-             *     첫 실패부터 기본 10분이 지나야 풀리며, 그동안은 맞는 비밀번호도 받지 않는다. 없는 아이디도 똑같이 센다.
+             * @description 같은 아이디를 같은 접속 IP에서 여러 번(기본 10번) 틀려 잠시 막힘 (TOO_MANY_LOGIN_FAILURES).
+             *     첫 시도부터 기본 10분이 지나야 풀리며, 그동안 그 IP에서는 맞는 비밀번호도 받지 않는다. 다른 IP는 영향이 없다.
+             *     없는 아이디도 똑같이 센다.
              */
             429: {
                 headers: {
