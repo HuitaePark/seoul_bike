@@ -263,3 +263,87 @@ def test_rfc3339_lowercase_markers_are_accepted(request_data, validators):
     result = run(request_data)
     validators["SolveResult"].validate(result)
     assert result["status"] == "OK"
+
+
+
+@pytest.fixture
+def backend89_request():
+    """PR #89 SolveInput + SolveGateway envelope; geography comes from ref CSV.
+
+    Inventories/forecasts are deliberately absent: StationNeeds has already
+    computed the quantities/priority before the optimizer receives this shape.
+    """
+    from rebalancing.seeds import REFERENCE_REGIONS, REFERENCE_STATIONS, load_region_seed
+    region = load_region_seed(REFERENCE_REGIONS, REFERENCE_STATIONS, "N02")
+    first, second, blocked = region.stations[:3]
+    return {
+        "eventId": "512cb287-6f45-4a78-8f59-56d3a6a76e5a", "schemaVersion": 1,
+        "occurredAt": "2026-10-21T06:30:00+09:00", "shiftId": "N02:2026-10-21:AM",
+        "requestId": "N02:2026-10-21:AM:0:1", "traceId": "backend89-bridge", "kind": "PLAN",
+        "depot": {"lat": region.depot[0], "lon": region.depot[1]}, "asOf": "2026-10-21T07:00:00+09:00",
+        "stations": [{"stationId": s.api_id, "lat": s.position[0], "lon": s.position[1],
+                      "neededBikes": needed, "priority": priority, "kind": kind}
+                     for s, needed, priority, kind in [(first, 3, 3.25, "OVERFLOW"),
+                        (second, -3, 6.5, "EMPTY"), (blocked, -3, 12.5, "EMPTY")]],
+        "trucks": [{"truckId": tid, "capacity": 15, "load": 0, "lat": region.depot[0],
+                    "lon": region.depot[1], "availableUntil": "2026-10-21T10:00:00+09:00"}
+                   for tid in ("TR-03", "TR-04")],
+        "blockedStationIds": [blocked.api_id],
+        "params": {"solutionLimit": 50, "serviceMinutesBase": 3.0, "serviceMinutesPerBike": 0.5},
+    }
+
+
+@pytest.mark.parametrize("policy", ["ortools", "greedy"])
+def test_backend89_plan_keeps_computed_demand_priority_and_blocked_station(backend89_request, validators, policy):
+    payload = backend89_request
+    original = copy.deepcopy(payload)
+    validators["SolveRequest"].validate(payload)
+    result = run(payload, policy=policy)
+    validators["SolveResult"].validate(result)
+    assert result["status"] == "OK" and result["traceId"] == payload["traceId"]
+    stops = [s for r in result["routes"] for s in r["stops"]]
+    assert [(s["stationId"], s["action"], s["bikes"]) for s in stops] == [
+        (payload["stations"][0]["stationId"], "PICKUP", 3),
+        (payload["stations"][1]["stationId"], "DROPOFF", 3)]
+    assert result["unserved"] == [{"stationId": payload["blockedStationIds"][0], "priority": 12.5, "reason": "BLOCKED"}]
+    assert all(r["capacity"] == 15 and r["startLoad"] == 0 for r in result["routes"])
+    assert payload == original
+
+
+@pytest.mark.parametrize("policy", ["ortools", "greedy"])
+def test_backend89_non_hour_eve_replan_uses_current_load_owner_and_shift_end(backend89_request, validators, policy):
+    from rebalancing.contract import _prepare
+    payload = backend89_request
+    target, blocked = payload["stations"][:2]
+    target.update(neededBikes=-4, priority=8.0, kind="EMPTY")
+    payload.update(kind="REPLAN", shiftId="N02:2026-10-21:EVE", requestId="N02:2026-10-21:EVE:2:1",
+                   occurredAt="2026-10-21T19:37:21+09:00", asOf="2026-10-21T19:37:21+09:00",
+                   stations=[target, blocked], blockedStationIds=[blocked["stationId"]])
+    for truck in payload["trucks"]:
+        truck.update(load=4, lat=target["lat"], lon=target["lon"], availableUntil="2026-10-21T21:00:00+09:00")
+    payload["trucks"][0]["fixedStationIds"] = [target["stationId"]]
+    validators["SolveRequest"].validate(payload)
+    stations, jobs, trucks, blocked_ids, options, scale, *_ = _prepare(payload, SolveContext.from_request(payload))
+    assert {t.available_time_s for t in trucks} == {4959}
+    assert (options.base_service_s, options.per_bike_service_s, scale) == (180, 30, 3000)
+    result = run(payload, policy=policy)
+    validators["SolveResult"].validate(result)
+    assert result["status"] == "OK" and len(result["routes"]) == 1
+    route = result["routes"][0]
+    assert (route["truckId"], route["startLoad"]) == ("TR-03", 4)
+    assert [(s["stationId"], s["action"], s["bikes"], s["loadAfter"]) for s in route["stops"]] == [
+        (target["stationId"], "DROPOFF", 4, 0)]
+    assert datetime.fromisoformat(route["stops"][0]["eta"]) == datetime.fromisoformat(payload["asOf"])
+    assert result["unserved"][0]["reason"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("policy", ["ortools", "greedy"])
+def test_backend89_empty_candidate_returns_no_routes_for_backend_to_fill(backend89_request, validators, policy):
+    payload = backend89_request
+    payload.update(stations=[], blockedStationIds=[])
+    validators["SolveRequest"].validate(payload)
+    with patch.object(HaversineTravelTime, "matrix", side_effect=AssertionError("no work needs no matrix")):
+        result = run(payload, policy=policy)
+    validators["SolveResult"].validate(result)
+    assert result["status"] == "OK" and result["routes"] == result["unserved"] == []
+    assert result["stats"]["bikesMoved"] == 0

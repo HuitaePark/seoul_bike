@@ -533,6 +533,21 @@ ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exa
   관리자 제외/차단은 stations에 남기고 blockedStationIds로 지정한다. 구현과 공통 YAML은 바꾸지 않았다.
 - 개인 브랜치 전체 변경을 main 대상으로 제출한다. PR의 전체 CI·리뷰 결과는 로컬 검증과 별도로 확인한다.
 
+## PR #89 main 병합 후 호환 확인
+
+- main 5381273을 2a924f8에서 hyunmoo에 반영했다. 내부 API 0.8.2-draft·공개 0.13.1·Kafka 0.5.1 기준이다.
+  PR #90의 이전 head 0c1d529는 CI 9개 성공 상태였고, 이번 push 뒤 새 head의 CI를 다시 확인한다.
+- producer의 SolveInput + SolveGateway 봉투 형태를 사용한 계약 사례 6개(두 정책 × PLAN/REPLAN/빈 후보)를 추가했다.
+  실제 N02 참조 좌표와 합성 필요량을 사용한 Python 경계 검사이며 Java 직렬화나 운영 DB/브로커 왕복을 실행한 검사는 아니다.
+- 검증 내용: ST-ID/TR-NN 복원, 생략된 fixedStationIds·penaltyScale, 계산된 소수 priority 보존, BLOCKED 반환,
+  19:37:21 KST 비정시 EVE 재경로·21:00 종료의 잔여 4,959초, 현재 위치/적재와 차량 고정 배정,
+  작업 없는 OK 결과의 빈 routes/unserved와 행렬 미호출이다. 기존 결과 형식을 확장하지 않았다.
+- 최신 공통 YAML을 읽는 **계약 검사 70개 통과**. **Chromium 대상 사례 1개 통과**:
+  backend가 병합한 비연속 seq 2·5·6, DONE/SKIPPED/PENDING 표시, 빈 트럭 적재 0,
+  탐욕 임시안의 provisional 경고·explanation과 동일 승인 카드 사용을 확인했다.
+- 변경은 main 병합·역할 명세/상태 정리·회귀검사다. 이미 통과한 나머지 계산/브라우저 검사와 장시간 성능 측정은 반복하지 않았다.
+  backend Java 25 전체 검사는 PR CI에서 확인한다. 실제 worker·데이터 적재·운영 전체 검증은 아래 범위로 유지한다.
+
 ## 아직 검증하지 않은 범위
 
 운영 backend와 실제 worker 사이의 solve 요청/응답, 운영 retry/DLQ 토픽·관제·재처리,

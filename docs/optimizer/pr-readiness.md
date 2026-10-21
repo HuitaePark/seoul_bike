@@ -1,21 +1,22 @@
 # 역할 5 — PR 준비와 남은 통합 작업 (2026-10-21)
 
-현재 작업 브랜치는 `hyunmoo`다. 최신 반영 기준은 main `861f5d8`(트럭 기준정보/ID #87·근거 패널 #75·관제 화면 #86),
-병합 커밋 `b8f279a`다. 이후 사용자 요청에 따라 개인 브랜치 전체 변경을 `hyunmoo` → `main` PR로 제출한다.
-제출 직전 main은 같은 커밋이며 코드 검증 기준은 `1c56c15`다. 이후 변경은 PR 상태·차단 ID 설명 문서 정리다.
+현재 작업 브랜치는 `hyunmoo`이며 [PR #90](https://github.com/HuitaePark/skala_seoul_bike/pull/90)이 열려 있다.
+최신 반영 기준은 main `5381273`(실제 solve 입력·임시안·후보 병합 #89), 병합 커밋 `2a924f8`이다.
+PR #89 반영 전 코드의 CI 9개는 성공했고, 이번 동기화 뒤에는 PR CI를 다시 확인한다.
 
 ## 확인한 PR과 반영 범위
 
 - 처음 열린 PR #75는 근거 패널 제목 분리 수정이었다. 작업 중 main에 병합되어 함께 반영했다.
 - 대여소 API #83, 화면 정리 #84, 데이터 검사 #85와 트럭 기준정보 #87도 반영했다.
-  현재 공개 API 0.13.1·내부 API 0.8.1-draft, Kafka 0.5.1-draft·payload schemaVersion 1 기준이다.
+  현재 공개 API 0.13.1·내부 API 0.8.2-draft, Kafka 0.5.1-draft·payload schemaVersion 1 기준이다.
 - 현재 열린 [PR #88](https://github.com/HuitaePark/skala_seoul_bike/pull/88)은 MCP 입력 검사와 가짜 데이터를 N02 실제 대여소로 옮긴다.
   확인 시 CI 9개가 성공했다. 병합 후 옛 gwangjin-seongdong 요청을 거부하므로 역할 1의 관제 기본 구역과 함께 전환해야 한다.
   main의 관제 기본값이 아직 옛 구역인 상태라 이 브랜치에서 shared 구역을 먼저 제거하지 않는다.
   역할 5 공개 시연은 API를 호출하지 않는 별도 가상 상태로 유지하며, 시연 트럭 표기는 합의 30의 TR-01~TR-03으로 맞췄다.
-- 열린 [PR #89](https://github.com/HuitaePark/skala_seoul_bike/pull/89)는 실제 SolveRequest 입력 조립과 임시안 처리다.
-  공통 depot/asOf·neededBikes/priority·트럭 위치/적재·blockedStationIds 형식이 현재 worker와 맞음을 확인했다.
-  이 PR에 backend 구현을 가져오지 않으며 실제 왕복/운영 검증은 병합 후 함께 진행한다.
+- 병합된 [PR #89](https://github.com/HuitaePark/skala_seoul_bike/pull/89)의 실제 SolveRequest 조립·임시안·후보 병합을 반영했다.
+  depot/asOf·neededBikes/priority·트럭 현재 위치/적재·차단/고정 ID는 기존 worker와 호환된다.
+  비정시 EVE 재경로, 생산자 priority 보존·차단 사유, 빈 계산 결과를 양 계산 정책에서 검증한다.
+  미사용 트럭의 빈 경로와 이전 방문 뒤의 seq·startLoad 보존, 임시안 생성은 backend가 처리한다.
 - 공개 현황에는 관측이 있는 운영 대여소만 나온다. 관측 없는 구역의 200 빈 목록, 예측 없는 forecastBikes: null을
   오류/시연 데이터/0으로 바꾸지 않는다. 계획이 없어도 대여소 목록·상세를 표시한다. 실제 적재·승인 왕복은 별도 통합 검사다.
 
@@ -33,22 +34,17 @@
   로컬 엔진·메모리 범위만 검증한다. 실제 도로/업무 전체 재경로 10초 통과를 뜻하지 않는다.
 - backend의 +09:00 입력은 RFC 3339로 받는다. 현재 AsyncAPI에서 optimizer 결과의 UTC 표기는 허용하며 기존 결과 형식을 유지한다.
 
-## 최종 PR 제출 직전
+## PR 검토와 다음 통합
 
-1. 제출 시점의 origin/main을 확인하고, 추가 변경이 있으면 병합·영향 범위 검사를 한다.
-2. 개인 브랜치 전체 변경과 검증 결과·실제 도로/데이터 미통합 범위를 PR 설명에 적는다.
-3. 사용자 요청 시 PR을 만든다. 시간별 예측/명칭 소비처는 역할 6, 생산자 neededBikes/priority와 API 연결은 역할 4가 검토한다.
-   공통 계약을 새로 바꾸는 후속은 ROLES의 계약 명세 승인 규칙을 따른다.
-4. PR 생성 후 전체 GitHub CI와 리뷰를 확인한다. 현재 CI는 PR/main push에서 실행하며 hyunmoo push로 실행되지 않는다.
-   로컬 backend 검사는 Java 25가 필요하다. 실행한 범위는 [검증 기록](validation.md)에 남긴다.
-
-위 독립 변경의 PR 전에 아래 운영 통합을 전부 끝낼 필요는 없다. 운영 통합을 포함한 최종 완료는 별도 검증해야 한다.
+PR #90에 개인 브랜치 전체 변경과 이번 main 반영을 함께 올린다. 코드·문서 충돌과 PR CI를 확인하고 담당자 리뷰를 받는다.
+공통 계약을 새로 바꾸는 후속은 ROLES의 계약 명세 승인 규칙을 따른다.
+현재 변경은 생산자 입력/후보 저장 계약과 맞춘 독립 검증이며, 실제 데이터·worker·승인까지의 운영 검증은 아래 범위다.
 
 ## 외부 입력이 필요한 다음 개발
 
 | 작업 | 필요한 입력·담당 | 완료 확인 |
 | --- | --- | --- |
-| 실제 요청 조립·왕복 | 역할 4의 계획 요청 조립과 실제 근무조/트럭 위치·적재량/가용 종료, 역할 6의 live·forecast 적재, 실제 차고지. 대여소 조회 API는 이미 구현됨 | ST-ID의 실제 neededBikes/priority → worker → 후보 저장·승인·활성화, 중복·재시도·실패 확인 |
+| 실제 데이터 왕복 | 요청 조립·임시안·후보 병합은 #89에 구현됨. 역할 4·6의 실제 근무조/트럭 현재 상태·live/forecast 적재·차고지로 연결 | ST-ID의 실제 neededBikes/priority → worker → 후보 저장·승인·활성화, 중복·재시도·실패 확인 |
 | 로컬 시간별 중간 검사(M4) | 역할 4·6과 관측/예측 정렬·비정시 재경로 입력. backend StationRisk는 이미 관측 시각 기준 궤적을 계산함 | 로컬 구간 끝 정책과 backend 생산자 정책을 구분하고 중간 부족 사례·입력 경계를 검증 |
 | OSRM 운영 연결 | 역할 5/서버 담당의 17구역·차고지 포함 PBF, 출처/라이선스/취득일, RAM·디스크·포트 예산. infra/optimizer/data/input/region.osm.pbf | 전처리·도로 행렬 분할·캐시·단절 오류와 실제 265곳·300곳 수용 범위 확인 |
 | 지도 실제 업무·도로선 | 역할 4의 실제 계획/대여소 API 입력, 역할 1·2·3·4의 가짜 구역/ID 이전, 도로 geometry 공개 응답 계약 | 실제 조회·제외·새 후보·승인/거절·기사 반영. 가짜 구역은 의존 데이터 이전 후 제거 |

@@ -500,3 +500,29 @@ test('대여소 API: 예측이 없는 실제 ST-ID의 null 값을 0으로 표시
   await expect(page.getByRole('button', { name: '현재 안 최종 승인' })).toHaveCount(0)
   await expect(page.locator('.plan-review [role="alert"]')).toHaveCount(0)
 })
+
+
+
+test('PR89 후보: 완료·건너뜀 뒤의 순서와 빈 트럭·탐욕 임시안을 그대로 검토한다', async ({ page }) => {
+  const plan = structuredClone(demoPlan)
+  const route = plan.routes[0]!
+  const [done, skipped, pending] = route.stops
+  route.stops = [{ ...pending!, seq: 6, status: 'PENDING', eta: '2026-10-21T19:40:00+09:00' },
+    { ...done!, seq: 2, status: 'DONE' }, { ...skipped!, seq: 5, status: 'SKIPPED' }]
+  plan.provisional = true
+  plan.explanation = '최적화가 제한 시간 안에 답하지 않아 가까운 순 탐욕 규칙으로 만든 임시안이다.'
+  plan.routes[2]!.startLoad = 0
+  await mockApi(page, { plan })
+  await page.goto(liveUrl)
+  await expect(page.locator('.plan-overview')).toContainText('임시 계획입니다.')
+  await expect(page.locator('.explanation')).toHaveText(plan.explanation)
+  await expect(page.locator('.route-panel .sequence')).toHaveText(['2', '5', '6'])
+  await expect(page.locator('.route-panel tbody tr').nth(1)).toContainText('건너뜀')
+  await expect(page.locator('.route-panel tbody tr').nth(2)).toContainText('19:40')
+  await page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-03' }).click()
+  await expect(page.getByText('이 트럭에 배정된 작업이 없습니다.')).toBeVisible()
+  await expect(page.locator('.route-meta')).toContainText('시작 적재 0대')
+  await linkTask(page)
+  await page.getByRole('checkbox', { name: /현재 v1의/ }).check()
+  await expect(page.getByRole('button', { name: '현재 안 최종 승인' })).toBeEnabled()
+})
