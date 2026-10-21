@@ -329,7 +329,7 @@ function decide(body: ApprovalDecision) {
           </div>
           <div v-else-if="unservedOf" class="plan-note dropped">
             <strong>이번 계획에서 빠짐 · 우선순위 {{ unservedOf.priority.toFixed(2) }}</strong>
-            <span>{{ unservedOf.reason }}</span>
+            <span>{{ reasonText(unservedOf.reason) }}</span>
           </div>
           <p v-else class="muted">이번 계획에 들어가지 않았다</p>
         </section>
@@ -381,7 +381,7 @@ function decide(body: ApprovalDecision) {
               <RingGauge :value="u.priority" :size="40" :stroke="5" color="var(--ink-3)">{{ u.priority.toFixed(2) }}</RingGauge>
               <div>
                 <strong>{{ u.stationName }}</strong>
-                <span class="hint">{{ u.reason }}</span>
+                <span class="hint">{{ reasonText(u.reason) }}</span>
               </div>
             </li>
           </ul>
