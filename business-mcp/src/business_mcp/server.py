@@ -44,7 +44,9 @@ UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 
 ConstraintType = Literal["TARGET_ADJUST", "STATION_SUSPENDED", "STATION_BLOCKED", "INVENTORY_OVERRIDE", "PRIORITY_BOOST"]
 # 식별자 형식은 docs/data/agreements.md 결정 1·2 (ADR 0001). 대여소번호(예 102)는 실시간 API ID와 숫자가 달라 받지 않는다
-StationId = Annotated[str, Field(pattern=r"^ST-\d+$", description="대여소 ID (실시간 API ID), 예: ST-102")]
+StationId = Annotated[str, Field(pattern=r"^ST-\d+$", description=(
+    "대여소 ID (실시간 API ID 'ST-숫자'), 예: ST-1660. 앞선 조회 결과에 나온 ID만 쓴다. "
+    "대여소 이름 앞의 대여소번호에 'ST-'를 붙여 만들지 않는다 (두 번호는 숫자가 다르다)"))]
 RegionId = Annotated[str, Field(pattern=r"^[NS]\d{2}$", description="구역 ID, 예: N02 (강북 N01~N08, 강남 S01~S09)")]
 ShiftId = Annotated[
     str,

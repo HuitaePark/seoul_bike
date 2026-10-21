@@ -19,7 +19,7 @@ const types: { value: TaskType; label: string }[] = [
   { value: 'QUESTION', label: '질의' },
 ]
 // 근무조는 권역·날짜·시간대를 따로 골라 근무조 ID(권역:날짜:시간대)로 합친다
-const form = ref({ type: 'PLAN_DRAFT' as TaskType, regionId: 'gwangjin-seongdong', date: todayInSeoul(), slot: 'AM' as ShiftSlot, text: '' })
+const form = ref({ type: 'PLAN_DRAFT' as TaskType, regionId: 'N02', date: todayInSeoul(), slot: 'AM' as ShiftSlot, text: '' })
 const shiftId = computed(() => makeShiftId(form.value.regionId, form.value.date, form.value.slot))
 const formError = ref('')
 const tasks = ref<Schemas['Task'][]>([])
