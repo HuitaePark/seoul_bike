@@ -3,6 +3,7 @@ package com.seoulbike.backend.auth;
 import java.time.Duration;
 import java.time.Instant;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -48,9 +49,11 @@ class AuthController {
 	}
 
 	@PostMapping("/api/auth/login")
-	LoginResponse login(@Valid @RequestBody LoginRequest req) {
+	LoginResponse login(@Valid @RequestBody LoginRequest req, HttpServletRequest http) {
 		// 비밀번호를 보기 전에 시도를 센다. 막혀 있으면 맞는 비밀번호도 보지 않는다 (대입을 늦춘다).
-		Duration blocked = throttle.tryAcquire(req.loginId());
+		// getRemoteAddr()는 프록시(nginx) 뒤의 실제 접속 IP다 (server.forward-headers-strategy=native).
+		String clientIp = http.getRemoteAddr();
+		Duration blocked = throttle.tryAcquire(req.loginId(), clientIp);
 		if (!blocked.isZero()) {
 			throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_LOGIN_FAILURES",
 					"비밀번호를 여러 번 틀려 잠시 막았다. " + (blocked.toMinutes() + 1) + "분 안에 다시 시도한다");
@@ -60,7 +63,7 @@ class AuthController {
 			.filter(u -> passwords.matches(req.password(), u.passwordHash()))
 			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
 					"아이디 또는 비밀번호가 맞지 않다"));
-		throttle.succeeded(req.loginId());
+		throttle.succeeded(req.loginId(), clientIp);
 		// 상태는 비밀번호가 맞을 때만 알려준다. 남의 계정 상태를 떠보지 못하게 한다.
 		switch (stored.status()) {
 			case ACTIVE -> {
