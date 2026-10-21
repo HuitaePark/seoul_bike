@@ -109,6 +109,11 @@ class UserRepository {
 		jdbc.sql("update users set status = 'DISABLED' where id = :id").param("id", id).update();
 	}
 
+	/** DISABLED일 때만 다시 연다. 그사이 상태가 바뀌었으면 false. */
+	boolean enable(String id) {
+		return jdbc.sql("update users set status = 'ACTIVE' where id = :id and status = 'DISABLED'").param("id", id).update() == 1;
+	}
+
 	private static StoredUser map(ResultSet rs, int row) throws SQLException {
 		OffsetDateTime createdAt = rs.getObject("created_at", OffsetDateTime.class);
 		return new StoredUser(rs.getString("id"), rs.getString("login_id"), rs.getString("password_hash"),

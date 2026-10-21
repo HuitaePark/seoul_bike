@@ -14,7 +14,7 @@ import com.seoulbike.backend.common.ApiException;
 
 /**
  * 회원가입은 승인 대기(PENDING)로 들어오고, 관리자(MANAGER)가 역할·트럭을 확정해 ACTIVE로 바꾼다.
- * 관리자는 바로 쓸 수 있는 계정을 발급하거나 계정을 비활성화할 수 있다.
+ * 관리자는 바로 쓸 수 있는 계정을 발급하거나 계정을 비활성화하고 다시 열 수 있다.
  */
 @Service
 class AccountService {
@@ -72,6 +72,26 @@ class AccountService {
 		}
 		find(userId);
 		users.disable(userId);
+		return find(userId).toAccount();
+	}
+
+	/**
+	 * 비활성 계정을 다시 연다. 역할·트럭은 그대로라 트럭 없는 기사(트럭을 정하기 전에 거절한 가입 신청)는 열지 않는다.
+	 * 승인 없이 PENDING을 ACTIVE로 바꾸는 길이 되지 않게 DISABLED일 때만 바꾼다.
+	 */
+	@Transactional
+	Account enable(String userId) {
+		var user = find(userId);
+		if (user.status() != AccountStatus.DISABLED) {
+			throw ApiException.conflict("ACCOUNT_NOT_DISABLED", "비활성 상태가 아니다 (현재 " + user.status() + ")");
+		}
+		if (user.role() == Role.DRIVER && (user.truckId() == null || user.truckId().isBlank())) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "TRUCK_REQUIRED",
+					"트럭이 정해지지 않은 기사 계정이라 다시 열 수 없다 (트럭을 정하기 전에 거절한 가입 신청). 다시 가입을 받거나 새로 발급한다");
+		}
+		if (!users.enable(userId)) {
+			throw ApiException.conflict("ACCOUNT_NOT_DISABLED", "비활성 상태가 아니다");
+		}
 		return find(userId).toAccount();
 	}
 

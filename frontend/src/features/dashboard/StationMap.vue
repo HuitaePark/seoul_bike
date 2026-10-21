@@ -1,11 +1,14 @@
 <!--
 위험 거점 지도 (FR-01, FR-06). 지도 타일 없이 위경도를 SVG에 투영한 개략도다.
-대여소 색은 위험 종류, 크기는 거치대 수, 선은 트럭별 경로(지난 구간 실선, 남은 구간 점선)다.
+대여소 색은 위험 종류, 크기는 거치대 수, 선은 트럭별 경로(지난 구간 실선, 남은 구간 점선, 트럭 위치에서 나뉜다)다.
+트럭을 고르거나 승인 대기 변경안을 미리 보면(preview) 관련 없는 대여소·경로를 흐리게 한다.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Schemas } from '../../shared/api/client'
 import type { TruckLive } from '../../shared/dummy'
+import type { RoutePreview } from './route-view'
+import { legOf, markText, previewMarks, splitAtTruck } from './route-view'
 
 const props = defineProps<{
   stations: Schemas['StationStatus'][]
@@ -14,6 +17,7 @@ const props = defineProps<{
   colors: Record<string, string>
   selected?: string | null
   focusTruck?: string | null
+  preview?: RoutePreview | null
 }>()
 const emit = defineEmits<{ select: [stationId: string] }>()
 
@@ -37,26 +41,60 @@ function xy(lat: number, lon: number) {
 
 const byId = computed(() => new Map(props.stations.map((s) => [s.stationId, s])))
 
+// 밝게 볼 트럭(변경안 미리보기 > 골라 본 트럭)과 밝게 둘 대여소. 고르지 않았으면 전부 밝다.
+const focusing = computed(() => !!props.preview || !!props.focusTruck)
+const focus = computed(() => (props.preview ? props.preview.truckId : props.focusTruck ?? null))
+const lit = computed<Set<string> | null>(() => {
+  if (!focusing.value) return null
+  const route = props.routes.find((r) => r.truckId === focus.value)
+  return new Set([...(route?.stops.map((s) => s.stationId) ?? []), ...(props.preview?.stations ?? []), ...(props.selected ? [props.selected] : [])])
+})
+
 const points = computed(() =>
-  props.stations.map((s) => ({ ...s, ...xy(s.lat, s.lon), r: 6 + s.docks / 5 })),
+  props.stations.map((s) => ({ ...s, ...xy(s.lat, s.lon), r: 6 + s.docks / 5, dim: !!lit.value && !lit.value.has(s.stationId) })),
 )
 
-// 트럭마다 지난 구간(첫 정류장~마지막 완료)과 남은 구간을 나눠 그린다.
+const path = (p: [number, number][]) => p.map((q, i) => `${i ? 'L' : 'M'}${q[0].toFixed(1)},${q[1].toFixed(1)}`).join(' ')
+const at = (s: { lat: number; lon: number }): [number, number] => {
+  const p = xy(s.lat, s.lon)
+  return [p.x, p.y]
+}
+
+// 트럭마다 지난 구간(첫 정류장~트럭 위치)과 남은 구간(트럭 위치~끝)을 나눠 그린다.
 const lines = computed(() =>
   props.routes.map((r) => {
-    const pts = r.stops.map((s) => byId.value.get(s.stationId)).filter((s) => !!s).map((s) => xy(s.lat, s.lon))
+    const ss = r.stops.map((s) => byId.value.get(s.stationId)).filter((s) => !!s)
+    const pts = ss.map(at)
     const doneCount = r.stops.filter((s) => s.status === 'DONE').length
-    const path = (p: { x: number; y: number }[]) => p.map((q, i) => `${i ? 'L' : 'M'}${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(' ')
+    const leg = ss.length === r.stops.length ? legOf(r, props.trucks.find((t) => t.truckId === r.truckId), byId.value) : null
+    const split = splitAtTruck(pts, doneCount, leg)
     return {
       truckId: r.truckId,
-      done: path(pts.slice(0, Math.max(doneCount, 1))),
-      todo: path(pts.slice(Math.max(doneCount - 1, 0))),
-      dim: !!props.focusTruck && props.focusTruck !== r.truckId,
+      done: path(split.done),
+      todo: path(split.todo),
+      tip: split.tip,
+      dim: focusing.value && focus.value !== r.truckId,
     }
   }),
 )
 
-const trucks = computed(() => props.trucks.map((t) => ({ ...t, ...xy(t.lat, t.lon) })))
+const trucks = computed(() => props.trucks.map((t) => ({ ...t, ...xy(t.lat, t.lon), dim: focusing.value && focus.value !== t.truckId })))
+
+// 변경안: 트럭이 지금 있는 곳 → 바뀐 정류장 순서, 빠지는 곳·새로 들르는 곳 표시
+const previewLine = computed(() => {
+  const p = props.preview
+  if (!p?.truckId || !p.after.length) return null
+  const t = props.trucks.find((x) => x.truckId === p.truckId)
+  const start = lines.value.find((l) => l.truckId === p.truckId)?.tip ?? (t ? at(t) : null)
+  const pts = p.after.map((id) => byId.value.get(id)).filter((s) => !!s).map(at)
+  return path(start ? [start, ...pts] : pts)
+})
+const marks = computed(() =>
+  previewMarks(props.preview).flatMap((m) => {
+    const s = byId.value.get(m.id)
+    return s ? [{ ...m, ...xy(s.lat, s.lon), r: 6 + s.docks / 5 }] : []
+  }),
+)
 
 const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', OVERFLOW: 'var(--overflow)', NONE: 'var(--ok)' }
 </script>
@@ -78,9 +116,13 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
     <path d="M70 0 C 90 120, 40 260, 120 420 S 180 520, 160 560" fill="none" stroke="#d4ebf8" stroke-width="18" stroke-linecap="round" />
     <text :x="W - 140" :y="H - 22" class="river">한강</text>
 
-    <g v-for="l in lines" :key="l.truckId" :opacity="l.dim ? 0.15 : 1">
+    <g v-for="l in lines" :key="l.truckId" :opacity="l.dim ? 0.1 : preview ? 0.55 : 1">
       <path :d="l.done" :stroke="colors[l.truckId]" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.45" />
       <path :d="l.todo" :stroke="colors[l.truckId]" stroke-width="4" fill="none" stroke-dasharray="2 9" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+    <g v-if="previewLine">
+      <path :d="previewLine" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      <path :d="previewLine" stroke="#ea580c" stroke-width="4.5" fill="none" stroke-dasharray="12 6" stroke-linecap="round" stroke-linejoin="round" />
     </g>
 
     <g
@@ -88,6 +130,7 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
       :key="p.stationId"
       class="station"
       :class="{ selected: p.stationId === selected }"
+      :opacity="p.dim ? 0.2 : 1"
       tabindex="0"
       @click="emit('select', p.stationId)"
       @keydown.enter="emit('select', p.stationId)"
@@ -99,7 +142,12 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
       <title>{{ p.name }} · 재고 {{ p.bikes }}/{{ p.docks }} · 예측 {{ p.forecastBikes }}</title>
     </g>
 
-    <g v-for="t in trucks" :key="t.truckId" :transform="`translate(${t.x},${t.y})`" filter="url(#shadow)" :opacity="focusTruck && focusTruck !== t.truckId ? 0.3 : 1">
+    <g v-for="m in marks" :key="'m' + m.id" :transform="`translate(${m.x},${m.y - m.r - 6})`" :class="['mark', m.kind]">
+      <rect x="-26" y="-20" width="52" height="19" rx="9.5" />
+      <text y="-6.5">{{ markText[m.kind] }}</text>
+    </g>
+
+    <g v-for="t in trucks" :key="t.truckId" :transform="`translate(${t.x},${t.y})`" filter="url(#shadow)" :opacity="t.dim ? 0.3 : 1">
       <rect x="-30" y="-36" width="60" height="22" rx="11" :fill="colors[t.truckId]" />
       <text y="-21" class="truck-label">{{ t.truckId.replace('truck-', 'T') }} {{ t.load }}/{{ t.capacity }}</text>
       <path d="M0 -14 L-6 -6 H6 Z" :fill="colors[t.truckId]" />
@@ -117,6 +165,12 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
 .station.selected > circle:nth-last-of-type(1) { stroke: var(--ink); stroke-width: 3.5; }
 .count { font-size: 10px; font-weight: 700; fill: #fff; text-anchor: middle; pointer-events: none; }
 .truck-label { font-size: 11px; font-weight: 700; fill: #fff; text-anchor: middle; }
+.station { transition: opacity 0.2s; }
+.mark { pointer-events: none; }
+.mark text { font-size: 11px; font-weight: 800; fill: #fff; text-anchor: middle; }
+.mark.removed rect { fill: #dc2626; }
+.mark.added rect { fill: #059669; }
+.mark.named rect { fill: #ea580c; }
 .pulse { animation: pulse 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
 @keyframes pulse { 50% { transform: scale(1.35); opacity: 0.05; } }
 </style>

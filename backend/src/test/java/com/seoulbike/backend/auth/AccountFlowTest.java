@@ -96,6 +96,35 @@ class AccountFlowTest {
 	}
 
 	@Test
+	void managerReenablesOnlyDisabledAccounts() throws Exception {
+		String manager = token("manager");
+		String loginId = uniqueLoginId();
+		String userId = json.readTree(call("POST", "/api/admin/users", manager,
+				body(loginId, "password-123", "책임자 4", "role", "EXECUTIVE")).body()).path("id").asString();
+		assertThat(code(call("POST", "/api/admin/users/" + userId + "/enable", manager, null))).isEqualTo("ACCOUNT_NOT_DISABLED");
+
+		call("POST", "/api/admin/users/" + userId + "/disable", manager, null);
+		assertThat(code(login(loginId, "password-123"))).isEqualTo("ACCOUNT_DISABLED");
+		assertThat(call("POST", "/api/admin/users/" + userId + "/enable", token("driver1"), null).statusCode()).isEqualTo(403);
+		var enabled = call("POST", "/api/admin/users/" + userId + "/enable", manager, null);
+		assertThat(enabled.statusCode()).isEqualTo(200);
+		assertThat(json.readTree(enabled.body()).path("status").asString()).isEqualTo("ACTIVE");
+		assertThat(login(loginId, "password-123").statusCode()).isEqualTo(200);
+
+		// 승인 대기는 이 길로 승인되지 않는다. 트럭을 정하기 전에 거절한 기사 신청도 다시 열지 않는다 (트럭 없는 기사가 생기지 않게).
+		String signupId = json.readTree(call("POST", "/api/auth/signup", null,
+				body(uniqueLoginId(), "password-123", "거절된 기사", "requestedRole", "DRIVER")).body()).path("id").asString();
+		try {
+			assertThat(code(call("POST", "/api/admin/users/" + signupId + "/enable", manager, null)))
+				.isEqualTo("ACCOUNT_NOT_DISABLED");
+		}
+		finally {
+			call("POST", "/api/admin/users/" + signupId + "/disable", manager, null);
+		}
+		assertThat(code(call("POST", "/api/admin/users/" + signupId + "/enable", manager, null))).isEqualTo("TRUCK_REQUIRED");
+	}
+
+	@Test
 	void repeatedWrongPasswordsBlockOnlyThatLoginIdFromThatIp() throws Exception {
 		String manager = token("manager");
 		String loginId = uniqueLoginId();

@@ -1,25 +1,27 @@
 <!--
 관제 대시보드 (PRD 10장, FR-01~09). 지금은 더미 데이터로 화면만 잡는다.
 붙일 API: GET /api/regions/{regionId}/stations, GET /api/shifts/{shiftId}/plan, 작업 SSE의 APPROVAL_REQUIRED.
-구성: 왼쪽 근무조 레일 · 3D 관제 뷰(+재고 현황) · 예측/진행률/트럭 적재/대여소/에이전트 대화 · 트럭별 경로.
+구성: 왼쪽 근무조 레일 · 맨 위 묻기 줄 · 3D 관제 뷰(+재고 현황) · 예측/진행률/트럭 적재/대여소/에이전트 대화 · 트럭별 경로.
+계획 만들기·상황 반영 요청은 상단 메뉴의 작업 콘솔에서 한다 (같은 곳으로 가는 버튼을 따로 두지 않는다).
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import type { Schemas } from '../../shared/api/client'
 import { DUMMY_PENDING, DUMMY_PLAN, DUMMY_REGION, DUMMY_STATIONS, DUMMY_TRUCKS } from '../../shared/dummy'
 import type { ApprovalDecision } from '../approval/approval'
 import { actionLabel } from '../approval/approval'
 import { reasonText } from '../plan-map/model'
 import AgentChat from './AgentChat.vue'
+import AskBar from './AskBar.vue'
 import ForecastChart from './ForecastChart.vue'
 import IsoStationView from './IsoStationView.vue'
 import RingGauge from './RingGauge.vue'
 import StationMap from './StationMap.vue'
 import TruckLoad from './TruckLoad.vue'
 import { riskShades } from './iso'
+import type { RoutePreview } from './route-view'
+import { legOf, previewOf } from './route-view'
 
-const router = useRouter()
 const colors: Record<string, string> = { 'truck-1': '#2563eb', 'truck-2': '#9333ea', 'truck-3': '#0891b2' }
 const riskLabel: Record<Schemas['RiskKind'], string> = { EMPTY: '빈 대여소 위험', OVERFLOW: '과적재 위험', NONE: '정상' }
 const roleLabel: Record<Schemas['StationRole'], string> = { FIXED_PICKUP: '고정 회수', FIXED_DROPOFF: '고정 배치', VARIABLE: '변동' }
@@ -35,6 +37,10 @@ const selected = ref<string | null>('ST-503')
 const focusTruck = ref<string | null>(null)
 const loadTruck = ref('truck-1')
 const toast = ref('')
+// 승인 대기 변경안을 지도에 겹쳐 본다. 켜져 있으면 그 변경안의 트럭·대여소만 밝게 보인다.
+const preview = ref<RoutePreview | null>(null)
+const qa = ref<{ q: string; a: string }[]>([])
+const openDropped = ref<string | null>(null)
 
 // 지도에서 트럭 하나만 보면 적재 카드도 그 트럭을 보여 준다
 watch(focusTruck, (t) => {
@@ -51,6 +57,8 @@ const stopOf = computed(() => {
 })
 const unservedOf = computed(() => plan.unserved.find((u) => u.stationId === selected.value))
 const truckOf = (id: string) => trucks.find((t) => t.truckId === id)
+const stationById = new Map(stations.map((s) => [s.stationId, s]))
+const stationOf = (id: string) => stationById.get(id)
 
 const allStops = plan.routes.flatMap((r) => r.stops.map((s) => ({ ...s, truckId: r.truckId })))
 const doneStops = allStops.filter((s) => s.status === 'DONE').length
@@ -68,6 +76,8 @@ const routeOf = (id: string) => plan.routes.find((r) => r.truckId === id)!
 function progress(r: Schemas['Route']) {
   return Math.round((r.stops.filter((s) => s.status === 'DONE').length / r.stops.length) * 100)
 }
+// 트럭이 다음 정류장까지 얼마나 왔는지 (타임라인 선을 그만큼 더 잇는다)
+const legs = Object.fromEntries(plan.routes.map((r) => [r.truckId, legOf(r, truckOf(r.truckId), stationById)]))
 const loadInfo = computed(() => {
   const t = truckOf(loadTruck.value)!
   const r = routeOf(loadTruck.value)
@@ -89,6 +99,29 @@ function go(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+function pickTruck(id: string | null) {
+  preview.value = null
+  focusTruck.value = id
+}
+
+function showPreview(card: (typeof pending.value)[number] | null, scroll: boolean) {
+  preview.value = card ? previewOf(card, stations) : null
+  if (card && scroll) go('view')
+}
+
+function openDrop(id: string) {
+  selected.value = id
+  openDropped.value = openDropped.value === id ? null : id
+}
+
+// 더미: 정해 둔 답을 보여 준다. 실제로는 QUESTION 작업을 만들고 SSE로 답을 받는다.
+function ask(q: string) {
+  qa.value.push({
+    q,
+    a: '서울숲 정문(3시간 뒤 34대)과 뚝섬유원지역(31대)이 거치대 수를 넘을 것으로 예측돼 회수가 많다. 두 곳 모두 고정 회수 거점이다.',
+  })
+}
+
 function notify(text: string) {
   toast.value = text
   window.setTimeout(() => (toast.value = ''), 2600)
@@ -97,13 +130,14 @@ function notify(text: string) {
 // 더미: 결정을 보내지 않고 목록에서만 뺀다. 실제로는 POST /api/ai/tasks/{taskId}/approval
 function decide(body: ApprovalDecision) {
   pending.value = pending.value.filter((p) => p.approvalId !== body.approvalId)
+  if (preview.value?.approvalId === body.approvalId) preview.value = null
   notify(body.decision === 'APPROVE' ? '승인했다 (더미)' : '거절했다 (더미)')
 }
 </script>
 
 <template>
   <div class="dash">
-    <!-- 왼쪽 레일: 근무조 · 바로 가기 · 요약 · 작업 요청 -->
+    <!-- 왼쪽 레일: 근무조 · 바로 가기 · 요약 -->
     <aside class="rail">
       <section class="rail-card shift">
         <p class="eyebrow">오늘 근무조 <span class="dummy-tag">더미</span></p>
@@ -137,16 +171,11 @@ function decide(body: ApprovalDecision) {
           <div><dt>위험 대여소</dt><dd>{{ riskOrder.length }}곳</dd></div>
         </dl>
       </section>
-
-      <!-- 계획 초안·상황 반영 요청은 작업 콘솔에서 종류를 골라 만든다 -->
-      <button class="rail-cta" @click="router.push('/console')">
-        <span class="plus" aria-hidden="true">+</span>
-        <strong>작업 요청</strong>
-        <span>계획 만들기 · 현장 상황 반영</span>
-      </button>
     </aside>
 
     <div class="content">
+      <AskBar :qa="qa" @ask="ask" />
+
       <!-- 3D 관제 뷰 + 재고 현황 -->
       <section id="view" class="card hero">
         <div class="scene">
@@ -156,14 +185,14 @@ function decide(body: ApprovalDecision) {
               <button role="tab" :aria-selected="view === 'map'" :class="{ on: view === 'map' }" @click="view = 'map'">평면 지도</button>
             </div>
             <div class="truck-chips" role="group" aria-label="트럭 경로 골라 보기">
-              <button :class="['chip', { on: !focusTruck }]" :aria-pressed="!focusTruck" @click="focusTruck = null">전체</button>
+              <button :class="['chip', { on: !focusTruck && !preview }]" :aria-pressed="!focusTruck && !preview" @click="pickTruck(null)">전체</button>
               <button
                 v-for="r in plan.routes"
                 :key="r.truckId"
-                :class="['chip', { on: focusTruck === r.truckId }]"
+                :class="['chip', { on: !preview && focusTruck === r.truckId }]"
                 :style="{ '--c': colors[r.truckId] }"
-                :aria-pressed="focusTruck === r.truckId"
-                @click="focusTruck = focusTruck === r.truckId ? null : r.truckId"
+                :aria-pressed="!preview && focusTruck === r.truckId"
+                @click="pickTruck(focusTruck === r.truckId && !preview ? null : r.truckId)"
               >
                 <i />{{ r.truckId.replace('truck-', 'T') }}
               </button>
@@ -179,6 +208,7 @@ function decide(body: ApprovalDecision) {
             :colors="colors"
             :selected="selected"
             :focus-truck="focusTruck"
+            :preview="preview"
             @select="selected = $event"
           />
           <div v-else class="flat-map">
@@ -189,8 +219,21 @@ function decide(body: ApprovalDecision) {
               :colors="colors"
               :selected="selected"
               :focus-truck="focusTruck"
+              :preview="preview"
               @select="selected = $event"
             />
+          </div>
+          <div v-if="preview" class="preview-banner" role="status">
+            <span class="badge WAITING_APPROVAL">승인 대기 미리보기</span>
+            <strong>{{ preview.summary }}</strong>
+            <span v-if="preview.truckId" class="pv-legend">
+              <span><i class="now" />지금 경로</span><span><i class="next" />바뀐 경로</span><span><b class="rm">✕</b>빠지는 곳</span><span><b class="add">+</b>새로 들르는 곳</span>
+            </span>
+            <span v-else class="pv-legend"><span><b class="named">!</b>이 요청이 닿는 대여소</span></span>
+            <span class="pv-actions">
+              <button class="ghost" @click="go('agent')">결정하러 가기</button>
+              <button class="ghost" @click="preview = null">미리보기 끄기</button>
+            </span>
           </div>
           <div v-if="nextStop" class="next-card">
             <span class="label">다음 도착</span>
@@ -339,7 +382,15 @@ function decide(body: ApprovalDecision) {
             <h2>에이전트 대화</h2>
             <span :class="['count-pill', { zero: !pending.length }]">승인 대기 {{ pending.length }}</span>
           </header>
-          <AgentChat :pending="pending" :summary="plan.explanation ?? ''" :version="plan.version" @decide="decide" />
+          <AgentChat
+            :pending="pending"
+            :summary="plan.explanation ?? ''"
+            :version="plan.version"
+            :qa="qa"
+            :previewing="preview?.approvalId"
+            @decide="decide"
+            @preview="showPreview"
+          />
         </section>
       </div>
 
@@ -352,19 +403,27 @@ function decide(body: ApprovalDecision) {
               <span class="t-badge big">{{ r.truckId.replace('truck-', 'T') }}</span>
               <div class="route-name">
                 <strong>{{ r.truckId }} · {{ truckOf(r.truckId)?.driver }}</strong>
-                <span class="hint"><i :class="['live', { moving: truckOf(r.truckId)?.moving }]" />{{ truckOf(r.truckId)?.moving ? '운행 중' : '정차' }} · 적재 {{ truckOf(r.truckId)?.load }}/{{ truckOf(r.truckId)?.capacity }}</span>
+                <span class="hint">
+                  <i :class="['live', { moving: truckOf(r.truckId)?.moving }]" />{{ truckOf(r.truckId)?.moving ? '운행 중' : '정차' }} · 적재 {{ truckOf(r.truckId)?.load }}/{{ truckOf(r.truckId)?.capacity }}
+                  <template v-if="legs[r.truckId]"> · {{ r.stops[legs[r.truckId]!.next]!.stationName }}까지 {{ Math.round(legs[r.truckId]!.ratio * 100) }}% 왔다</template>
+                </span>
               </div>
               <b class="pct">{{ progress(r) }}%</b>
             </div>
             <ol class="timeline">
               <li
-                v-for="s in r.stops"
+                v-for="(s, i) in r.stops"
                 :key="s.seq"
-                :class="[s.status, s.action, { sel: s.stationId === selected }]"
+                :class="[s.status, s.action, { sel: s.stationId === selected, next: legs[r.truckId]?.next === i }]"
+                :style="legs[r.truckId]?.next === i ? { '--p': legs[r.truckId]!.ratio } : undefined"
                 tabindex="0"
                 @click="selected = s.stationId"
                 @keydown.enter="selected = s.stationId"
               >
+                <!-- 트럭이 이 정류장으로 오는 중이면 선을 온 만큼 더 잇고 그 끝에 트럭을 둔다 -->
+                <span v-if="legs[r.truckId]?.next === i" class="tl-truck" :title="`${r.truckId} · ${s.stationName}까지 ${Math.round(legs[r.truckId]!.ratio * 100)}% 왔다`" aria-hidden="true">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" /><circle cx="7" cy="18" r="1.6" /><circle cx="17" cy="18" r="1.6" /></svg>
+                </span>
                 <span class="node">{{ s.status === 'DONE' ? '✓' : s.seq }}</span>
                 <span class="tl-name">{{ s.stationName }}</span>
                 <span class="tl-sub">{{ actionLabel[s.action] }} {{ s.bikes }} · {{ timeOf(s.eta) }}</span>
@@ -375,13 +434,28 @@ function decide(body: ApprovalDecision) {
 
         <section id="dropped" class="card">
           <header class="w-head"><h2>이번 계획에서 빠진 대여소</h2><span class="count-pill gray">{{ plan.unserved.length }}</span></header>
-          <p class="hint section-hint">이번 계획에서 들르지 않는 곳과 그 이유. 숫자는 우선순위(높을수록 급함)</p>
+          <p class="hint section-hint">이번 계획에서 들르지 않는 곳. 숫자는 우선순위(높을수록 급함), 누르면 이유와 재고를 이 자리에서 펼친다</p>
           <ul class="dropped-list">
-            <li v-for="u in plan.unserved" :key="u.stationId" tabindex="0" @click="selected = u.stationId" @keydown.enter="selected = u.stationId">
-              <RingGauge :value="u.priority" :size="40" :stroke="5" color="var(--ink-3)">{{ u.priority.toFixed(2) }}</RingGauge>
-              <div>
-                <strong>{{ u.stationName }}</strong>
-                <span class="hint">{{ reasonText(u.reason) }}</span>
+            <li v-for="u in plan.unserved" :key="u.stationId" :class="{ sel: u.stationId === selected, open: openDropped === u.stationId }">
+              <button class="drop-head" :aria-expanded="openDropped === u.stationId" @click="openDrop(u.stationId)">
+                <RingGauge :value="u.priority" :size="40" :stroke="5" color="var(--ink-3)">{{ u.priority.toFixed(2) }}</RingGauge>
+                <span class="drop-text">
+                  <strong>{{ u.stationName }}</strong>
+                  <span v-if="stationOf(u.stationId)" class="hint">
+                    재고 {{ stationOf(u.stationId)!.bikes }}/{{ stationOf(u.stationId)!.docks }} · 3시간 뒤 {{ stationOf(u.stationId)!.forecastBikes ?? '-' }}대 ·
+                    <span :class="['risk', stationOf(u.stationId)!.risk]">{{ riskLabel[stationOf(u.stationId)!.risk] }}</span>
+                  </span>
+                </span>
+                <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+              </button>
+              <div v-if="openDropped === u.stationId" class="drop-body">
+                <p>{{ reasonText(u.reason) }}</p>
+                <dl v-if="stationOf(u.stationId)">
+                  <div><dt>역할</dt><dd>{{ stationOf(u.stationId)!.role ? roleLabel[stationOf(u.stationId)!.role!] : '역할 없음' }}</dd></div>
+                  <div><dt>고도</dt><dd>{{ stationOf(u.stationId)!.elevationM ?? '-' }}m</dd></div>
+                  <div><dt>우선순위</dt><dd>{{ u.priority.toFixed(2) }}</dd></div>
+                </dl>
+                <button class="ghost" @click="go('view')">지도에서 보기</button>
               </div>
             </li>
           </ul>
@@ -421,11 +495,6 @@ section[id] { scroll-margin-top: 76px; }
 .stats dl div { display: flex; justify-content: space-between; font-size: 13px; }
 .stats dt { color: var(--ink-3); }
 .stats dd { margin: 0; font-weight: 800; }
-.rail-cta { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 12px; background: var(--brand-soft); color: var(--brand-strong); border: 1.5px dashed #86d1a9; border-radius: var(--radius); font-weight: 600; }
-.rail-cta:hover:not(:disabled) { background: #d9f1e4; }
-.rail-cta .plus { width: 34px; height: 34px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-size: 22px; line-height: 1; box-shadow: 0 4px 10px rgb(15 157 88 / 0.3); }
-.rail-cta strong { font-size: 14px; color: var(--ink); }
-.rail-cta span:last-child { font-size: 11px; color: var(--ink-3); font-weight: 500; }
 
 /* 3D 관제 뷰 */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) 236px; padding: 0; overflow: hidden; }
@@ -462,6 +531,19 @@ section[id] { scroll-margin-top: 76px; }
 .iso-legend .ghost { border: 1.5px solid #94a3b8; background: rgb(255 255 255 / 0.4); }
 .iso-legend .dash { border: 1.5px dashed #475569; }
 .iso-legend .north { padding-left: 10px; border-left: 1px solid var(--line); color: var(--brand-strong); font-weight: 800; }
+.preview-banner { position: absolute; top: 58px; left: 14px; max-width: min(560px, calc(100% - 28px)); z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; background: rgb(255 255 255 / 0.96); border: 1px solid #fdba74; border-left: 4px solid #ea580c; border-radius: 12px; box-shadow: 0 8px 24px rgb(15 23 42 / 0.1); font-size: 13px; }
+.preview-banner .badge { margin: 0; }
+.preview-banner strong { flex: 1 1 260px; }
+.pv-legend { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+.pv-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.pv-legend i { width: 18px; height: 0; border-top: 3px dotted var(--ink-3); }
+.pv-legend i.next { border-top: 3px dashed #ea580c; }
+.pv-legend b { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 10px; }
+.pv-legend .rm { background: #dc2626; }
+.pv-legend .add { background: #059669; }
+.pv-legend .named { background: #ea580c; }
+.pv-actions { display: flex; gap: 6px; margin-left: auto; }
+.pv-actions button { padding: 4px 10px; font-size: 12px; }
 
 /* 재고 현황 (오른쪽 패널) */
 .stock { display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; border-left: 1px solid var(--line); background: #fff; }
@@ -494,6 +576,13 @@ section[id] { scroll-margin-top: 76px; }
 .w-truck { grid-area: truck; display: flex; flex-direction: column; }
 .w-detail { grid-area: detail; }
 .w-chat { grid-area: chat; display: flex; flex-direction: column; }
+/* 에이전트 대화는 내용이 길어도 줄 높이를 키우지 않고 옆 카드 높이에 맞춰 안에서 스크롤한다.
+   대화가 줄 높이를 정하면 같은 줄의 '선택한 대여소' 카드 아래가 크게 빈다. */
+@media (min-width: 861px) {
+  .widgets { grid-template-rows: auto minmax(320px, auto); }
+  .w-chat { height: 0; min-height: 100%; }
+  .w-chat :deep(.body) { max-height: none; }
+}
 .count-pill { background: var(--overflow); color: #fff; border-radius: 999px; font-size: 11px; font-weight: 700; padding: 2px 9px; }
 .count-pill.zero { background: var(--ok); }
 .count-pill.gray { background: #eef2f6; color: var(--ink-2); }
@@ -542,23 +631,37 @@ dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
 .route-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .route-name { display: flex; flex-direction: column; flex: 1; }
 .route-head .pct { font-size: 15px; color: var(--c); }
-.timeline { list-style: none; display: flex; margin: 0; padding: 0 0 6px; overflow-x: auto; }
-.timeline li { position: relative; flex: 1 0 118px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0 4px; text-align: center; cursor: pointer; border-radius: 10px; outline: none; }
+/* 정류장이 많을 때만 가로로 민다. 위쪽 여백은 고른 정류장의 테두리(box-shadow 4px)가 스크롤 상자에 잘리지 않을 자리다. */
+.timeline { list-style: none; display: flex; margin: 0; padding: 6px 0 6px; overflow-x: auto; }
+.timeline li { position: relative; flex: 1 0 96px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0 4px; text-align: center; cursor: pointer; border-radius: 10px; outline: none; }
 .timeline li::before { content: ''; position: absolute; top: 13px; left: calc(-50% + 16px); right: calc(50% + 16px); border-top: 2px dashed #cbd5e1; }
 .timeline li:first-child::before { display: none; }
 .timeline li.DONE::before { border-top: 3px solid var(--c); }
+/* 다음 정류장으로 가는 중: 온 비율(--p)만큼 실선을 더 긋는다 */
+.timeline li.next::after { content: ''; position: absolute; top: 12.5px; left: calc(-50% + 16px); width: calc((100% - 32px) * var(--p, 0)); border-top: 3px solid var(--c); }
+.tl-truck { position: absolute; z-index: 1; top: 14px; left: calc(-50% + 16px + (100% - 32px) * var(--p, 0)); transform: translate(-50%, -50%); width: 24px; height: 18px; border-radius: 6px; display: grid; place-items: center; background: var(--c); color: #fff; box-shadow: 0 0 0 2px #fff; }
+.timeline li:focus-visible .node { outline: 2px solid var(--c); outline-offset: 2px; }
 .node { position: relative; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; background: #fff; color: var(--c); border: 2.5px solid var(--c); }
 .timeline li.DONE .node { background: var(--c); color: #fff; }
 .timeline li.sel .node { box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 25%, transparent); }
 .timeline li:hover .tl-name, .timeline li:focus-visible .tl-name { text-decoration: underline; }
-.tl-name { font-size: 12px; font-weight: 700; color: var(--ink); }
+.tl-name { font-size: 12px; font-weight: 700; color: var(--ink); word-break: keep-all; }
 .timeline li.DONE .tl-name { color: var(--ink-3); }
 .tl-sub { font-size: 11px; color: var(--ink-3); }
 .section-hint { display: block; margin: -6px 0 12px; line-height: 1.5; }
 .dropped-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.dropped-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--line-2); border-radius: 12px; cursor: pointer; }
-.dropped-list li:hover { background: #f8fafc; }
-.dropped-list li div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; }
+.dropped-list li { border: 1px dashed var(--line-2); border-radius: 12px; }
+.dropped-list li.sel { border: 1px solid var(--brand); background: var(--brand-soft); }
+.drop-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: transparent; color: inherit; font-weight: 500; text-align: left; border-radius: 12px; }
+.drop-head:hover:not(:disabled) { background: rgb(15 23 42 / 0.03); }
+.drop-text { display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; flex: 1; }
+.chev { flex: none; color: var(--ink-3); transition: transform 0.15s; }
+.dropped-list li.open .chev { transform: rotate(180deg); }
+.drop-body { padding: 0 12px 12px 62px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: var(--ink-2); }
+.drop-body p { margin: 0; line-height: 1.5; }
+.drop-body dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0; }
+.drop-body dl div { padding: 6px 8px; background: #fff; border-radius: 8px; }
+.drop-body button { align-self: flex-start; padding: 5px 12px; font-size: 12px; }
 .dropped-list :deep(.center) { font-size: 10px; }
 
 .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 14px; box-shadow: var(--shadow); z-index: 20; }
@@ -568,9 +671,9 @@ dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
 /* 레일을 위로 올리고 위젯을 두 줄로 */
 @media (max-width: 1240px) {
   .dash { grid-template-columns: minmax(0, 1fr); }
-  .rail { position: static; display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  .rail { position: static; display: grid; grid-template-columns: 1fr 1fr; }
   .rail-nav { display: none; }
-  .widgets { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'trend ring' 'truck detail' 'chat chat'; }
+  .widgets { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'trend ring' 'truck chat' 'detail detail'; }
 }
 @media (max-width: 860px) {
   .hero { grid-template-columns: minmax(0, 1fr); }

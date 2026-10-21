@@ -1,13 +1,16 @@
 <!--
 3D 관제 뷰 (FR-01, FR-06). 위경도를 아이소메트릭 땅 위에 놓고 대여소를 기둥으로 세운다.
 기둥 높이 = 지금 재고, 투명 상자 = 거치대 수, 점선 테두리 = 3시간 뒤 예측. 색은 위험 종류.
-땅 위 선은 트럭 경로(지난 구간 실선, 남은 구간 점선)다. 건물·강은 위치 감을 주는 장식이다.
+땅 위 선은 트럭 경로(지난 구간 실선, 남은 구간 점선)이고, 트럭이 있는 곳에서 둘이 나뉜다. 건물·강은 위치 감을 주는 장식이다.
+트럭 하나를 고르면 그 트럭 경로의 대여소만 밝게 두고 나머지는 흐리게 한다. 승인 대기 변경안을 고르면(preview) 바뀐 경로를 겹쳐 그린다.
 -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { Schemas } from '../../shared/api/client'
 import type { TruckLive } from '../../shared/dummy'
 import { isoProjector, riskShades } from './iso'
+import type { RoutePreview } from './route-view'
+import { legOf, markText, previewMarks, splitAtTruck } from './route-view'
 
 const props = defineProps<{
   stations: Schemas['StationStatus'][]
@@ -16,6 +19,7 @@ const props = defineProps<{
   colors: Record<string, string>
   selected?: string | null
   focusTruck?: string | null
+  preview?: RoutePreview | null
 }>()
 const emit = defineEmits<{ select: [stationId: string] }>()
 
@@ -31,6 +35,17 @@ const PER_BIKE = 0.075 // 자전거 1대당 기둥 높이
 
 const iso = isoProjector(24, 311, 84)
 const { xy, poly, flat, box, groundText } = iso
+const fmt = (pts: [number, number][]) => pts.map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join(' ')
+
+// 밝게 볼 트럭: 변경안 미리보기가 있으면 그 트럭(제약 추가처럼 트럭이 없으면 null), 아니면 골라 본 트럭
+const focusing = computed(() => !!props.preview || !!props.focusTruck)
+const focus = computed(() => (props.preview ? props.preview.truckId : props.focusTruck ?? null))
+const focusRoute = computed(() => props.routes.find((r) => r.truckId === focus.value))
+// 밝게 둘 대여소. 고르지 않았으면 null(전부 밝게)
+const lit = computed<Set<string> | null>(() => {
+  if (!focusing.value) return null
+  return new Set([...(focusRoute.value?.stops.map((s) => s.stationId) ?? []), ...(props.preview?.stations ?? []), ...(props.selected ? [props.selected] : [])])
+})
 
 const bounds = computed(() => {
   const lats = props.stations.map((s) => s.lat)
@@ -63,6 +78,7 @@ const cols = computed(() =>
       ghost: box(x0, y0, 0, COL, COL, hDocks),
       forecast: s.forecastBikes == null ? null : flat(x0, y0, COL, COL, s.forecastBikes * PER_BIKE),
       top: xy(g.x, g.y, Math.max(hDocks, (s.forecastBikes ?? 0) * PER_BIKE)),
+      dim: !!lit.value && !lit.value.has(s.stationId),
     }
   }),
 )
@@ -96,7 +112,7 @@ const trucks = computed(() =>
       cargo: box(g.x - 0.55, g.y - 0.22, 0.08, 0.75, 0.44, 0.42),
       cab: box(g.x + 0.2, g.y - 0.2, 0.08, 0.32, 0.4, 0.32),
       label: xy(g.x, g.y, 0.9),
-      dim: !!props.focusTruck && props.focusTruck !== t.truckId,
+      dim: focusing.value && focus.value !== t.truckId,
     }
   }),
 )
@@ -113,21 +129,72 @@ const items = computed<Item[]>(() =>
 )
 
 const byId = computed(() => new Map(cols.value.map((c) => [c.stationId, c])))
+const stationById = computed(() => new Map(props.stations.map((s) => [s.stationId, s])))
+// 지난 구간은 첫 정류장부터 트럭이 지금 있는 곳까지 실선, 남은 구간은 트럭부터 점선 (트럭이 구간 중간이면 선도 중간까지 온다)
 const lines = computed(() =>
   props.routes.map((r) => {
-    const pts = r.stops.map((s) => byId.value.get(s.stationId)).filter((c) => !!c).map((c) => iso.pt(c.gx, c.gy, 0.02))
+    const cs = r.stops.map((s) => byId.value.get(s.stationId)).filter((c) => !!c)
+    const pts = cs.map((c) => xy(c.gx, c.gy, 0.02))
     const done = r.stops.filter((s) => s.status === 'DONE').length
+    const leg = cs.length === r.stops.length ? legOf(r, props.trucks.find((t) => t.truckId === r.truckId), stationById.value) : null
+    const split = splitAtTruck(pts, done, leg)
     return {
       truckId: r.truckId,
-      done: pts.slice(0, Math.max(done, 1)).join(' '),
-      todo: pts.slice(Math.max(done - 1, 0)).join(' '),
-      dim: !!props.focusTruck && props.focusTruck !== r.truckId,
+      done: fmt(split.done),
+      todo: fmt(split.todo),
+      tip: split.tip,
+      dim: focusing.value && focus.value !== r.truckId,
     }
+  }),
+)
+
+// 고른 트럭의 방문 순서 번호 (마친 곳은 ✓)
+const badges = computed(() =>
+  props.preview || !focusRoute.value
+    ? []
+    : focusRoute.value.stops.flatMap((s) => {
+        const c = byId.value.get(s.stationId)
+        return c ? [{ id: s.stationId, at: c.top, text: s.status === 'DONE' ? '✓' : String(s.seq), done: s.status === 'DONE' }] : []
+      }),
+)
+
+// 변경안: 트럭이 지금 있는 곳 → 바뀐 정류장 순서. 빠지는 곳과 새로 들르는 곳은 표시를 붙인다.
+const previewLine = computed(() => {
+  const p = props.preview
+  if (!p?.truckId || !p.after.length) return null
+  const t = trucks.value.find((x) => x.truckId === p.truckId)
+  const start = lines.value.find((l) => l.truckId === p.truckId)?.tip ?? (t ? xy(t.gx, t.gy, 0.02) : null)
+  const pts = p.after.map((id) => byId.value.get(id)).filter((c) => !!c).map((c) => xy(c.gx, c.gy, 0.04))
+  return fmt(start ? [start, ...pts] : pts)
+})
+const marks = computed(() =>
+  previewMarks(props.preview).flatMap((m) => {
+    const c = byId.value.get(m.id)
+    return c ? [{ ...m, at: c.top }] : []
   }),
 )
 
 const hovered = ref<string | null>(null)
 const chips = computed(() => cols.value.filter((c) => c.stationId === props.selected || c.stationId === hovered.value))
+const chipText = (c: (typeof cols.value)[number]) => `${c.name} · ${c.bikes}/${c.docks}`
+
+// 이름표 폭은 그려진 글자 길이를 재서 정한다. 글자 수로 어림하면 한글(영문의 두 배 가까운 폭)이 앞뒤로 잘린다.
+const svg = ref<SVGSVGElement | null>(null)
+const measured = ref<Record<string, number>>({})
+const chipWidth = (c: (typeof cols.value)[number]) =>
+  measured.value[c.stationId] ?? [...chipText(c)].reduce((w, ch) => w + (/[가-힣]/.test(ch) ? 11.5 : ch === ' ' ? 3.2 : 6.8), 0) + 24
+function measureChips() {
+  for (const el of svg.value?.querySelectorAll<SVGTextElement>('.chip text') ?? []) {
+    const w = Math.ceil(el.getComputedTextLength()) + 24
+    if (measured.value[el.dataset.id!] !== w) measured.value[el.dataset.id!] = w
+  }
+}
+// 글꼴이 늦게 오면 폭이 바뀌므로 다 온 뒤에 한 번 더 잰다
+onMounted(() => {
+  measureChips()
+  void document.fonts?.ready.then(measureChips)
+})
+watch(chips, measureChips, { flush: 'post' })
 
 const gridLines = [
   ...Array.from({ length: Math.floor(W / 2) }, (_, i) => [iso.pt((i + 1) * 2, 0), iso.pt((i + 1) * 2, RIVER_Y)]),
@@ -138,7 +205,7 @@ const waves = [[3, 13], [7.5, 12.8], [11, 13.3], [15, 12.9], [18.5, 13.2]].map((
 </script>
 
 <template>
-  <svg viewBox="10 16 740 512" class="iso" role="img" aria-label="3D 관제 뷰: 대여소 재고와 트럭 경로">
+  <svg ref="svg" viewBox="10 16 740 512" class="iso" role="img" aria-label="3D 관제 뷰: 대여소 재고와 트럭 경로">
     <!-- 땅 덩어리 -->
     <polygon :points="poly([0, D, 0], [W, D, 0], [W, D, -0.9], [0, D, -0.9])" fill="#b89b7d" />
     <polygon :points="poly([W, 0, 0], [W, D, 0], [W, D, -0.9], [W, 0, -0.9])" fill="#9a7e63" />
@@ -158,14 +225,19 @@ const waves = [[3, 13], [7.5, 12.8], [11, 13.3], [15, 12.9], [18.5, 13.2]].map((
     <text :transform="groundText(8.6, 13.45)" class="zone river">한강</text>
 
     <!-- 트럭 경로 -->
-    <g v-for="l in lines" :key="l.truckId" :opacity="l.dim ? 0.12 : 1">
+    <g v-for="l in lines" :key="l.truckId" :opacity="l.dim ? 0.08 : preview ? 0.55 : 1">
       <polyline :points="l.done" :stroke="colors[l.truckId]" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.45" />
       <polyline :points="l.todo" :stroke="colors[l.truckId]" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 7" class="flow" />
+    </g>
+    <!-- 변경안 경로: 흰 테두리를 두른 주황 실선 -->
+    <g v-if="previewLine" class="preview-line">
+      <polyline :points="previewLine" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline :points="previewLine" stroke="#ea580c" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="9 5" class="flow" />
     </g>
 
     <!-- 건물·대여소 기둥·트럭 -->
     <template v-for="(it, i) in items" :key="i">
-      <g v-if="it.kind === 'bldg'" opacity="0.75">
+      <g v-if="it.kind === 'bldg'" :opacity="focusing ? 0.3 : 0.75">
         <template v-for="f in [box(it.b.x, it.b.y, 0, it.b.w, it.b.d, it.b.h)]" :key="'f'">
           <polygon :points="f.top" fill="#f4f7f9" /><polygon :points="f.left" fill="#e1e8ee" /><polygon :points="f.right" fill="#d2dbe4" />
         </template>
@@ -175,6 +247,7 @@ const waves = [[3, 13], [7.5, 12.8], [11, 13.3], [15, 12.9], [18.5, 13.2]].map((
         v-else-if="it.kind === 'col'"
         class="col"
         :class="{ sel: it.c.stationId === selected }"
+        :opacity="it.c.dim ? 0.16 : 1"
         tabindex="0"
         role="button"
         :aria-label="`${it.c.name} 재고 ${it.c.bikes}/${it.c.docks}`"
@@ -211,10 +284,22 @@ const waves = [[3, 13], [7.5, 12.8], [11, 13.3], [15, 12.9], [18.5, 13.2]].map((
       <path d="M-5 -2 L0 4 L5 -2 Z" :fill="colors[t.truckId]" />
     </g>
 
+    <!-- 고른 트럭의 방문 순서 -->
+    <g v-for="b in badges" :key="'b' + b.id" :transform="`translate(${b.at[0]} ${b.at[1] - 6})`" class="seq">
+      <circle r="9" :fill="b.done ? colors[focus!] : '#fff'" :stroke="colors[focus!]" stroke-width="2" />
+      <text y="3.5" :fill="b.done ? '#fff' : colors[focus!]">{{ b.text }}</text>
+    </g>
+
+    <!-- 변경안 표시 -->
+    <g v-for="m in marks" :key="'m' + m.id" :transform="`translate(${m.at[0]} ${m.at[1] - 6})`" :class="['mark', m.kind]">
+      <rect x="-24" y="-20" width="48" height="18" rx="9" />
+      <text y="-7">{{ markText[m.kind] }}</text>
+    </g>
+
     <!-- 고른·가리킨 대여소 이름표 -->
     <g v-for="c in chips" :key="'c' + c.stationId" :transform="`translate(${c.top[0]} ${c.top[1] - 8})`" class="chip">
-      <rect :x="-(c.name.length * 6.4 + 46) / 2" y="-24" :width="c.name.length * 6.4 + 46" height="22" rx="11" fill="#0f172a" />
-      <text y="-9">{{ c.name }} · <tspan :fill="c.shades[0]">{{ c.bikes }}/{{ c.docks }}</tspan></text>
+      <rect :x="-chipWidth(c) / 2" y="-24" :width="chipWidth(c)" height="22" rx="11" fill="#0f172a" />
+      <text y="-9" :data-id="c.stationId">{{ c.name }} · <tspan :fill="c.shades[0]">{{ c.bikes }}/{{ c.docks }}</tspan></text>
     </g>
   </svg>
 </template>
@@ -230,6 +315,14 @@ const waves = [[3, 13], [7.5, 12.8], [11, 13.3], [15, 12.9], [18.5, 13.2]].map((
 .truck-tag text { font-size: 11px; font-weight: 800; fill: #fff; text-anchor: middle; }
 .chip { pointer-events: none; }
 .chip text { font-size: 11.5px; font-weight: 700; fill: #fff; text-anchor: middle; }
+.col { transition: opacity 0.2s; }
+.seq { pointer-events: none; }
+.seq text { font-size: 10px; font-weight: 800; text-anchor: middle; }
+.mark { pointer-events: none; }
+.mark text { font-size: 10.5px; font-weight: 800; fill: #fff; text-anchor: middle; }
+.mark.removed rect { fill: #dc2626; }
+.mark.added rect { fill: #059669; }
+.mark.named rect { fill: #ea580c; }
 .flow { animation: flow 1.2s linear infinite; }
 @keyframes flow { to { stroke-dashoffset: -18; } }
 .pulse { animation: pulse 2s ease-in-out infinite; }

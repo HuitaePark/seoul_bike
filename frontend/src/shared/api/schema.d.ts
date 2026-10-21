@@ -207,8 +207,30 @@ export interface paths {
          * 계정 비활성화 (관리자)
          * @description 로그인을 막는다. 가입 신청 거절에도 쓴다. 자기 계정은 비활성화할 수 없다 (CANNOT_DISABLE_SELF).
          *     이미 발급된 토큰도 다음 요청부터 401이다. 이미 열린 SSE 연결은 바로 끊지 않고, 다시 연결할 때 401이다.
+         *     되돌리려면 `POST /api/admin/users/{userId}/enable`.
          */
         post: operations["disableAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{userId}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 계정 다시 활성화 (관리자)
+         * @description 비활성(DISABLED) 계정을 ACTIVE로 되돌려 다시 로그인할 수 있게 한다. 역할·트럭은 비활성화 전 그대로다.
+         *     트럭 없는 기사(트럭을 정하기 전에 거절한 가입 신청)는 열 수 없다 (TRUCK_REQUIRED). 다시 가입을 받거나 새로 발급한다.
+         */
+        post: operations["enableAccount"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1093,6 +1115,41 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    enableAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 다시 활성화됨 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description 비활성 상태가 아님 (ACCOUNT_NOT_DISABLED) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listRegionStations: {
