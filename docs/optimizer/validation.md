@@ -548,6 +548,15 @@ ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exa
 - 변경은 main 병합·역할 명세/상태 정리·회귀검사다. 이미 통과한 나머지 계산/브라우저 검사와 장시간 성능 측정은 반복하지 않았다.
   backend Java 25 전체 검사는 PR CI에서 확인한다. 실제 worker·데이터 적재·운영 전체 검증은 아래 범위로 유지한다.
 
+## 검증 중 PR #90 병합 상태 변경
+
+- 최종 push 직후 PR #90이 이전 head 0c1d529로 이미 병합됐음을 확인했다(dda31f0).
+  GitHub에 보인 성공 CI 9개는 그 이전 head의 결과이며 이번 f49645b의 새 CI가 아니다.
+  병합된 PR의 설명은 실제 병합 범위로 복원했다. 이번 후속 변경은 hyunmoo에 남으며 새 PR은 생성하지 않았다.
+- 최신 main 1d68daa의 PR #90 병합과 #92 트럭 상태 공통화도 충돌 없이 반영했다. 내부 API는 0.8.3이다.
+  #92는 PLAN/REPLAN의 위치·적재·remainingStops 계산을 TruckStates로 옮기며 optimizer wire 형식은 유지한다.
+  Python 생산자 경계 검사/브라우저 사례와 성능 측정 대상 코드는 그대로다. 신규 Java 검사는 해당 main의 CI 범위다.
+
 ## 아직 검증하지 않은 범위
 
 운영 backend와 실제 worker 사이의 solve 요청/응답, 운영 retry/DLQ 토픽·관제·재처리,

@@ -63,16 +63,18 @@ class PlanSolver {
 	private final PlanCandidates candidates;
 	private final PlanRepository plans;
 	private final SolveInputRepository inputs;
+	private final TruckStates truckStates;
 	private final StationNeeds needs;
 	private final JsonMapper json;
 	private final int solutionLimit;
 
 	PlanSolver(SolveGateway gateway, PlanCandidates candidates, PlanRepository plans, SolveInputRepository inputs,
-			StationNeeds needs, JsonMapper json, @Value("${app.solve.solution-limit}") int solutionLimit) {
+			TruckStates truckStates, StationNeeds needs, JsonMapper json, @Value("${app.solve.solution-limit}") int solutionLimit) {
 		this.gateway = gateway;
 		this.candidates = candidates;
 		this.plans = plans;
 		this.inputs = inputs;
+		this.truckStates = truckStates;
 		this.needs = needs;
 		this.json = json;
 		this.solutionLimit = solutionLimit;
@@ -81,9 +83,7 @@ class PlanSolver {
 	/** 계약 PlanCandidate. */
 	ObjectNode solve(Command cmd) {
 		Shift shift = Shift.parse(cmd.shiftId());
-		SolveInput.Point depot = inputs.depot(shift.regionId())
-			.orElseThrow(() -> ApiException.notFound("SHIFT_NOT_FOUND", "근무조 " + shift.id() + "의 구역 "
-					+ shift.regionId() + "이 없다. 구역 ID는 강북 N01~N08, 강남 S01~S09다."));
+		SolveInput.Point depot = truckStates.depot(shift);
 		String traceId = null;
 		if (cmd.taskId() != null) {
 			traceId = inputs.task(cmd.taskId())
@@ -139,18 +139,14 @@ class PlanSolver {
 				why + " 가까운 순 탐욕 규칙으로 만든 임시안이다. 최적화 결과가 아니므로 다시 계산해 볼 수 있다.");
 	}
 
-	/** PLAN: 구역의 운영 중인 트럭 전부가 차고지에서 빈 채로 출발한다. */
+	/** PLAN: 구역의 운영 중인 트럭 전부가 차고지에서 빈 채로 출발한다 (TruckStates.atDepot). */
 	private Fleet planFleet(Shift shift, SolveInput.Point depot) {
-		List<SolveInput.Truck> trucks = inputs.activeTrucks(shift.regionId())
-			.stream()
-			.map(t -> new SolveInput.Truck(t.truckId(), t.capacity(), 0, depot.lat(), depot.lon(), shift.end(), List.of()))
-			.toList();
-		return new Fleet(trucks, null, Set.of());
+		return new Fleet(truckInputs(truckStates.atDepot(shift, depot)), null, Set.of());
 	}
 
 	/**
-	 * REPLAN: 활성 계획의 트럭(truckIds로 거른다). 위치는 마지막으로 끝낸(DONE) 정류장, 없으면 차고지. 적재는 그 정류장의 loadAfter,
-	 * 없으면 경로의 startLoad. 남은(PENDING) 정류장은 그 트럭의 fixedStationIds 후보다.
+	 * REPLAN: 활성 계획의 트럭(truckIds로 거른다). 위치·적재·남은 정류장은 트럭 상태 조회와 같은 TruckStates.fromPlan이다.
+	 * 남은(PENDING) 정류장은 그 트럭의 fixedStationIds 후보다.
 	 */
 	private Fleet replanFleet(Shift shift, SolveInput.Point depot, List<String> truckIds) {
 		PlanRepository.Plan active = plans.activePlan(shift.id())
@@ -166,45 +162,29 @@ class PlanSolver {
 					+ String.join(", ", unknown) + ". 계획의 트럭: " + String.join(", ", planned) + ".", planned);
 		}
 
+		// 계획 전체에서 끝낸 정류장과, 다시 풀지 않는 트럭의 남은 정류장은 이번 계산에서 뺀다.
 		Set<String> out = new HashSet<>();
-		Map<String, JsonNode> lastDone = new HashMap<>();
 		for (JsonNode route : routes) {
-			String truckId = route.path("truckId").asString();
+			boolean resolved = chosen.contains(route.path("truckId").asString());
 			for (JsonNode stop : route.path("stops")) {
 				String status = stop.path("status").asString("PENDING");
-				if ("DONE".equals(status)) {
-					out.add(stop.path("stationId").asString());
-					lastDone.put(truckId, stop);
-				}
-				else if ("PENDING".equals(status) && !chosen.contains(truckId)) {
+				if ("DONE".equals(status) || ("PENDING".equals(status) && !resolved)) {
 					out.add(stop.path("stationId").asString());
 				}
 			}
 		}
-		Set<String> doneStations = new HashSet<>();
-		lastDone.values().forEach(s -> doneStations.add(s.path("stationId").asString()));
-		Map<String, SolveInput.Point> positions = inputs.positions(doneStations);
+		List<TruckStates.State> states = truckStates.fromPlan(shift, depot, routes)
+			.stream()
+			.filter(s -> chosen.contains(s.truckId()))
+			.toList();
+		return new Fleet(truckInputs(states), new PlanCandidates.Replan(active.version(), active.routesJson(), chosen), out);
+	}
 
-		List<SolveInput.Truck> trucks = new ArrayList<>();
-		for (JsonNode route : routes) {
-			String truckId = route.path("truckId").asString();
-			if (!chosen.contains(truckId)) {
-				continue;
-			}
-			JsonNode done = lastDone.get(truckId);
-			SolveInput.Point at = done == null ? depot : positions.getOrDefault(done.path("stationId").asString(), depot);
-			int load = done != null && done.has("loadAfter") ? done.path("loadAfter").asInt()
-					: route.path("startLoad").asInt(0);
-			List<String> pending = new ArrayList<>();
-			for (JsonNode stop : route.path("stops")) {
-				if ("PENDING".equals(stop.path("status").asString("PENDING"))) {
-					pending.add(stop.path("stationId").asString());
-				}
-			}
-			trucks.add(new SolveInput.Truck(truckId, route.path("capacity").asInt(15), load, at.lat(), at.lon(), shift.end(),
-					pending));
-		}
-		return new Fleet(trucks, new PlanCandidates.Replan(active.version(), active.routesJson(), chosen), out);
+	private static List<SolveInput.Truck> truckInputs(List<TruckStates.State> states) {
+		return states.stream()
+			.map(s -> new SolveInput.Truck(s.truckId(), s.capacity(), s.load(), s.lat(), s.lon(), s.shiftEnd(),
+					s.remainingStationIds()))
+			.toList();
 	}
 
 	/**
