@@ -8,13 +8,15 @@ flowchart LR
   M[main 푸시] --> CI
   M --> D[deploy.yml · 서버 러너]
   D --> B[pull · build]
-  B --> U[up -d --wait<br/>헬스체크]
+  B --> U[infra/deploy.sh<br/>backend·frontend 순차 교체<br/>나머지는 바뀐 것만]
   U -->|실패| L[상태 · 로그 출력]
 ```
 
 | 파일 | 역할 |
 | --- | --- |
-| `infra/compose.yaml` | 서비스 정의: frontend(nginx + Vue, :3000), backend(Spring Boot, :8080), agent, business-mcp, rag-mcp(+rag-indexer), optimizer(OR-Tools 경로 계산), postgres(PostGIS), vectordb(pgvector), redpanda. 서버 포트는 모두 127.0.0.1에만 연다 |
+| `infra/compose.yaml` | 서비스 정의: edge(서버 포트 :3000·:8080을 잡는 nginx), frontend(nginx + Vue), backend(Spring Boot), agent, business-mcp, rag-mcp(+rag-indexer), optimizer(OR-Tools 경로 계산), collector, postgres(PostGIS), vectordb(pgvector), redpanda. 서버 포트는 모두 127.0.0.1에만 연다 |
+| `infra/deploy.sh` | 무중단 배포 순서 (아래 "배포하기"). `deploy.yml`이 부른다 |
+| `infra/edge/` | 서버 포트를 잡는 앞단 nginx. 설정이 바뀔 때만 다시 만든다 |
 | `infra/.env.example` | 로컬 실행용 `.env` 양식. 서버 `.env`는 배포가 GitHub `production` 환경 값으로 만든다 |
 | `infra/runner/install-macos.sh` | 서버에 러너 설치 + launchd 서비스 등록 |
 | `.github/workflows/ci.yml` | PR·main 검사 (GitHub 호스팅 러너) |
@@ -68,9 +70,9 @@ flowchart LR
 
 | 주소 | 범위 | 비고 |
 | --- | --- | --- |
-| `https://baki-macbookpro.tail3286a4.ts.net` | **인터넷 공개** (Tailscale Funnel 443 → frontend :3000) | 팀원·발표 데모용 기본 주소. 화면과 `/api`, `/swagger`, `/status`가 모두 여기로 열린다 |
+| `https://baki-macbookpro.tail3286a4.ts.net` | **인터넷 공개** (Tailscale Funnel 443 → edge :3000 → frontend) | 팀원·발표 데모용 기본 주소. 화면과 `/api`, `/swagger`, `/status`가 모두 여기로 열린다 |
 | `https://baki-macbookpro.tail3286a4.ts.net:8443` | 인터넷 공개 (같은 frontend) | 예전 링크 호환용. 학교·회사 유선망은 8443을 막을 수 있으니 443 주소를 쓴다 |
-| `http://localhost:3000`, `http://localhost:8080` (서버 안에서만) | 서버 자신 | 화면(nginx)과 backend 직접 호출. 2026-10-21부터 tailnet·공유기 내부망에는 열지 않는다 (`/internal/**` 보호, 로그인 제한의 접속 IP를 속이지 못하게). 밖에서는 공개 주소를 쓴다 |
+| `http://localhost:3000`, `http://localhost:8080` (서버 안에서만) | 서버 자신 | 화면(edge → frontend)과 backend 직접 호출(edge → backend). 2026-10-21부터 tailnet·공유기 내부망에는 열지 않는다 (`/internal/**` 보호, 로그인 제한의 접속 IP를 속이지 못하게). 밖에서는 공개 주소를 쓴다 |
 | `https://baki-macbookpro.tail3286a4.ts.net:10443` | Tailscale 네트워크만 | Ollama(11434) |
 
 Funnel 관리 (서버에서, CLI는 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`):
@@ -87,6 +89,24 @@ Tailscale funnel --https=443 off                                 # 공개 중단
 - **수동:** Actions → deploy → Run workflow.
 
 서비스를 추가하면 `infra/compose.yaml`에 `build:`와 `healthcheck`를 넣는다. `--wait`가 헬스체크 통과까지 기다리므로, 헬스체크가 없으면 배포 성공 여부를 알 수 없다.
+
+### 무중단 배포 (`infra/deploy.sh`)
+
+화면과 API는 배포 중에도 끊기지 않는다. 서버 포트(:3000·:8080)는 거의 바뀌지 않는 **edge**가 잡고, 그 뒤의 frontend·backend를 **순차 교체**한다: 새 컨테이너를 하나 더 띄워 healthy가 되면 5초 뒤(nginx DNS 캐시 2초) 옛 컨테이너를 내린다. 새 컨테이너가 healthy가 되지 않으면 새 것만 지우고 배포가 실패한다 (옛 버전이 계속 돈다).
+
+1. postgres·redpanda·vectordb (바뀐 게 없으면 그대로)
+2. backend 순차 교체. 옛 컨테이너는 그레이스풀 종료(진행 중 요청을 30초까지 마침, 열린 SSE는 먼저 닫아 화면이 새 컨테이너로 다시 붙게)
+3. 나머지(agent·MCP·optimizer·collector)는 바뀐 것만 다시 만든다. 작업자는 잠깐 멈췄다가 Kafka에 남은 일을 이어서 한다
+4. frontend 순차 교체
+5. edge는 설정(`infra/edge/`)이 바뀔 때만 다시 만든다. **이때만 1~2초 끊긴다**
+
+로컬 측정 (2026-10-21, 배포 47초 동안 요청 약 1,840개: 화면·상태·대여소 조회·로그인 POST·:8080 직접): **실패 0건**, 가장 느린 요청 약 1초(내린 컨테이너로 간 연결 1초 대기 뒤 새 컨테이너로). 열린 SSE는 교체마다 한 번 끝나고 Last-Event-ID로 다시 붙어 놓친 이벤트 없이 이어진다.
+
+지켜야 할 것:
+
+- **마이그레이션은 넓히는 변경만** (표·열·인덱스 추가). 새 backend가 시작하며 Flyway를 돌리는 동안 옛 backend도 같은 DB로 돈다. 열을 지우거나 이름을 바꾸려면 다음 배포로 나눈다 (먼저 코드가 안 쓰게 → 다음에 지움).
+- backend가 둘 떠 있는 동안 Kafka 소비 그룹이 파티션을 나눠 갖는다. SSE(`SseHub`)와 경로 계산 대기(`SolveGateway`)는 DB로 다른 인스턴스가 받은 것을 메운다. 메모리에만 있는 상태를 새로 만들면 같은 문제를 확인한다.
+- frontend·backend에 `ports`를 넣지 않는다 (둘이 같은 포트를 잡을 수 없다). 서버 포트는 edge에만.
 
 ## 보안
 

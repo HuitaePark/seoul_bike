@@ -97,8 +97,9 @@ jobs:
           docker compose --env-file "$HOME/seoul-bike/.env" pull --ignore-buildable
           docker compose --env-file "$HOME/seoul-bike/.env" build --pull
 
-      - name: 기동과 헬스체크
-        run: docker compose --env-file "$HOME/seoul-bike/.env" up -d --remove-orphans --wait --wait-timeout 300
+      # 무중단 배포: backend·frontend는 새 컨테이너가 healthy가 된 뒤 옛 것을 내린다. 서버 포트는 edge가 잡는다 (infra/deploy.sh).
+      - name: 순차 교체와 헬스체크
+        run: bash infra/deploy.sh "$HOME/seoul-bike/.env"
 
       - name: 실패 시 상태와 로그
         if: failure()
