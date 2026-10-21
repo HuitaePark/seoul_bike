@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import StationDetail from './StationDetail.vue'
+import PlanMap from './PlanMap.vue'
 import { usePlanReview } from './usePlanReview'
-import { editableStop, isLoadInvalid, label, loadPercent, numberText, planLabels, reasonText, riskLabels, roleLabels, routeSummary, stationName, stopLabels, taskLabels, timeText } from './model.ts'
+import { editableStop, isLoadInvalid, label, loadPercent, numberText, planLabels, reasonText, riskLabels, routeSummary, stationName, stopLabels, taskLabels, timeText } from './model.ts'
 
 const props = withDefaults(defineProps<{ demo?: boolean }>(), { demo: false })
 const review = usePlanReview(() => props.demo)
@@ -30,8 +31,7 @@ function selectTruck(id: string) {
       <div><p class="eyebrow">재배치 운영</p><h1>계획 검토</h1><p class="muted">트럭 경로와 적재량을 확인하고, 미처리 거점까지 검토하세요.</p></div>
       <RouterLink :to="demo ? '/plans/review' : '/plans/review/demo'" class="text-link">{{ demo ? '실제 계획 조회' : '시연 화면 보기' }} →</RouterLink>
     </div>
-    <div v-if="demo" class="demo-banner" role="note"><strong>시연 데이터 · 실제 계획에 반영되지 않습니다</strong><span>관측·예측·경로는 검토 흐름을 확인하기 위한 가상 자료입니다.</span><button class="ghost" :disabled="sending" @click="review.reset">시연 초기화</button></div>
-    <p class="map-note">지도 서비스 연결 전입니다. 방문 순서는 아래 경로표에서 확인할 수 있습니다.</p>
+    <div v-if="demo" class="demo-banner" role="note"><strong>시연 데이터 · 실제 계획에 반영되지 않습니다</strong><span>위치·관측·예측·방문 순서는 검토 흐름을 확인하기 위한 가상 자료입니다.</span><button class="ghost" :disabled="sending" @click="review.reset">시연 초기화</button></div>
 
     <section v-if="!canRead" class="panel empty" role="status"><h2>관제·책임자용 계획 검토 화면입니다</h2><p>기사 계정은 자신의 배정 경로 화면을 이용하세요.</p><RouterLink to="/">작업 콘솔로 이동</RouterLink></section>
     <template v-else>
@@ -57,6 +57,13 @@ function selectTruck(id: string) {
           <p class="muted plan-id">계획 ID: {{ plan.planId }}</p>
         </section>
 
+      </template>
+      <PlanMap v-if="loaded && (stations.length || plan)"
+        v-model:search-text="searchText" v-model:risk="risk" v-model:station-role="stationRole"
+        :stations="stations" :visible-stations="filteredStations" :plan="plan"
+        :selected-truck="selectedTruck" :selected-station="selectedStation" :excluded="excluded"
+        @select-truck="selectTruck" @select-station="selectedStation = $event" />
+      <template v-if="plan">
         <div class="review-grid">
           <section class="panel route-panel" aria-labelledby="route-heading">
             <div class="section-heading"><h2 id="route-heading">트럭별 경로</h2><span class="muted">ETA · 한국 시간</span></div>
@@ -109,7 +116,6 @@ function selectTruck(id: string) {
         </section>
 
         <section class="panel" aria-labelledby="stations-heading"><div class="section-heading"><h2 id="stations-heading">권역 대여소 현황</h2><span class="muted">{{ filteredStations.length }} / {{ stations.length }}곳</span></div>
-          <div class="station-filters"><label>이름·ID 검색<input v-model="searchText" type="search" placeholder="대여소 검색"></label><label>위험 분류<select v-model="risk" aria-label="위험 분류"><option value="ALL">전체 위험</option><option v-for="(text, key) in riskLabels" :key="key" :value="key">{{ text }}</option></select></label><label>역할 분류<select v-model="stationRole" aria-label="역할 분류"><option value="ALL">전체 역할</option><option v-for="(text, key) in roleLabels" :key="key" :value="key">{{ text }}</option></select></label></div>
           <div v-if="filteredStations.length" class="table-scroll" tabindex="0" aria-label="권역 대여소 표"><table><thead><tr><th>대여소</th><th>현재 / 거치대</th><th>{{ loadedQuery?.horizonH }}시간 후</th><th>위험</th><th>관측 (한국 시간)</th></tr></thead><tbody><tr v-for="s in filteredStations" :key="s.stationId" :class="{ focused: selectedStation === s.stationId }"><td><button class="station-button" :aria-label="`${s.name} 상세`" @click="selectedStation = s.stationId">{{ s.name }}</button><span class="small-line">{{ s.stationId }}</span></td><td>{{ numberText(s.bikes) }} / {{ numberText(s.docks) }}</td><td>{{ numberText(s.forecastBikes) }}</td><td><span class="risk-dot" :class="s.risk" aria-hidden="true"></span>{{ label(riskLabels, s.risk) }}</td><td>{{ timeText(s.observedAt) }}</td></tr></tbody></table></div>
           <p v-else class="empty-inline">{{ stations.length ? '검색 조건에 맞는 대여소가 없습니다.' : '표시할 대여소 현황이 없습니다.' }}</p>
         </section>

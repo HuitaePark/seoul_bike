@@ -2,6 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { approvalBlockReason, isTaskId, loadPercent, numberText, reasonText, routeSummary, timeText, validateQuery } from '../src/features/plan-map/model.ts'
 import { createDemoSource, demoPlan, demoStations, demoTask, DEMO_REGION, DEMO_SHIFT, DEMO_TASK_ID } from '../src/features/plan-map/demo.ts'
+import { mapData, position, truckColor } from '../src/features/plan-map/map-model.ts'
+import type { Station } from '../src/features/plan-map/model.ts'
 
 test('0을 보존하고 선택 필드의 누락을 기본값으로 채우지 않는다', () => {
   assert.equal(numberText(0), '0')
@@ -82,4 +84,57 @@ test('시연 조회는 취소할 수 있고 없는 근무조는 계획 없음으
   controller.abort()
   await assert.rejects(source.readPlan(DEMO_SHIFT, controller.signal), { name: 'AbortError' })
   assert.equal(await source.readPlan('missing'), null)
+})
+
+test('지도 좌표는 경도·위도 순서이며 0을 보존하고 잘못된 좌표를 거른다', () => {
+  assert.deepEqual(position({ lat: 37.5, lon: 127 }), [127, 37.5])
+  assert.deepEqual(position({ lat: 0, lon: 0 }), [0, 0])
+  assert.equal(position({ lat: NaN, lon: 127 }), null)
+  assert.equal(position({ lat: 90, lon: 127 }), null)
+  assert.equal(position({ lat: 37.5, lon: 181 }), null)
+  assert.equal(position({ lat: null, lon: null } as unknown as Station), null)
+  assert.equal(position(), null)
+})
+test('원본을 변경하지 않고 seq 순서대로 방문 연결선을 만든다', () => {
+  const plan = structuredClone(demoPlan)
+  plan.routes[0]!.stops.reverse()
+  const result = mapData(demoStations, plan, 'truck-1', [])
+  const leg = result.lines.features.find(f => f.properties.truckId === 'truck-1')!
+  assert.equal(leg.properties.fromSeq, 1)
+  assert.equal(leg.properties.toSeq, 2)
+  assert.deepEqual(leg.geometry.coordinates, [position(demoStations[0]), position(demoStations[1])])
+  assert.equal(plan.routes[0]!.stops[0]!.seq, 4)
+  assert.equal(result.lines.features.filter(f => f.properties.selected).length, 3)
+  assert.equal(result.lines.features.filter(f => !f.properties.selected).length, 2)
+})
+test('좌표가 없는 중간 거점을 건너 연결하거나 미처리 좌표를 만들어내지 않는다', () => {
+  const stations = demoStations.filter(s => s.stationId !== 'ST-102')
+  const result = mapData(stations, demoPlan, 'truck-1', [])
+  assert.deepEqual(result.lines.features.filter(f => f.properties.selected).map(f => [f.properties.fromSeq, f.properties.toSeq]), [[3, 4]])
+  assert.deepEqual(result.missingIds.sort(), ['ST-102', 'ST-302', 'ST-303'])
+  assert.equal(result.points.some(p => p.station.stationId === 'ST-302'), false)
+})
+test('제외 선택은 현재 계획 경로를 바꾸지 않고 마커에 표시한다', () => {
+  const result = mapData(demoStations, demoPlan, 'truck-1', ['ST-101'])
+  assert.equal(result.points.find(p => p.station.stationId === 'ST-101')!.excluded, true)
+  assert.deepEqual(result.points.find(p => p.station.stationId === 'ST-101')!.visits, [{ seq: 1, action: 'PICKUP', bikes: 6 }])
+  assert.equal(result.points.find(p => p.station.stationId === 'ST-301')!.unserved, true)
+  assert.equal(result.lines.features.filter(f => f.properties.selected).length, 3)
+  assert.equal(mapData(demoStations, demoPlan, 'truck-3', []).selectedPositions.length, 0)
+})
+test('계획이 없어도 대여소를 표시하고 잘못된 현황 좌표를 별도로 센다', () => {
+  const stations = structuredClone(demoStations)
+  stations[0]!.lat = Infinity
+  const result = mapData(stations, null, '', [])
+  assert.equal(result.points.length, 7)
+  assert.equal(result.invalidCount, 1)
+  assert.deepEqual(result.lines.features, [])
+  assert.deepEqual(result.missingIds, [])
+})
+test('트럭 배열 순서가 바뀌어도 색상을 유지하고 한 거점의 여러 방문 번호를 보존한다', () => {
+  const plan = structuredClone(demoPlan)
+  plan.routes.reverse()
+  assert.equal(truckColor(plan, 'truck-1'), truckColor(demoPlan, 'truck-1'))
+  plan.routes.find(r => r.truckId === 'truck-1')!.stops.push({ seq: 5, stationId: 'ST-101', action: 'PICKUP', bikes: 1 })
+  assert.deepEqual(mapData(demoStations, plan, 'truck-1', []).points.find(p => p.station.stationId === 'ST-101')!.visits.map(s => s.seq), [1, 5])
 })

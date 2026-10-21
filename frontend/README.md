@@ -28,9 +28,10 @@ BACKEND_URL=https://baki-macbookpro.tail3286a4.ts.net npm run dev   # 배포 서
 
 ## 계획 검토 화면 (역할 5)
 
-`/plans/review/demo`는 로그인 없이 트럭 경로·적재량·미처리 사유·거점 제외와 새 후보 승인 흐름을 시연한다.
+`/plans/review/demo`는 로그인 없이 지도·마커·트럭 방문 순서·적재량·미처리 사유·거점 제외와 새 후보 승인 흐름을 시연한다.
 `/plans/review`는 관리자·책임자의 실제 조회 화면이며 실제 업무 API 연결은 후속이다.
-지도 서비스는 아직 연결하지 않았다. [상세 실행·검증 안내](src/features/plan-map/README.md)를 참고한다.
+MapLibre·OpenFreeMap을 연결했다. 점선은 방문 순서이고 실제 도로 경로는 후속이다.
+[상세 실행·검증 안내](src/features/plan-map/README.md)를 참고한다.
 검사는 `npm test`, `npm run build`, Chromium 설치 후 `npm run test:e2e`로 실행한다.
 
 ## 시연 계정

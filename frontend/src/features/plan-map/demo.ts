@@ -5,9 +5,11 @@ export const DEMO_SHIFT = `${DEMO_REGION}:2026-10-21:AM`
 export const DEMO_TASK_ID = 'dd39466c-c263-4da9-8848-38273793215a'
 const observedAt = '2026-10-21T08:00:00+09:00'
 const names = ['성수역 2번 출구', '서울숲 입구', '뚝섬역 5번 출구', '성수동 주민센터', '건대입구역', '어린이대공원 정문', '화양사거리', '자양동 주민센터']
+// Deliberately synthetic positions for this offline fixture, not station geocoding.
+const coordinates = [[37.548, 127.056], [37.544, 127.044], [37.552, 127.05], [37.541, 127.057], [37.54, 127.07], [37.548, 127.076], [37.545, 127.065], [37.535, 127.063]]
 const ids = ['ST-101', 'ST-102', 'ST-103', 'ST-104', 'ST-201', 'ST-202', 'ST-203', 'ST-301']
 export const demoStations: Station[] = ids.map((stationId, index) => ({
-  stationId, name: names[index]!, lat: 37.543 + index * 0.001, lon: 127.047 + index * 0.001,
+  stationId, name: names[index]!, lat: coordinates[index]![0]!, lon: coordinates[index]![1]!,
   docks: 20, bikes: [21, 0, 18, 2, 24, 1, 0, 0][index]!, observedAt,
   forecastBikes: [25, -4, 24, 0, 30, -2, -1, null][index],
   risk: [0, 2, 4].includes(index) ? 'OVERFLOW' : 'EMPTY',

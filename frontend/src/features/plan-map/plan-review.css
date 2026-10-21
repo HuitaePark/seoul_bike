@@ -13,7 +13,6 @@
 .plan-review .text-link { white-space: nowrap; font-size: 14px; }
 .plan-review .demo-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; background: #eef2ff; border: 1px solid #c7d2fe; padding: 15px 20px; border-radius: 12px; color: #312e81; }
 .plan-review .demo-banner span { font-size: 13px; flex: 1; }
-.plan-review .map-note { margin: -10px 0 0; font-size: 13px; color: #64748b; }
 .plan-review .query-form { display: grid; grid-template-columns: 1fr 1.7fr .8fr auto; align-items: end; gap: 12px; margin: 0; }
 .plan-review input:not([type=checkbox]), .plan-review select, .plan-review textarea { width: 100%; min-width: 0; min-height: 44px; color: #0f172a; background: white; }
 .plan-review input[readonly] { background: #f8fafc; }
@@ -93,6 +92,42 @@
 .plan-review .risk-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; margin-right: 6px; }
 .plan-review .risk-dot.EMPTY { background: #b45309; }
 .plan-review .risk-dot.OVERFLOW { background: #7c3aed; }
+.plan-review .map-view-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.plan-review .map-toolbar { display: flex; align-items: center; gap: 18px; margin: 12px 0; }
+.plan-review .map-toolbar > label { min-width: 180px; }
+.plan-review .map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: #475569; }
+.plan-review .map-legend > span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; background: #94a3b8; }
+.plan-review .map-legend .legend-empty::before { background: #b45309; }
+.plan-review .map-legend .legend-overflow::before { background: #7c3aed; }
+.plan-review .map-legend .legend-unserved::before { background: #fff; border: 2px dashed #b91c1c; }
+.plan-review .map-legend .legend-order::before { background: var(--truck-color); }
+.plan-review .map-canvas-wrap { position: relative; border: 1px solid #dbe3ed; border-radius: 12px; overflow: hidden; isolation: isolate; }
+.plan-review .map-canvas { height: 460px; width: 100%; background: #edf2f7; }
+.plan-review .map-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #f1f5f9f0; padding: 24px; text-align: center; margin: 0; color: #475569; }
+.plan-review .map-loading { position: absolute; top: 8px; left: 8px; background: #fffffff0; box-shadow: 0 1px 5px #0f172a20; padding: 6px 10px; border-radius: 6px; font-size: 12px; pointer-events: none; }
+.plan-review .map-order-note { color: #64748b; font-size: 12px; margin-top: 12px; }
+.plan-review .map-order-note strong { color: #475569; }
+.plan-review .map-visit-list { display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 12px 3px; color: #94a3b8; }
+.plan-review .map-visit-list button { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.plan-review .map-visit-list button.active { background: #eef2ff; border-color: #6366f1; }
+.plan-review .visit-number { display: inline-grid; place-items: center; color: white; width: 23px; height: 23px; border-radius: 50%; font-size: 11px; }
+.plan-review .map-selection { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; padding: 12px 14px; border-radius: 8px; background: #eef2ff; color: #334155; font-size: 13px; }
+.plan-review .map-selection > span { flex: 1; }
+.plan-review .map-footer { display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between; font-size: 11px; color: #64748b; margin-top: 12px; }
+.plan-review .map-footer a { color: #64748b; }
+.plan-review button.map-station-marker { width: 44px; height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer; display: grid; place-items: center; z-index: 1; }
+.plan-review .map-marker-dot { display: grid; place-items: center; width: 24px; min-width: 24px; height: 24px; padding: 0 3px; border: 2px solid white; border-radius: 50%; background: #64748b; box-shadow: 0 1px 5px #0f172a70; color: white; font-size: 12px; font-weight: 700; }
+.plan-review .map-station-marker.EMPTY .map-marker-dot { background: #b45309; }
+.plan-review .map-station-marker.OVERFLOW .map-marker-dot { background: #7c3aed; }
+.plan-review .map-station-marker.on-route .map-marker-dot { background: var(--truck-color); width: auto; height: 30px; min-width: 30px; }
+.plan-review .map-station-marker.is-unserved .map-marker-dot { outline: 2px dashed #b91c1c; outline-offset: 2px; }
+.plan-review .map-station-marker.is-selected { z-index: 3; }
+.plan-review .map-station-marker.is-selected .map-marker-dot { box-shadow: 0 0 0 5px #a5b4fc90, 0 1px 5px #0f172a70; }
+.plan-review .map-station-marker.is-excluded .map-marker-dot { opacity: .65; }
+.plan-review .map-station-marker.is-excluded::after { content: '×'; position: absolute; right: 0; top: 0; color: white; background: #b91c1c; border-radius: 50%; width: 17px; height: 17px; font-size: 13px; line-height: 17px; }
+/* Keep the map library's zoom and attribution controls compact inside this feature. */
+.plan-review .maplibregl-ctrl button { min-height: 29px; padding: 0; background-color: white; }
+.plan-review .maplibregl-ctrl-attrib { max-width: calc(100% - 12px); font-size: 10px; }
 @media (max-width: 950px) { .plan-review .review-grid { grid-template-columns: minmax(0, 1fr); } .plan-review .facts { grid-template-columns: repeat(4, 1fr); } .plan-review .query-form { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 600px) {
   .plan-review { gap: 14px; }
@@ -115,5 +150,9 @@
   .plan-review .decision-buttons button { width: 100%; }
   .plan-review .station-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .plan-review .station-filters label:first-child { grid-column: 1 / -1; }
+  .plan-review .map-toolbar { align-items: stretch; flex-direction: column; gap: 10px; }
+  .plan-review .map-canvas { height: 350px; }
+  .plan-review .map-selection > span { flex-basis: 100%; }
+  .plan-review .map-view-buttons button { font-size: 12px; padding: 8px 10px; }
   .plan-review table { min-width: 600px; }
 }
