@@ -32,6 +32,26 @@ SAMPLE = 0.3
 OBSERVED = ["temp", "rain_mm", "rain_prev3h"]
 FEATS_F = [f for f in FEATS if f not in OBSERVED] + ["lead", "f_temp", "f_pcp", "f_pop"]
 FEATS_N = FEATS_F + ["rent_rec1", "rent_rec3", "ret_rec1", "ret_rec3", "exp_rent3", "exp_ret3", "zone_ratio3"]
+EV_FEATS = ["ev_arrive", "ev_exit", "ev_type", "ev_closed", "ev_att"]  # --events: 행사장 700m 안 대여소의 행사 시간대 (analysis/events.py)
+
+
+def with_events(df: pd.DataFrame, ev: pd.DataFrame | None = None) -> pd.DataFrame:
+    """행사 달력(analysis/out/events.csv)으로 대여소·시각마다 행사 피처를 붙인다. 행사는 미리 알려진 일정이라 미래 정보가 아니다.
+    ev: 행사 × 근처 대여소 표(st_no 열 포함). 주지 않으면 analysis/out의 두 표를 합친다.
+    한 대여소에 같은 날 행사가 둘이면(잠실야구장·실내체육관처럼 가까운 행사장) 시각마다 하나라도 해당하면 1로 본다."""
+    if ev is None:
+        ev = pd.read_csv(ROOT / "analysis/out/events.csv").merge(pd.read_csv(ROOT / "analysis/out/event_stations.csv"), on="venue")
+    ev = ev.assign(date=pd.to_datetime(ev.date)).rename(columns={"st_no": "st"})
+    m = df[["st", "h", "hh"]].assign(date=df.h.dt.normalize(), i=np.arange(len(df))).merge(ev, on=["st", "date"], how="left")
+    f = pd.DataFrame({"i": m.i, "ev_arrive": (m.hh >= m.arrive_h0) & (m.hh < m.arrive_h1), "ev_exit": (m.hh >= m.exit_h0) & (m.hh < m.exit_h1),
+                      "ev_type": m.type.fillna(0),  # analysis/events.py의 KINDS 순번(축구 1, 야구 2, 콘서트 3, ...)
+                      "ev_closed": m.closed.fillna(0),
+                      "ev_att": np.log1p(m["attendance"].fillna(0)) if "attendance" in m else 0.0}).groupby("i").max()  # 관객 수 모르면 0
+    out = df.copy()
+    flags = EV_FEATS[:-1]
+    out[flags] = f[flags].astype("int8").to_numpy()
+    out["ev_att"] = f.ev_att.astype("float32").to_numpy()
+    return out
 
 
 def with_lags(df: pd.DataFrame) -> pd.DataFrame:
@@ -65,7 +85,8 @@ def stack(df: pd.DataFrame, fw: pd.DataFrame, frac: float, seed: int = 0) -> pd.
         d = df.sample(frac=frac, random_state=seed + k) if frac < 1 else df
         lag = lambda c, i: d[f"{c}_l{i}"]  # noqa: E731
         # rain_mm은 채점에서 비 온 시각을 나누는 데만 쓴다(피처 아님)
-        p = d[["st", "h", "hh", "rent", "ret", "empty_min", "rain_mm", "plain_rent", "base_ret", *[f for f in FEATS if f not in OBSERVED]]].copy()
+        p = d[["st", "h", "hh", "rent", "ret", "empty_min", "rain_mm", "plain_rent", "base_ret", *[f for f in FEATS if f not in OBSERVED],
+               *[c for c in EV_FEATS if c in d]]].copy()
         p = p.loc[:, ~p.columns.duplicated()]
         p["lead"] = k
         p["rent_rec1"], p["ret_rec1"] = lag("rent", k), lag("ret", k)
@@ -83,7 +104,8 @@ class NowcastPredictor:
 
     def __init__(self, rent: lgb.Booster, ret: lgb.Booster, frame: pd.DataFrame, version: str):
         self.version = version
-        self.pred = dict(zip(zip(frame.st, frame.h, frame.lead), zip(rent.predict(frame[FEATS_N]), ret.predict(frame[FEATS_N]))))
+        feats = rent.feature_name()  # 행사 피처를 쓴 모형이면 그 피처까지
+        self.pred = dict(zip(zip(frame.st, frame.h, frame.lead), zip(rent.predict(frame[feats]), ret.predict(frame[feats]))))
 
     def predict(self, station: Station, start: datetime, horizon_h: int) -> Forecast:
         assert horizon_h <= max(LEADS), f"최대 {max(LEADS)}시간까지 예측한다"
@@ -95,7 +117,7 @@ class NowcastPredictor:
 def load_predictor(terr: str, d: date, model_terr: str | None = None) -> NowcastPredictor:
     """d일 하루를 예측할 수 있게 terr의 피처를 만들고, 저장된 모형(data/models/nowcast_<model_terr>_rent·ret.txt)을 불러온다.
     model_terr를 주면 다른 구역에서 학습한 모형을 옮겨 쓴다. 모형은 2025-02까지로 학습했으므로 그 뒤의 날만 미래를 보지 않는다."""
-    df = with_lags(features(terr, d - timedelta(days=1), d + timedelta(days=1)))
+    df = with_events(with_lags(features(terr, d - timedelta(days=1), d + timedelta(days=1))))  # 행사 피처는 그 피처로 학습한 모형만 쓴다
     df = df[df.h >= datetime.combine(d, time())]
     mt = model_terr or terr
     m = {n: lgb.Booster(model_file=str(ROOT / f"data/models/nowcast_{mt}_{n}.txt")) for n in ("rent", "ret")}
@@ -126,9 +148,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--terr", default="강남-05")
     ap.add_argument("--model", help="주면 학습하지 않고 이 구역의 저장된 모형으로 --terr를 채점한다(옮겨 쓰기 확인)")
+    ap.add_argument("--events", action="store_true", help="행사 피처를 넣은 모형을 학습해 같은 구역의 기존 모형과 비교한다")
     args = ap.parse_args()
     if args.model:
         return transfer(args.terr, args.model)
+    if args.events:
+        return events_compare(args.terr)
 
     df = with_lags(features(args.terr, date(2024, 1, 31), date(2025, 7, 1)))
     df = df[df.h >= "2024-02-01"]
@@ -176,6 +201,41 @@ def main() -> None:
                                (("베이스라인", "plain_rent"), ("예보", "fc_rent"), ("예보+오늘", "now_rent"))}}
     print(pd.DataFrame(rows).T.round(3).to_string())
     print("\n== 예보 + 오늘 정보 대여 모형 피처 중요도 상위 (gain 비율)\n" + (imp / imp.sum()).head(10).round(3).to_string())
+
+
+def events_compare(terr: str) -> None:
+    """행사 피처를 넣은 모형(nowcast_<구역>_ev)을 학습하고, 같은 구역의 행사 피처 없는 모형(nowcast_<구역>)과 비교한다.
+    전체 지표와 함께 행사 시간대(행사장 700m 안 대여소의 도착·퇴장 시각)만 떼어 대여·반납 오차를 본다."""
+    df = with_events(with_lags(features(terr, date(2024, 1, 31), date(2025, 7, 1))))
+    df = df[df.h >= "2024-02-01"]
+    fw = forecast_weather(df.h)
+    tr, stop, valid = df[df.h < "2025-03-01"], df[(df.h >= "2025-03-01") & (df.h < "2025-04-01")], df[df.h >= "2025-04-01"]
+    s_tr, s_stop, s_val = stack(tr, fw, SAMPLE), stack(stop, fw, SAMPLE), stack(valid, fw, 1.0)
+    ok = lambda x: x[x.empty_min < EMPTY_MAX]  # noqa: E731
+    feats = FEATS_N + EV_FEATS
+    print(f"{terr}  학습 행 중 행사 시간대 {(s_tr.ev_arrive | s_tr.ev_exit).sum():,}행, 검증 {(s_val.ev_arrive | s_val.ev_exit).sum():,}행")
+    m_rent, m_ret = fit(ok(s_tr), ok(s_stop), "rent", feats), fit(s_tr, s_stop, "ret", feats)
+    m_rent.save_model(str(ROOT / f"data/models/nowcast_{terr}_ev_rent.txt"))
+    m_ret.save_model(str(ROOT / f"data/models/nowcast_{terr}_ev_ret.txt"))
+    s_val["ev_rent"], s_val["ev_ret"] = m_rent.predict(s_val[feats]), m_ret.predict(s_val[feats])
+    for n in ("rent", "ret"):
+        s_val[f"now_{n}"] = lgb.Booster(model_file=str(ROOT / f"data/models/nowcast_{terr}_{n}.txt")).predict(s_val[FEATS_N])
+    names = {"베이스라인 4주": ("base_ret", "plain_rent"), "행사 피처 없음": ("now_ret", "now_rent"), "행사 피처 있음": ("ev_ret", "ev_rent")}
+    sv = at_shift_start(s_val)
+    print("\n== 근무조에 빌 대여소 맞히기\n" + stockout(sv, shift_start_stock(sv), names).to_string())
+    print("\n== 구역 전체 시간별 대여 수 가중 오차율\n" + zone_wape(sv, {k: v[1] for k, v in names.items()}).to_string())
+    kinds = {i + 1: k for i, k in enumerate(("축구", "야구", "콘서트", "체육행사", "축제", "집회", "기타", "농구", "배구"))}  # analysis/events.py KINDS
+    e = s_val[(s_val.ev_arrive == 1) | (s_val.ev_exit == 1) | (s_val.ev_closed == 1)]
+    e = e.assign(group=np.where(e.ev_closed == 1, "운영 중단·통제", e.ev_type.map(kinds)),
+                 phase=np.where(e.ev_closed == 1, "하루", np.where(e.ev_exit == 1, "퇴장", "도착")))
+    print(f"\n== 행사 시간대만 (검증 {e.h.dt.date.nunique()}일, 대여소·시각·lead {len(e):,}행): 평균 절대 오차 (실제 평균)")
+    rows = {}
+    for (grp, phase), g in e.groupby(["group", "phase"]):
+        rows[(grp, phase)] = {"행": len(g), "실제 대여": g.rent.mean(), "실제 반납": g.ret.mean(),
+                              **{f"{k} {what}": (g[c] - g[what]).abs().mean() for k, (r, n) in names.items() for what, c in (("rent", n), ("ret", r))}}
+    print(pd.DataFrame(rows).T.round(2).to_string())
+    imp = pd.Series(m_rent.feature_importance("gain"), index=feats)
+    print("\n== 대여 모형의 행사 피처 중요도 (gain 비율)\n" + (imp[EV_FEATS] / imp.sum()).round(4).to_string())
 
 
 

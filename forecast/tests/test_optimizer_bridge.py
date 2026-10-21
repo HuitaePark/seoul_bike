@@ -41,6 +41,7 @@ def test_nowcast_uses_prediction_lead_and_normalized_kst_keys():
     frame["lead"] = [1, 1, 2]
     # The 09:00 lead-1 prediction must not leak into the earlier 08:00 forecast window.
     rent, ret = cached_models([2.5, 100.0, 0.25], [1.5, 0.0, 0.75])
+    rent.feature_name.return_value = FEATS_N
     predictor = NowcastPredictor(rent, ret, frame, "nowcast-cache-test")
     raw = predictor.predict(STATION, START, 2)
     assert raw.rentals_h == (2.5, 0.25) and raw.model_version == "nowcast-cache-test"

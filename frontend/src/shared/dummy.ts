@@ -118,35 +118,3 @@ export const DUMMY_TRUCKS: TruckLive[] = [
   { truckId: 'truck-2', driver: '이기사', lat: 37.5440, lon: 127.0720, load: 12, capacity: 15, moving: true, updatedSec: 2 },
   { truckId: 'truck-3', driver: '박기사', lat: 37.5612, lon: 127.0371, load: 0, capacity: 12, moving: false, updatedSec: 4 },
 ]
-
-export const DUMMY_PENDING: (Schemas['ApprovalRequest'] & { createdMin: number })[] = [
-  {
-    approvalId: '00000000-0000-4000-8000-000000000101',
-    kind: 'ROUTE_CHANGE',
-    approver: 'MANAGER',
-    grade: 'MAJOR',
-    requiredApprovers: ['MANAGER', 'DRIVER'],
-    truckId: 'truck-2',
-    summary: '구의역 보충분을 truck-1로 넘기고 truck-2는 강변역 회수',
-    reasons: ['건대입구역 실제 재고 0대 (앱 4대) 보고', 'truck-2 적재량 부족, 트럭 간 배정 이동이라 큰 변경'],
-    createdMin: 2,
-    diff: {
-      truckId: 'truck-2',
-      addedMinutes: 6,
-      before: DUMMY_PLAN.routes[1]!.stops.slice(1),
-      after: [
-        { seq: 2, stationId: 'ST-541', action: 'DROPOFF', bikes: 12 },
-        { seq: 3, stationId: 'ST-570', action: 'PICKUP', bikes: 5 },
-        { seq: 4, stationId: 'ST-563', action: 'PICKUP', bikes: 4 },
-      ],
-    },
-  },
-  {
-    approvalId: '00000000-0000-4000-8000-000000000102',
-    kind: 'ADD_CONSTRAINT',
-    approver: 'MANAGER',
-    summary: '뚝섬유원지역 10:00~22:00 대여·반납 중지 (한강 행사)',
-    reasons: ['관리자 요청 "뚝섬 한강공원 행사로 대여소 운영 중지"를 제약으로 해석'],
-    createdMin: 9,
-  },
-]
