@@ -16,8 +16,10 @@
 from __future__ import annotations
 
 import heapq
-from collections import Counter
-from dataclasses import dataclass, field
+import math
+import random
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -41,6 +43,7 @@ class Day:
     fixed_pickup: frozenset[int] = frozenset()  # 고정 회수 대여소 (stations.csv role, 단순 규칙이 쓴다)
     pickup_sources: frozenset[int] = frozenset()  # 전해 4~10월 역산에서 트럭이 꾸준히 빼 간 대여소 (본 시스템의 공급처)
     visits: list[tuple[datetime, int, int]] = field(default_factory=list)  # 역산 트럭 방문 (시각, 대여소, ±대수). 회수는 음수
+    visits_prev_week: list[tuple[datetime, int, int]] = field(default_factory=list)  # 지난주 같은 요일의 역산 방문을 이날로 옮긴 것
     n_recorded: int | None = None  # trips 중 앞의 n개가 기록된 대여, 나머지는 억눌린 수요(latent.py). None이면 모두 기록
 
 
@@ -95,7 +98,8 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
         if ut is not None and us in stock:
             q.append((ut, 1, "return", i))
     step = getattr(policy, "replan_h", None)  # 있으면 근무조 안에서 이 간격마다 다시 계획한다
-    for h0, h1 in SHIFTS:
+    shifts = getattr(policy, "shifts", SHIFTS)  # 근무 시간을 바꿔 보는 시나리오(sim --shifts)
+    for h0, h1 in shifts:
         for h in range(h0, h1, step or h1 - h0):
             q.append((day.start + timedelta(hours=h), 2, "plan", day.start + timedelta(hours=min(h + (step or h1 - h0), h1))))
     ops = [(t, s, dx) for t, s, dx in policy.events(day) if s in stock and day.start <= t < end]
@@ -173,6 +177,38 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
     return res
 
 
+def poisson(rng: random.Random, lam: float) -> int:
+    if lam > 30:  # 큰 평균은 정규 근사
+        return max(0, round(rng.gauss(lam, math.sqrt(lam))))
+    k, p, floor = 0, 1.0, math.exp(-lam)
+    while True:
+        p *= rng.random()
+        if p <= floor:
+            return k
+        k += 1
+
+
+def resample_demand(day: Day, seed: int) -> Day:
+    """기록된 대여를 (대여소, 시각)마다 포아송으로 다시 뽑은 하루. 평균은 그 시각의 기록 건수, 시각은 그 시간 안에서 고르게,
+    반납 대여소와 이용 시간은 같은 (대여소, 시각)의 기록 하나를 본뜬다. 구역 밖·전날 빌린 대여의 반납과 억눌린 수요는 그대로 둔다.
+    왜: 기록된 대여는 실제 트럭이 채워 둔 자전거로 일어났다. 그대로 재생하면 실제 트럭 이동(현행 운영 재현)과 대여가
+    한 대 한 대 맞물려 현행 운영이 유리하다. 수요 수준은 그날과 같게 두어, 예측기가 본 그날의 정보와 어긋나지 않게 한다."""
+    rng = random.Random(seed)
+    n = len(day.trips) if day.n_recorded is None else day.n_recorded
+    groups, keep = defaultdict(list), []
+    for t in day.trips[:n]:
+        (groups[(t[1], t[0].hour)] if t[0] is not None else keep).append(t)
+    new = []
+    for key in sorted(groups):  # 순서를 고정해야 같은 시드로 같은 하루가 나온다
+        ts = groups[key]
+        for _ in range(poisson(rng, len(ts))):
+            rt0, rs, ut0, us0 = rng.choice(ts)
+            rt = rt0.replace(minute=0, second=0, microsecond=0) + timedelta(seconds=rng.uniform(0, 3600))
+            new.append((rt, rs, None if ut0 is None else rt + (ut0 - rt0), us0))
+    trips = keep + new
+    return replace(day, trips=trips + day.trips[n:], n_recorded=len(trips))
+
+
 def load_day(terr: str, d: date, latent: bool = True) -> Day:
     """구역 terr의 d일 하루를 파일에서 만든다. latent이면 실제로 비어 있던 시간의 억눌린 수요를 trips 뒤에 더한다.
 
@@ -221,13 +257,13 @@ def load_day(terr: str, d: date, latent: bool = True) -> Day:
     lon = sum(s.lon for s in stations.values()) / len(stations)
     fixed = frozenset(r[0] for r in c.execute("SELECT st_no FROM zs WHERE role = '고정 회수'").fetchall()) & stations.keys()
     # 역산 방문은 시각 창의 중간에 일어났다고 본다(초기 재고 복원과 같은 기준)
-    visits = [(m, st, -n if kind == "pick" else n) for m, st, kind, n in c.execute(f"""
+    visits, visits_prev_week = ([(m + shift, st, -n if kind == "pick" else n) for m, st, kind, n in c.execute(f"""
         SELECT lo + (hi - lo) / 2 AS m, st, kind, n::INT FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet'
-        WHERE lo + (hi - lo) / 2 >= $a AND lo + (hi - lo) / 2 < $b ORDER BY m""", {"a": t0, "b": t1}).fetchall()
-              if st in stations]
+        WHERE lo + (hi - lo) / 2 >= $a AND lo + (hi - lo) / 2 < $b ORDER BY m""", {"a": t0 - shift, "b": t1 - shift}).fetchall()
+              if st in stations] for shift in (timedelta(0), timedelta(days=7)))
     # 공급처: 전해 4~10월(성수기) 역산 방문에서 하루 평균 회수 − 배치가 2대 이상인 대여소. 재생하는 해의 자료는 쓰지 않는다
     y = d.year - 1
     sources = frozenset(r[0] for r in c.execute(f"""
         SELECT st FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet' WHERE lo >= '{y}-04-01' AND lo < '{y}-11-01'
         GROUP BY st HAVING sum(CASE WHEN kind = 'pick' THEN n ELSE -n END) / 214.0 >= 2""").fetchall()) & stations.keys()
-    return Day(t0, stations, trips, (lat, lon), fixed, sources, visits, n_recorded)
+    return Day(t0, stations, trips, (lat, lon), fixed, sources, visits, visits_prev_week, n_recorded)

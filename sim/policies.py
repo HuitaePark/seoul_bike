@@ -22,6 +22,7 @@ from rebalancing.planner import plan_routes
 from .engine import SHIFTS
 
 LOW = 2  # 단순 규칙: 재고가 이 이하면 빈 위험 (초기값)
+MAX_LEAD = 5  # 예측기가 내다보는 최대 시간(forecast/nowcast.py, 합의 29번)
 FILL_MIN = 5  # 빈 위험 대여소는 max(거치대 절반, 이 값)까지 채운다 (초기값)
 
 
@@ -65,6 +66,14 @@ class CurrentOps(Policy):
         return day.visits
 
 
+class CurrentOpsLastWeek(Policy):
+    """현행 운영 방식을 지난주 같은 요일의 역산 방문으로 재생한다(CURRENT_OPS_LW, 분석용).
+    그날의 역산 방문은 나중에 실제로 대여가 일어난 곳에 놓인 배치(미래 정보)라서, 평소 하던 대로 움직인 운영과 비교하려고 둔다."""
+
+    def events(self, day) -> list[tuple[datetime, int, int]]:
+        return day.visits_prev_week
+
+
 class Agent(Policy):
     """본 시스템. 계획할 때마다 지금 시각부터 근무조 끝까지(또는 horizon시간)의 시간별 예측으로 재고 궤적을 그려 목표를 정한다(PRD 7.1).
       배치  궤적이 'LOW + 여유' 아래로 내려가면 그만큼 채운다. 여유 = z × √(그때까지 예상 대여)(포아송 표준편차)
@@ -77,28 +86,39 @@ class Agent(Policy):
               다시 계획할 때마다 거점에서 출발한다. 5가 OR-Tools를 PRD v0.2(우선순위 벌점, 시간 차원, 재경로)에 맞추면 그 입력으로 바꾼다."""
 
     def __init__(self, predictor, sources: frozenset[int], z: float = 1.0, replan_h: int | None = None,
-                 horizon: int | None = None, time_limit_s: int = 2):
+                 horizon: int | None = None, time_limit_s: int = 2, z_pick: float | None = None, bridge: bool = False,
+                 shifts: tuple = SHIFTS, solution_limit: int | None = None):
         self.predictor = predictor
         self.sources = sources
-        self.z = z
+        self.z = z  # 배치 여유
+        self.z_pick = z if z_pick is None else z_pick  # 회수 여유. 크게 두면 공급처를 덜 비운다
         self.replan_h = replan_h
         self.horizon = horizon
+        self.bridge = bridge  # 근무조 마지막 계획은 다음 근무조 시작까지(최대 MAX_LEAD시간) 버티게 본다
         self.time_limit_s = time_limit_s
+        self.shifts = shifts  # 엔진도 이 근무조로 계획 시각을 잡는다
+        self.solution_limit = solution_limit  # 주면 경로 탐색을 해 개수로 멈춘다(실행마다 같은 답). time_limit_s는 안전 상한
 
     def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int) -> Plan:
-        horizon = self.horizon or next(h1 - now.hour for h0, h1 in SHIFTS if h0 <= now.hour < h1)  # 근무조 끝까지
+        h0, h1 = next((a, b) for a, b in self.shifts if a <= now.hour < b)
+        horizon = self.horizon or h1 - now.hour  # 기본은 근무조 끝까지
+        if self.bridge and now.hour + (self.replan_h or h1 - h0) >= h1:  # 이 근무조의 마지막 계획
+            nxt = next((a for a, _ in self.shifts if a > now.hour), self.shifts[0][0] + 24)
+            horizon = max(horizon, min(MAX_LEAD, nxt - now.hour))
         todo = []
         for s in stations:
             f = self.predictor.predict(s, now, horizon)
             traj = list(accumulate((r - n for r, n in zip(f.returns_h, f.rentals_h)), initial=s.bikes))
-            margin = [0.0] + [self.z * math.sqrt(x) for x in accumulate(f.rentals_h)]
-            need = max(LOW + m - t for t, m in zip(traj, margin))  # 이만큼 더 있어야 버틴다(음수면 남는 양)
+            sd = [0.0] + [math.sqrt(x) for x in accumulate(f.rentals_h)]
+            need = max(LOW + self.z * d - t for t, d in zip(traj, sd))  # 이만큼 더 있어야 버틴다
+            spare = -max(LOW + self.z_pick * d - t for t, d in zip(traj, sd))  # 빼도 버티는 양
             if need > 0:
                 delta = -math.ceil(need)
-            elif s.id in self.sources and s.capacity and max(traj) > s.capacity:
-                delta = math.floor(min(-need, max(traj) - s.capacity))
+            elif s.id in self.sources and s.capacity and max(traj) > s.capacity and spare > 0:
+                delta = math.floor(min(spare, max(traj) - s.capacity))
             else:
                 continue
             if delta:  # 회수량을 내림하면 0이 될 수 있다
                 todo.append(Imbalance(s.id, max(-truck_capacity, min(truck_capacity, delta))))
-        return plan_routes(depot, stations, todo, [Truck(i, truck_capacity) for i in range(trucks)], time_limit_s=self.time_limit_s)
+        return plan_routes(depot, stations, todo, [Truck(i, truck_capacity) for i in range(trucks)], time_limit_s=self.time_limit_s,
+                           solution_limit=self.solution_limit)

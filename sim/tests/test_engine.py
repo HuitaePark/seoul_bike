@@ -6,9 +6,9 @@ import random
 import unittest
 from datetime import datetime, timedelta
 
-from sim.engine import Day, replay
+from sim.engine import Day, replay, resample_demand
 from sim.latent import poisson_arrivals
-from sim.policies import Agent, CurrentOps, NoRebalancing, SimpleRule
+from sim.policies import Agent, CurrentOps, CurrentOpsLastWeek, NoRebalancing, SimpleRule
 from forecast import Forecast
 from rebalancing.models import Station
 
@@ -87,6 +87,43 @@ class ReplayTest(unittest.TestCase):
         r = replay(Day(T0, stations, trips, (37.500, 127.0)), Hourly(frozenset({1})), trucks=1)
         self.assertEqual(r.stock[2], 5)   # 07시 경로가 B를 채웠다
         self.assertEqual(r.stock[1], 10)  # A에서 거치대 수까지 뺐다
+
+    def test_policy_shifts_set_when_trucks_work(self):
+        # 엔진은 정책의 shifts로 계획 시각을 잡는다. 없으면 기본 근무조(7–10, 13–16, 19–21)
+        class Seen(SimpleRule):
+            replan_h = 1
+
+            def plan(self, now, *a):
+                self.at.append(now.hour)
+                return super().plan(now, *a)
+
+        stations = {1: Station(1, "A", 37.500, 127.0, 10, 30), 2: Station(2, "B", 37.501, 127.0, 10, 3)}
+        trips = [(at(10, 30 + 5 * i), 2, None, None) for i in range(3)]
+        default, full = Seen(frozenset({1})), Seen(frozenset({1}))
+        default.at, full.at, full.shifts = [], [], ((7, 22),)
+        for p in (default, full):
+            replay(Day(T0, stations, trips, (37.500, 127.0)), p, trucks=1)
+        self.assertEqual(default.at, [7, 8, 9, 13, 14, 15, 19, 20])
+        self.assertEqual(full.at, list(range(7, 22)))
+
+    def test_resampled_day_keeps_hour_and_level_and_leaves_latent_alone(self):
+        stations = {1: Station(1, "A", 37.50, 127.00, 10, 50), 2: Station(2, "B", 37.51, 127.01, 10, 0)}
+        rec = [(at(8, m % 60), 1, at(8, m % 60) + timedelta(minutes=12), 2) for m in range(100)]  # 08시에 A → B 100건
+        inflow = [(None, None, at(9), 1)]  # 전날·구역 밖에서 빌려 A에 반납
+        latent = [(at(10), 2, None, None)]
+        day = Day(T0, stations, rec + inflow + latent, (37.505, 127.005), n_recorded=101)
+        a, b = resample_demand(day, seed=1), resample_demand(day, seed=1)
+        self.assertEqual(a.trips, b.trips)  # 같은 시드면 같은 하루
+        new = [t for t in a.trips[:a.n_recorded] if t[0] is not None]
+        self.assertTrue(60 <= len(new) <= 140)  # 평균 100의 포아송
+        self.assertTrue(all(t[0].hour == 8 and t[2] - t[0] == timedelta(minutes=12) and t[3] == 2 for t in new))
+        self.assertIn(inflow[0], a.trips[:a.n_recorded])
+        self.assertEqual(a.trips[a.n_recorded:], latent)
+
+    def test_last_week_ops_replays_last_week_visits(self):
+        stations = {1: Station(1, "A", 37.50, 127.00, 10, 0)}
+        day = Day(T0, stations, [], (37.5, 127.0), visits=[(at(8), 1, 5)], visits_prev_week=[(at(9), 1, 3)])
+        self.assertEqual(replay(day, CurrentOpsLastWeek()).stock, {1: 3})
 
 
 class LatentTest(unittest.TestCase):

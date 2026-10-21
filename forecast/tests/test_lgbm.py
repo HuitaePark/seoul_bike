@@ -7,7 +7,7 @@ import unittest
 import pandas as pd
 
 from forecast.lgbm import FEATS, shift_mae, stockout
-from forecast.nowcast import stack, with_lags
+from forecast.nowcast import stack, with_events, with_lags
 
 
 class ShiftMaeTest(unittest.TestCase):
@@ -53,3 +53,23 @@ class NowcastStackTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EventFeaturesTest(unittest.TestCase):
+    def test_marks_exit_hours_only_near_venue_on_event_day(self):
+        # 186번은 상암 700m 안. 2025-06-10 한국-쿠웨이트(20시 시작, 2시간): 도착 16~19시, 퇴장 22~23시
+        h = pd.to_datetime(["2025-06-10 17:00", "2025-06-10 22:00", "2025-06-11 22:00", "2025-06-10 22:00"])
+        out = with_events(pd.DataFrame({"st": [186, 186, 186, 99999], "h": h, "hh": h.hour}))
+        self.assertEqual(out.ev_arrive.tolist(), [1, 0, 0, 0])
+        self.assertEqual(out.ev_exit.tolist(), [0, 1, 0, 0])
+        self.assertEqual(out.ev_type.tolist(), [1, 1, 0, 0])
+
+    def test_two_events_at_one_station_keep_one_row(self):
+        # 같은 날 가까운 두 행사장(야구 18시, 농구 14시)에 걸린 대여소: 행이 늘지 않고, 시각마다 어느 쪽이든 해당하면 1
+        ev = pd.DataFrame({"st_no": [7, 7], "date": ["2025-03-29"] * 2, "type": [2, 8], "arrive_h0": [14, 10], "arrive_h1": [18, 14],
+                           "exit_h0": [21, 16], "exit_h1": [23, 18], "closed": [0, 0]})
+        h = pd.to_datetime(["2025-03-29 11:00", "2025-03-29 16:00", "2025-03-29 22:00"])
+        out = with_events(pd.DataFrame({"st": [7, 7, 7], "h": h, "hh": h.hour}), ev)
+        self.assertEqual(len(out), 3)
+        self.assertEqual(out.ev_arrive.tolist(), [1, 1, 0])
+        self.assertEqual(out.ev_exit.tolist(), [0, 1, 1])
