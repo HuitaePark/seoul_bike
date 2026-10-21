@@ -98,18 +98,19 @@ def run(stop, *, key, interval, retention_days, heartbeat, connect, fetch,
         return
     last_purge = None
     while True:
+        # 기다린 슬롯 시각을 그대로 관측 시각으로 쓴다. 깨어난 벽시계 시각을 쓰면 경계 직전에 깼을 때 1분 앞으로 찍힌다.
         t = now()
-        if stop.wait((next_slot(t, interval) - t).total_seconds()):
+        slot = next_slot(t, interval)
+        if stop.wait((slot - t).total_seconds()):
             return
         heartbeat.touch()
-        t = now()
         try:
             with connect() as conn:
-                n, skipped = collect_once(conn, fetch, t)
-                log.info("%s 대여소 %d곳 저장 (뺀 행 %d)", f"{t:%Y-%m-%d %H:%M}", n, skipped)
-                if last_purge != t.date():
-                    gone = purge(conn, t - dt.timedelta(days=retention_days))
-                    last_purge = t.date()
+                n, skipped = collect_once(conn, fetch, slot)
+                log.info("%s 대여소 %d곳 저장 (뺀 행 %d)", f"{slot:%Y-%m-%d %H:%M}", n, skipped)
+                if last_purge != slot.date():
+                    gone = purge(conn, slot - dt.timedelta(days=retention_days))
+                    last_purge = slot.date()
                     log.info("%d일보다 오래된 행 %d개를 지웠다", retention_days, gone)
         except Exception as e:  # noqa: BLE001 (주기마다 다시 시도한다)
             log.error("수집 실패: %s", mask(f"{type(e).__name__}: {e}", key))

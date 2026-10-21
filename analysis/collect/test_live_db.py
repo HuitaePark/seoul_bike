@@ -88,13 +88,14 @@ class LiveDbTest(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertTrue(self.heartbeat.exists())  # 헬스체크가 보는 파일이 있어 배포를 막지 않는다
 
-    def test_one_round_stores_rows_at_the_minute_and_purges_old_rows_once(self):
+    def test_one_round_stores_rows_at_the_slot_time_and_purges_old_rows_once(self):
         conn = Conn()
         live_db.run(Stop(1), key="k", interval=300, retention_days=14, heartbeat=self.heartbeat,
                     connect=lambda: conn, fetch=lambda: [row("ST-4", 12, 15), row("ST-5", 6, 14)], now=lambda: T)
-        minute = T.replace(second=0, microsecond=0)
-        self.assertEqual(conn.inserted, [(minute, "ST-4", 12, 15), (minute, "ST-5", 6, 14)])
-        self.assertEqual(conn.purged_before, [T - dt.timedelta(days=14)])
+        # 10:02:30에 기다리기 시작했으면 10:05 슬롯의 관측이다 (깨어난 시각이 경계 직전이어도 같다)
+        slot = dt.datetime(2026, 10, 21, 10, 5, tzinfo=KST)
+        self.assertEqual(conn.inserted, [(slot, "ST-4", 12, 15), (slot, "ST-5", 6, 14)])
+        self.assertEqual(conn.purged_before, [slot - dt.timedelta(days=14)])
         self.assertGreaterEqual(conn.commits, 2)
 
     def test_a_failed_round_is_logged_without_the_key_and_the_loop_goes_on(self):

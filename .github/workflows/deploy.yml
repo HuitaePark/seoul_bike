@@ -71,10 +71,11 @@ jobs:
           AGENT_LLM: ${{ vars.AGENT_LLM }}
           MCP_FAKE: ${{ vars.MCP_FAKE }}
           OLLAMA_HOST: ${{ vars.OLLAMA_HOST }}
+          COLLECTOR_RETENTION_DAYS: ${{ vars.COLLECTOR_RETENTION_DAYS }}
         run: |
           required="POSTGRES_PASSWORD VECTOR_PASSWORD JWT_SECRET"
           optional="SEED_USER_PASSWORD INTERNAL_TOKEN OPENAI_API_KEY OLLAMA_API_KEY SEOUL_API_KEY POSTGRES_DB POSTGRES_USER VECTOR_DB VECTOR_USER
-                    FAKE_AGENT_ENABLED MCP_INTERNAL_MODE AGENT_LLM MCP_FAKE OLLAMA_HOST"
+                    FAKE_AGENT_ENABLED MCP_INTERNAL_MODE AGENT_LLM MCP_FAKE OLLAMA_HOST COLLECTOR_RETENTION_DAYS"
           for k in $required; do
             if [ -z "${!k}" ]; then
               echo "::error::production 환경 secret $k가 없다 (Settings → Environments → production)"
