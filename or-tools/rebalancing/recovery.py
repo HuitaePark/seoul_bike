@@ -65,7 +65,7 @@ class Recovery:
     def handle(self, message, delivery, *, stage, error, code):
         permanent = (stage in ("decode", "validate") and isinstance(error, ValueError)
                      or stage == "lookup" and isinstance(error, RequestConflict))
-        retryable = stage in ("context", "compute", "publish")
+        retryable = stage in ("compute", "publish")
         if not permanent and not retryable:
             return None  # State corruption, disk errors and source commit errors must stop the worker.
         return self.route(message, delivery, stage=stage, code=code, retryable=retryable)

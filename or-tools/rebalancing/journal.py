@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import tempfile
 
+from .contract import FAILURE_CODES, UNSERVED_REASONS
+
 
 def canonical(value) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
@@ -137,6 +139,13 @@ class FileJournal:
                 or result.get("status") not in ("OK", "TIMEOUT", "FAILED")
                 or not isinstance(record.get("headers"), list)):
             raise JournalError("invalid saved result; do not recalculate after losing state")
+        if (result["status"] in ("FAILED", "TIMEOUT")
+                and (result.get("code") not in FAILURE_CODES or type(result.get("retryable")) is not bool
+                     or not isinstance(result.get("error"), str))):
+            raise JournalError("saved failure result does not match the current contract")
+        if any(not isinstance(item, dict) or item.get("reason") not in UNSERVED_REASONS
+               for item in result.get("unserved", [])):
+            raise JournalError("saved unserved reasons do not match the current contract")
         try:
             for key, value in record["headers"]:
                 if key != "traceparent":

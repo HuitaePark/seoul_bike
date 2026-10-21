@@ -48,10 +48,6 @@ def test_real_kafka_worker_restarts_and_deduplicates(tmp_path):
         invalid["trucks"][0]["load"] = 16
         envelope = copy.deepcopy(payload)
         envelope["eventId"] = str(uuid4())
-        settings = json.loads((ROOT / "docs/specs/examples/optimizer/context.json").read_text())
-        context_file = tmp_path / "contexts.json"
-        context_file.write_text(json.dumps({"requests": {
-            p["requestId"]: {"shiftId": p["shiftId"], **settings} for p in (payload, invalid)}}))
         trace = b"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 
         def send(p):
@@ -65,7 +61,7 @@ def test_real_kafka_worker_restarts_and_deduplicates(tmp_path):
             result = subprocess.run([
                 sys.executable, "-B", "-m", "rebalancing.worker",
                 "--bootstrap-servers", BOOTSTRAP, "--group-id", group,
-                "--contexts", str(context_file), "--state-dir", str(tmp_path / "state"),
+                "--state-dir", str(tmp_path / "state"),
                 "--travel-source", "haversine", "--max-messages", str(count),
                 "--idle-timeout-seconds", "20"],
                 cwd=ROOT / "or-tools", capture_output=True, text=True, timeout=40)
@@ -141,27 +137,37 @@ def test_real_kafka_poison_and_bounded_retries_survive_restart(tmp_path):
                          for topic in (RESULT_TOPIC, RETRY_TOPIC, DLQ_TOPIC)])
         payload = json.loads((ROOT / "docs/specs/examples/optimizer/request.json").read_text())
         payload.update(eventId=str(uuid4()), shiftId=f"recovery-{unique}:2026-10-20:AM", requestId=f"good-{unique}")
-        missing = {**payload, "eventId": str(uuid4()), "requestId": f"missing-{unique}"}
-        settings = json.loads((ROOT / "docs/specs/examples/optimizer/context.json").read_text())
-        context_file = tmp_path / "contexts.json"
-        context_file.write_text(json.dumps({"requests": {payload["requestId"]: {
-            "shiftId": payload["shiftId"], **settings}}}))
+        retrying = {**payload, "eventId": str(uuid4()), "requestId": f"retrying-{unique}"}
         trace = b"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-        raw_missing = json.dumps(missing).encode()
+        raw_retrying = json.dumps(retrying).encode()
         raw_bad = b'{"PRIVATE":broken'
-        for raw in (raw_bad, json.dumps(payload).encode(), raw_missing):
+        for raw in (raw_bad, json.dumps(payload).encode(), raw_retrying):
             delivered = []
             producer.produce(REQUEST_TOPIC, partition=0, key=payload["shiftId"].encode(), value=raw,
                              headers=[("traceparent", trace)],
                              on_delivery=lambda error, _message: delivered.append(error))
             assert producer.flush(10) == 0 and delivered == [None]
 
+        # Inject one deterministic result-publication failure. Retry/DLQ records
+        # and source commits still go through the real Kafka broker.
+        worker_script = """
+import json, sys
+from rebalancing import worker
+publish = worker.KafkaTransport.publish
+request_id = sys.argv[1]
+def unavailable(self, **kwargs):
+    if json.loads(kwargs["value"])["requestId"] == request_id:
+        raise RuntimeError("test result publication unavailable")
+    return publish(self, **kwargs)
+worker.KafkaTransport.publish = unavailable
+raise SystemExit(worker.main(sys.argv[2:]))
+"""
         routed = []
         for count in (3, 1, 2):
             result = subprocess.run([
-                sys.executable, "-B", "-m", "rebalancing.worker",
+                sys.executable, "-B", "-c", worker_script, retrying["requestId"],
                 "--bootstrap-servers", BOOTSTRAP, "--group-id", group,
-                "--contexts", str(context_file), "--state-dir", str(tmp_path / "state"),
+                "--state-dir", str(tmp_path / "state"),
                 "--travel-source", "haversine", "--max-messages", str(count),
                 "--idle-timeout-seconds", "20", "--retry-delay-seconds", "0.01"],
                 cwd=ROOT / "or-tools", capture_output=True, text=True, timeout=40)
@@ -185,14 +191,14 @@ def test_real_kafka_poison_and_bounded_retries_survive_restart(tmp_path):
         assert len(results) == 1 and json.loads(results[0].value())["requestId"] == payload["requestId"]
         assert json.loads(results[0].value())["status"] == "OK"
         assert [dict(m.headers())[ATTEMPT] for m in retries] == [b"1", b"2", b"3"]
-        assert len(dead) == 2 and {m.value() for m in dead} == {raw_bad, raw_missing}
+        assert len(dead) == 2 and {m.value() for m in dead} == {raw_bad, raw_retrying}
         for message in retries + dead:
             headers = dict(message.headers())
             assert message.key() == payload["shiftId"].encode() and headers["traceparent"] == trace
             assert headers[ORIGINAL] == REQUEST_TOPIC.encode()
-            if message.value() == raw_missing:
+            if message.value() == raw_retrying:
                 assert headers[OFFSET] == str(starts[REQUEST_TOPIC] + 2).encode()
-                assert headers[ERROR] == b"RUNTIME_CONTEXT_ERROR"
+                assert headers[ERROR] == b"PUBLISH_FAILED"
             else:
                 assert headers[OFFSET] == str(starts[REQUEST_TOPIC]).encode()
                 assert headers[ERROR] == b"INVALID_ENVELOPE"

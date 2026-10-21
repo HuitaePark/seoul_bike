@@ -389,6 +389,25 @@ ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exa
 운영 backend·frontend·공통 YAML·운영 Compose·CI는 변경하지 않았다. 실제 OSRM·운영 서버·업무 전체
 10초 완료는 이번 가상 입력 측정의 대상이 아니며 운영 통합 이후 검증한다.
 
+## PR #34 계약 대응 — 35e5b48 기준
+
+- 계약 브랜치를 hyunmoo에 반영하고 공개 API 0.9·Kafka 0.5·payload schemaVersion 1에 맞췄다.
+- depot·시간대 있는 asOf를 메시지에서 읽어 SolveContext를 만들고 requestId별 runtime 파일/CLI 인자/마운트를 제거했다.
+  유효한 봉투의 계산 입력 오류는 FAILED·INVALID_REQUEST·retryable=false이며 소비 시각을 대입하지 않는다.
+- FAILED/TIMEOUT의 code·retryable·error, OSRM_REJECTED 변환, 외부 미처리 사유 대문자 enum을 반영했다.
+  worker 완료 로그는 code를 사용하고 정상 실패 결과를 전달 재시도하지 않는다.
+- 지도 시연·사유 문장 변환·공통 더미 값을 갱신했다. 기존 대시보드도 코드 대신 같은 사유 문장을 표시한다.
+- Python 3.12에서 실제 Kafka 포함 **267개·24개 subtest 통과**. runtime 없이 새 requestId 처리,
+  depot/asOf 검증·동일 시각의 ETA, 실패 필드·사유 enum과 기존 중복 제거·ACK/commit·재시작을 검사했다.
+  runtime 누락 재시도 검사는 결과 발행 실패 주입으로 바꿨으며 retry/DLQ 전달과 offset은 실제 브로커를 사용한다.
+  저장된 구형 실패 필드/소문자 사유는 재발행하지 않고 중단하는 검사도 통과했다.
+- 생성 API 타입 일치·화면 빌드·단위 **15개**, Chromium 브라우저 **24개 통과**.
+  초기 브라우저 실행 파일 경로 문제는 기존 설치 캐시를 지정해 해결했다.
+- 독립 Kafka Compose 구성·변경 공백·문서 링크를 확인했다. 검사 전용 브로커·볼륨은 정리했다.
+
+추가 기능·계산 정책 변경·운영 배포·새 CI는 포함하지 않았다. backend 변경은 PR #34의 기존 커밋이며
+이번 대응에서 새 업무 로직을 추가하지 않았다. 실제 운영 backend·도로 연결의 검증 범위는 아래와 같다.
+
 ## 아직 검증하지 않은 범위
 
 운영 backend와 실제 worker 사이의 solve 요청/응답, 운영 retry/DLQ 토픽·관제·재처리,

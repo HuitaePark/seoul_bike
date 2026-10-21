@@ -6,6 +6,8 @@
   "traceId": "optimizer-contract-example",
   "requestId": "demo:2026-10-20:AM:1:1",
   "kind": "REPLAN",
+  "depot": {"lat": 37.0, "lon": 127.0},
+  "asOf": "2026-10-20T08:00:00+09:00",
   "stations": [
     {"stationId": "ST-10", "lat": 37.001, "lon": 127.0, "neededBikes": 5, "priority": 7.5, "kind": "OVERFLOW"},
     {"stationId": "ALT-10", "lat": 37.002, "lon": 127.0, "neededBikes": -5, "priority": 15.25, "kind": "EMPTY"}

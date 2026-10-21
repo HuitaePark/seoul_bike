@@ -151,7 +151,7 @@ Kafka 대기·backend·LLM을 포함한 "현장 보고부터 변경안 생성까
 
 1. [역할 5 명세](../specs/optimizer.md)의 실행 설정 공급·중복 처리 책임을 담당자와 확인한다.
 2. 확정 권역의 실제 OSRM 도로망과 캐시에서 200곳·5대 입력을 검증한다.
-3. 확정된 depot/asOf 계약에 runtime 자동 공급을 맞추고, 운영 토픽·DLQ 관제와 backend SolveGateway를 실제 worker에 연결한다.
+3. 메시지의 depot/asOf에 실제 권역·스냅샷 값을 공급하고, 운영 토픽·DLQ 관제와 backend SolveGateway를 실제 worker에 연결한다.
 4. 구현된 지도·계획 검토를 backend 대여소/계획 API·후보 승인과 통합한다.
    실제 도로 경로선은 OSRM Route 조회·공개 응답을 역할 4와 맞추며 승인 순서는 requiredApprovers를 따른다.
 

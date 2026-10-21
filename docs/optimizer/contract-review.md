@@ -1,6 +1,6 @@
 # 공통 solve 명세 대응 기록
 
-공개 API 0.8.0-draft, 내부 API 0.5.0-draft·Kafka 0.4.0-draft를 따른다.
+공개 API 0.9.0-draft, 내부 API 0.5.0-draft·Kafka 0.5.0-draft를 따른다.
 공유 YAML을 유지하고 구현 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
@@ -15,8 +15,8 @@
 | 결과 차이 | OK/TIMEOUT/FAILED, seq·대문자 action·UTC eta·원본 ID·미처리 priority/reason으로 변환 |
 | 공통에 없는 결과 필드 | 거리·기간·별도 처리 상태를 wire에 추가하지 않고 코어에서 유지 |
 
-차고지·스냅샷 기준 시각은 SolveContext, 도로 공급자는 travel_time으로 호출자가 명시한다.
-Kafka 실행기가 권역·스냅샷 메타데이터에서 이 설정을 얻는 연결은 남아 있다.
+차고지·기준 시각은 메시지의 depot·asOf에서 읽는다. 도로 공급자는 travel_time으로 명시한다.
+requestId별 runtime 파일 의존을 제거했으며 실제 권역·스냅샷 값을 생산자가 넣는 운영 연결은 남아 있다.
 독립 worker는 Kafka 결과 발행·offset commit과 단일 상태 볼륨의 파일 중복 방지를 구현했다.
 발행 직후 장애에서는 같은 결과 eventId가 재전달될 수 있어 backend 소비자 중복 제거도 필요하다.
 worker의 요청 제한 재시도·DLQ를 구현했다. 운영 토픽·상태 저장·관제·배포 정책은 담당자와 연결해야 한다.
@@ -27,9 +27,9 @@ worker의 요청 제한 재시도·DLQ를 구현했다. 운영 토픽·상태 �
 
 ## 최신 명세 반영
 
-공통 문서 버전은 올라갔지만 Envelope·SolveStation·SolveTruck·SolveRequest·SolveResult와
-공개 Route·Stop·Unserved 모델은 이전 검토와 동일하다. 입력·결과 변환 동작은 유지한다.
-내부 SolveRequest·PlanCandidate도 동일하다. 이번 main의 현장 보고·내부 인증·감사 로그와
+PR #34의 SolveRequest 필수 depot·asOf, 실패 결과의 code·retryable·error,
+Unserved.reason 대문자 enum을 반영했다. 내부 계산·탐색 정책은 유지한다.
+미처리 사유를 표시하는 화면·시연 데이터와 예시·테스트도 같은 계약을 따른다.
 ai.events 재시도/DLQ와 solve.results 재시도/DLQ는 backend가 담당한다.
 요청 측 solve.requests.retry → .dlq는 역할 5 worker가 처리한다. 횟수·헤더·실패 분류는
 [실행 안내](../../infra/optimizer/KAFKA.md#제한-재시도--dlq)에 기록하며 공통 payload는 유지한다.
@@ -38,5 +38,5 @@ ai.events 재시도/DLQ와 solve.results 재시도/DLQ는 backend가 담당한�
 새 TaskEvent.code를 SolveResult에 추가하지 않는다.
 작업 이벤트 seq도 backend가 부여하므로 SolveResult에 추가하지 않는다.
 
-최신 공개 API v0.8의 로그인 제한 설명 변경은 solve·Route·Stop·Unserved 구조를 바꾸지 않는다.
+기존 공개 API v0.8의 로그인 제한은 유지하며 v0.9의 미처리 사유 값 목록을 따른다.
 명세·예시와 역할 5 구현·인프라는 같은 저장소에 있으며, [실행 안내](README.md)도 상대 경로로 연결한다.

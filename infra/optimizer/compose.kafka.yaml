@@ -43,8 +43,6 @@ services:
       - broker:9092
       - --group-id
       - optimizer-local-v1
-      - --contexts
-      - /runtime/contexts.json
       - --state-dir
       - /state
       - --travel-source
@@ -52,7 +50,6 @@ services:
     depends_on:
       topics-init: {condition: service_completed_successfully}
     volumes:
-      - ./runtime.example.json:/runtime/contexts.json:ro
       - worker-state:/state
 
 volumes:
