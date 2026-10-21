@@ -37,10 +37,12 @@ def task_from_command(
     brief: str = "",
     driver_names: Iterable[str] = (),
 ) -> Task:
-    """New-task `ai.tasks` message -> Task. For FIELD_REPORT the caller loads the report by `reportId`; a driver's
-    truck comes from that report because the contract's `requestedBy` has no truck id (docs/ISSUES.md ISS-04)."""
+    """New-task `ai.tasks` message -> Task. FIELD_REPORT commands carry the report itself (asyncapi v0.4 `report`);
+    `report` overrides it only for callers that loaded it elsewhere. The driver's truck is `requestedBy.truckId`."""
     if command["type"] not in TASK_TYPES:
         raise ValueError(f"not a new task: {command['type']}")
+    if report is None and command.get("report"):
+        report = FieldReport.from_contract(command["report"])
     requested = command["requestedBy"]
     role = ROLES[requested["role"]]
     truck = requested.get("truckId") or (report.truck_id if report and role == "driver" else None)

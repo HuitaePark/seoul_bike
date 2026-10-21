@@ -81,9 +81,6 @@ jobs:
         include:
           - module: agent
             extra: dev
-            # 임시 격리: 계약 v0.5(현장 보고 명령에 report 필수, PR #18) 뒤로 이 테스트의 예시 명령이 계약에 맞지 않는다.
-            # 2번(Harness)이 예시에 report를 넣으면 이 줄을 지운다.
-            pytest-args: --deselect tests/test_harness.py::ContractTest::test_field_report_command_becomes_a_driver_task
           - module: business-mcp
             extra: test
           - module: rag-mcp
