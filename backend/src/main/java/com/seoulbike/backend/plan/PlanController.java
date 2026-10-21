@@ -1,5 +1,7 @@
 package com.seoulbike.backend.plan;
 
+import java.util.List;
+
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,14 +17,22 @@ import com.seoulbike.backend.auth.CurrentUser;
 class PlanController {
 
 	private final PlanService plans;
+	private final TruckStates trucks;
 
-	PlanController(PlanService plans) {
+	PlanController(PlanService plans, TruckStates trucks) {
 		this.plans = plans;
+		this.trucks = trucks;
 	}
 
 	@GetMapping("/api/shifts/{shiftId}/plan")
 	ObjectNode shiftPlan(@PathVariable String shiftId) {
 		return plans.latest(shiftId);
+	}
+
+	/** 관제 지도의 트럭 위치·적재. 에이전트 도구(`/internal/shifts/{shiftId}/trucks`)와 같은 계산이다. */
+	@GetMapping("/api/shifts/{shiftId}/trucks")
+	List<TruckStates.State> shiftTrucks(@PathVariable String shiftId) {
+		return trucks.status(shiftId, null);
 	}
 
 	/** 무승인 변경 수 (PRD 9.2). 계획과 같은 범위: 관리자·책임자 */

@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.8.4-draft
+  version: 0.8.5-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
     **초안 v0.8.** MCP·에이전트 담당 확인 전이다.
 
+    - v0.8.5: `TruckState`를 공개 API(openapi 0.14)로 옮기고 참조한다. 위치로 쓴 정류장 `atStationId`(null이면 차고지)를 더했다. 화면도 같은 값을 `GET /api/shifts/{shiftId}/trucks`로 본다.
     - v0.8.4: 대여소 재고는 실시간 수집에 기사 현장 보고를 반영한다 (공개 API 0.13.2 `StationStatus.bikes`). 그래서 기사가 꽉 찼다고 보고한
       배치 정류장은 보고 재고로 다시 판단하고, 필요 대수가 0이면 재경로(REPLAN) 계산 대상과 고정 정류장에서 빠진다.
     - v0.8.3: 트럭 상태(`get_truck_status`) 구현 규칙. 활성 계획이 있으면 그 계획의 트럭, 없으면 구역 트럭이 차고지에 빈 채로.
@@ -535,19 +536,7 @@ components:
           description: 시간별 예상 반납 (대). 길이는 `horizonH`, 합은 `returns`. 예측기가 시간별 값을 내지 않으면 없다
         modelVersion: { type: string }
 
-    TruckState:
-      type: object
-      required: [truckId, capacity, load, remainingStops]
-      properties:
-        truckId: { type: string, examples: [TR-01] }
-        capacity: { type: integer }
-        load: { type: integer }
-        lat: { type: [number, 'null'] }
-        lon: { type: [number, 'null'] }
-        shiftEnd: { type: string, format: date-time }
-        remainingStops:
-          type: array
-          items: { $ref: 'openapi.yaml#/components/schemas/Stop' }
+    TruckState: { $ref: 'openapi.yaml#/components/schemas/TruckState' }
 
     FieldReport:
       type: object
