@@ -32,6 +32,15 @@ flowchart LR
 - **헬스체크:** worker가 준비 신호를 따로 내지 않아, 브로커에서 소비자 그룹 `optimizer-v1`이 STABLE이고 멤버가 있는지 본다.
 - **로그:** 요청마다 JSON 한 줄(`solve.started`·`solve.completed`·`solve.routed`). `docker compose logs optimizer`로 본다. DLQ는 자동 재처리하지 않는다: `docker exec seoul-bike-redpanda-1 rpk topic consume solve.requests.dlq -o start`.
 
+### collector (실시간 재고 수집기)
+
+6번의 수집 코드(`analysis/collect/bikelist.py`)를 `analysis/collect/live_db.py`가 감싸 5분마다(:00, :05, …) 따릉이 실시간 재고를 받아 `live.station_status`에 넣는다 (합의 12). backend는 대여소별 최신 행만 읽는다. 공개 포트는 없다.
+
+- **키:** `SEOUL_API_KEY`(서울 열린데이터광장 인증키). 비어 있으면 수집하지 않고 기다리며, 헬스체크는 통과해 배포를 막지 않는다. 서버 `.env`는 배포마다 새로 쓰므로 **GitHub `production` 환경 secret으로 넣는다**: `gh secret set SEOUL_API_KEY --env production` 뒤 Actions → deploy → Run workflow ("비밀값").
+- **확인:** `docker compose logs collector`에 "대여소 N곳 저장"이 5분마다 찍힌다. 표의 최신 시각: `docker exec seoul-bike-postgres-1 psql -U seoulbike -d seoulbike -c "select max(observed_at), count(distinct station_id) from live.station_status"`.
+- **보관:** 하루 한 번 `COLLECTOR_RETENTION_DAYS`(기본 14)일보다 오래된 행을 지운다. 2,716곳 × 5분이면 하루 약 78만 행이다.
+- **헬스체크:** 매 주기 갱신하는 파일(`/tmp/collector-alive`)이 15분 넘게 그대로면 unhealthy다. API·DB 오류는 로그만 남기고 다음 주기에 다시 시도하므로, healthy는 "루프가 돈다"는 뜻이고 수집 성공 여부는 로그와 최신 시각으로 본다.
+
 ## 서버 최초 설정 (한 번)
 
 현재 서버: `bakillm@baki-macbookpro` (Tailscale `100.109.172.112`), CPU 10코어 · 메모리 16GB. 화면 없이 SSH로 관리하므로 Docker Desktop 대신 Colima를 쓴다.
@@ -96,8 +105,8 @@ Tailscale funnel --https=443 off                                 # 공개 중단
 | 종류 | 이름 | 비고 |
 | --- | --- | --- |
 | secret (필수) | `POSTGRES_PASSWORD`, `VECTOR_PASSWORD`, `JWT_SECRET` | 없으면 배포가 멈춘다. DB 비밀번호는 기존 볼륨과 같아야 한다 |
-| secret | `SEED_USER_PASSWORD`, `INTERNAL_TOKEN`, `OPENAI_API_KEY`, `OLLAMA_API_KEY` | 비우면 시연 계정 없음 · `/internal` 토큰 없음 · 그 공급사 LLM 없음. 서버 agent 모델은 variable `AGENT_LLM`(예 `openai:gpt-4.1-mini`) |
-| variable | `POSTGRES_DB`, `POSTGRES_USER`, `VECTOR_DB`, `VECTOR_USER`, `FAKE_AGENT_ENABLED`, `MCP_INTERNAL_MODE`, `AGENT_LLM`, `MCP_FAKE`, `OLLAMA_HOST` | 비우면 compose 기본값 |
+| secret | `SEED_USER_PASSWORD`, `INTERNAL_TOKEN`, `OPENAI_API_KEY`, `OLLAMA_API_KEY`, `SEOUL_API_KEY` | 비우면 시연 계정 없음 · `/internal` 토큰 없음 · 그 공급사 LLM 없음 · 실시간 재고 수집 안 함(collector). 서버 agent 모델은 variable `AGENT_LLM`(예 `openai:gpt-4.1-mini`) |
+| variable | `POSTGRES_DB`, `POSTGRES_USER`, `VECTOR_DB`, `VECTOR_USER`, `FAKE_AGENT_ENABLED`, `MCP_INTERNAL_MODE`, `AGENT_LLM`, `MCP_FAKE`, `OLLAMA_HOST`, `COLLECTOR_RETENTION_DAYS` | 비우면 compose 기본값 (`COLLECTOR_RETENTION_DAYS` 기본 14일) |
 
 - 넣기·바꾸기 (저장소 관리자만): `gh secret set 이름 --env production` (값을 물어볼 때 붙여 넣는다. 채팅·PR에 값을 남기지 않는다), `gh variable set 이름 --env production --body 값`
 - 바꾼 값은 **다음 배포부터** 들어간다. 바로 넣으려면 Actions → deploy → Run workflow.
