@@ -1,7 +1,7 @@
-# 역할 5 — 현재 상태와 다음 PR 준비 (2026-10-21)
+# 역할 5 — 현재 상태와 PR 제출 범위 (2026-10-22)
 
-기준 main은 `3fd88ff`(#107·#108 이후 README 운영/시연 안내 반영)이며 브랜치는 `hyunmoo`다.
-이번 후속은 새 PR 없이 브랜치에 저장한다. 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft·payload schemaVersion 1을 따른다.
+기준 main은 `08cbc44`(#109 관제 개선·#110 압축/캐시·#111 실제 배경지도 반영)이며 브랜치는 `hyunmoo`다.
+hyunmoo의 미병합 후속 개발 전체를 main 대상 PR로 제출한다. 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft·payload schemaVersion 1을 따른다.
 [PR #96](https://github.com/HuitaePark/skala_seoul_bike/pull/96)으로 내부 API가 0.8.4가 됐다(`bikes`·`observedAt` 설명).
 optimizer가 받는 계약 필드는 바뀌지 않으며, 현장 보고로 필요가 없어진 정류장이 REPLAN `stations`·`fixedStationIds`에서 빠진다.
 #97은 가짜 에이전트·시드 기사를 N02(TR-03·TR-04)로 옮겨 역할 5 시연 트럭과 맞췄다. #99·#100은 시뮬레이터·관제 화면이며 역할 5 코드와 겹치지 않는다.
@@ -17,29 +17,32 @@ optimizer가 받는 계약 필드는 바뀌지 않으며, 현장 보고로 필�
 
 #98 기준 검증: 최적화 399 passed·24 subtests(실제 broker 3개 skipped), 프론트 단위 37·Chromium 28 passed. 상세는 [검증 기록](validation.md).
 
-## hyunmoo 후속 개발 (PR 전)
+## hyunmoo 후속 개발 (이번 PR)
 
-- **#96 대응 완료(hyunmoo, PR 전):** 현장 보고로 줄어든 REPLAN 입력을 계약 검사 `test_backend96_*` 4개(두 정책)로 확인했다.
+- **#96 대응 완료(hyunmoo, 이번 PR):** 현장 보고로 줄어든 REPLAN 입력을 계약 검사 `test_backend96_*` 4개(두 정책)로 확인했다.
   보고된 정류장이 빠지고 다른 트럭의 고정 작업이 남는 경우, 모든 필요가 보고로 사라진 적재 트럭의 빈 입력.
   optimizer 코드 변경은 필요 없었다. 최적화 403 passed·24 subtests(실제 broker 3개 skipped).
-- **OSRM 영속 경로 대응(hyunmoo, PR 전):** 준비용 `OSRM_INPUT_DIR`·공통 `OSRM_DATA_DIR`로 저장소 밖 절대 경로를 지정한다.
+- **OSRM 영속 경로 대응(hyunmoo, 이번 PR):** 준비용 `OSRM_INPUT_DIR`·공통 `OSRM_DATA_DIR`로 저장소 밖 절대 경로를 지정한다.
   같은 전처리 결과를 준비 컨테이너만 쓰고 OSRM/worker는 읽기 전용으로 공유한다. 기존 상태/캐시 볼륨을 유지한다.
   기본 경로와 외부 공백·한글 경로를 실제 Compose config로 검증했다. 최적화 407 passed·24 subtests(실제 broker 3개 skipped).
   실제 도로 준비·배포 전환은 아래 조건이 필요하다.
-- **#108 입력 대응(hyunmoo, PR 전):** DONE 보고의 실제 적재와 마지막 DONE 위치, 완료 작업 제외,
+- **#108 입력 대응(hyunmoo, 이번 PR):** DONE 보고의 실제 적재와 마지막 DONE 위치, 완료 작업 제외,
   SKIPPED 차단 작업을 두 정책의 계약 검사 6개로 확인했다. backend 보고 저장/DB 왕복 검사는 아니다.
   관제의 실제 TruckState API 연결은 #108로 main에 반영됐으며 위치는 마지막 DONE/차고지 기준이다.
-- **#107 배포 연결(hyunmoo, PR 전):** `OSRM_ENABLED=false`를 기본으로 유지하고 true일 때만 운영 overlay를 선택한다.
+- **#107 배포 연결(hyunmoo, 이번 PR):** `OSRM_ENABLED=false`를 기본으로 유지하고 true일 때만 운영 overlay를 선택한다.
   production의 외부 절대 경로·완료 해시·CH 파일을 컨테이너 변경 전에 검사한다. 같은 구성을 pull/build/deploy/logs에 사용하고
   OSRM healthy 이후 backend/worker를 갱신한다. 잘못된 설정과 배포 순서를 검사한 15개가 통과했다.
   실제 운영 전환은 아래 자료와 서버 설정이 필요하다.
-
-- **실제 차고지 측정 준비(hyunmoo, PR 전):** benchmark에 `--depot LAT,LON`을 추가해 roadcheck와 같은
+- **실제 차고지 측정 준비(hyunmoo, 이번 PR):** benchmark에 `--depot LAT,LON`을 추가해 roadcheck와 같은
   출발·복귀 차고지로 PLAN/REPLAN·캐시 비교를 실행할 수 있다. 두 결과에 좌표와 지정 근거를 남기고,
   두 도구가 잘못된 좌표를 OSRM 요청 전에 거부한다. 기존 기본값과 합성 작업량은 유지한다.
 
-현재 최적화 전체 검증: **455 passed·24 subtests**(실제 broker 3개 skipped). 이번 신규 검사 27개.
-프론트는 직전 변경에서 단위 **42개·Chromium 37개**, 타입 검사·빌드를 통과했다. 이번 변경은 화면에 영향을 주지 않아 반복 실행하지 않았다.
+PR 제출 검증: 최적화 기본 **455 passed·24 subtests**(환경 선택형 Kafka 3개 skipped)와 독립 실제 Kafka **3개 별도 통과**.
+프론트 **단위 47개·Chromium 40개**, 타입 검사·빌드·API 생성 타입 일치 확인을 통과했다.
+Compose 4종·배포 스크립트 구문 검사도 통과했다. 임시 Kafka 프로젝트는 검사 뒤 제거했다.
+
+[이슈 #106](https://github.com/HuitaePark/skala_seoul_bike/issues/106)은 완료 코드와 아래 운영 후속을 추적한다.
+실제 도로/운영 검증이 남아 있어 이 PR 병합만으로 닫지 않는다. #112 관제 UI 후속은 별도 PR이며 포함하지 않는다.
 
 ## 다음 작업에 필요한 것
 
@@ -47,7 +50,7 @@ optimizer가 받는 계약 필드는 바뀌지 않으며, 현장 보고로 필�
 | --- | --- | --- |
 | 실제 관측·시간별 예측·미종료 근무조/트럭/차고지 | 역할 6(예측 적재·`SEOUL_API_KEY`·collector 배포), 역할 4(내부 API) | 실제 neededBikes→worker→후보 저장, 승인/활성화/기사 반영 |
 | 17구역·차고지/연결도로 PBF와 출처·취득일·해시 | 역할 5/서버 담당 | CH 전처리, `roadcheck`(실제 `--depot`·300곳), N01/300곳 cold/warm 측정 |
-| OSRM 운영 설정·도로 배치 | 서버 담당·역할 5 | hyunmoo의 배포 연결 검토 후 production OSRM_ENABLED/OSRM_DATA_DIR 등록, 외부 CH 자료 배치·배포 후 유지 확인. OSRM_INPUT_DIR는 전처리 시 사용 |
+| OSRM 운영 설정·도로 배치 | 서버 담당·역할 5 | 이 PR의 배포 연결 병합 후 production OSRM_ENABLED/OSRM_DATA_DIR 등록, 외부 CH 자료 배치·배포 후 유지 확인. OSRM_INPUT_DIR는 전처리 시 사용 |
 | RAM·디스크·CPU/Compose와 운영 테스트 환경 | 서버 담당·역할 4 | 전체 기동·재시작/볼륨 복구·현장 보고→변경안 10초 |
 | 03a·03b/장애 시나리오와 추적 기록 | 역할 1·2·4·6, [이슈 #91](https://github.com/HuitaePark/skala_seoul_bike/issues/91) | 실제 지도 결정·변경 수락·중복/retry/DLQ 복구 |
 

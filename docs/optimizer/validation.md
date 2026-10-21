@@ -1,3 +1,21 @@
+# PR 제출 전 통합 검증 (2026-10-22, hyunmoo)
+
+기준 main `08cbc44`(#109~#111 병합)를 통합했다. 공개 0.15.0·내부 0.8.5·Kafka 0.5.1-draft, payload schemaVersion 1은 동일하다.
+
+| 검사 | 결과 / 범위 |
+| --- | --- |
+| 최적화 기본 전체 | Python 3.12.13·OR-Tools 9.14.6206, **455 passed·24 subtests**, 선택형 실제 Kafka 3개 skipped |
+| 실제 Kafka 별도 | **3 passed**. 이 PR 전용 Redpanda·포트 29093에서 결과 왕복, 중복 제거·재시작, 독성 요청/retry/DLQ, Java와 같은 파티션·키 순서 검증. 검사 후 전용 컨테이너·네트워크·볼륨 정리 |
+| 프론트 | 단위 **47 passed**, Chromium **40 passed**, 타입 검사·배포 빌드 통과 |
+| 공통 API 타입 | 현재 OpenAPI로 재생성한 schema.d.ts가 기존 추적 파일과 동일 |
+| Compose/스크립트 | 기본 운영·독립 OSRM·독립 Kafka·운영 OSRM overlay의 config, /bin/bash 3.2 배포/설정 및 전처리 구문 검사 통과 |
+
+이번 PR의 도로 자료 준비·배포 선택·차고지 측정은 코드/구성 수준에서 확인했다. 실제 PBF 전처리·운영 OSRM 전환·
+실제 데이터의 backend/LLM 승인 흐름·현장 보고부터 변경안까지 10초 측정은 미실행이다.
+이 항목은 이슈 #106에 남기고 PR이 자동으로 닫지 않도록 연결한다. 아래는 이전 브랜치 개발 검증 이력이다.
+
+---
+
 # 실제 차고지 측정 준비 검증 (2026-10-21, hyunmoo)
 
 main `3fd88ff`를 병합했다. 공통 계약은 공개 0.15.0·내부 0.8.5·Kafka 0.5.1-draft, payload schemaVersion 1로 동일하다.
