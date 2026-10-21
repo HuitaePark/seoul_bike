@@ -5,6 +5,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.29-alpine
+# nginx 안정판 계열 (1.29는 지원이 끝난 mainline 계열이다)
+FROM nginx:1.30-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
