@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, TypeVar
 
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_headers
 from pydantic import Field
 
 from .errors import InternalApiError, from_internal, tool_error
@@ -79,29 +80,82 @@ def _approved_change(approval_id: str | None, task_id: str | None) -> Json:
     return {"approvalId": approval_id, "taskId": task_id}
 
 
+# Harness는 도구 결과를 tools.result_max_chars(4,000자)에서 글자 단위로 자른다. JSON 중간이 잘리면 Harness가 결과를
+# 파싱하지 못해 candidateId·planId 검증이 거부되므로, MCP가 그보다 작게(기본 3,800자) 맞춰서 보낸다.
+DEFAULT_MAX_CHARS = 3800
+RISK_FETCH_LIMIT = 200  # internal-api /internal/stations/risk limit 최댓값
+# 계획이 길면 정류장의 이 필드부터 뺀다 (순서대로). 정류장 ID·행동·대수·적재량·상태는 남긴다.
+STOP_OPTIONAL_FIELDS = ("stationName", "eta")
+
+
+def _size(payload: Any) -> int:
+    """Harness와 같은 방식(json.dumps, ensure_ascii=False)으로 잰 글자 수."""
+    return len(json.dumps(payload, ensure_ascii=False))
+
+
 def _fit(payload: Json, list_key: str, max_chars: int) -> Json:
     """결과 JSON이 max_chars를 넘으면 목록 뒤쪽부터 잘라 내고 truncated·total을 단다 (Harness Tools)."""
     items = payload[list_key]
     payload.setdefault("truncated", False)
     payload.setdefault("total", len(items))
-    while len(items) > 1 and len(json.dumps(payload, ensure_ascii=False)) > max_chars:
+    while len(items) > 1 and _size(payload) > max_chars:
         items.pop()
         payload["truncated"] = True
     return payload
 
 
-def _fit_plan(plan: Json, max_stops: int = 50, keep_per_truck: int = 10) -> Json:
-    """정류장이 max_stops를 넘으면 트럭별 앞 keep_per_truck개만 남긴다."""
-    total = sum(len(r.get("stops", [])) for r in plan.get("routes", []))
-    if total > max_stops:
-        for route in plan["routes"]:
-            route["stops"] = route["stops"][:keep_per_truck]
+def _compact_diffs(diffs: list[Json]) -> list[Json]:
+    """경로 차이를 정류장 ID 목록으로 줄인다. 정류장 상세는 같은 결과의 plan.routes에 있다."""
+    out = []
+    for d in diffs:
+        before = [s.get("stationId") for s in d.get("before", [])]
+        after = [s.get("stationId") for s in d.get("after", [])]
+        out.append({"truckId": d.get("truckId"), "addedMinutes": d.get("addedMinutes"),
+                    "before": before, "after": after,
+                    "removed": [x for x in before if x not in after], "added": [x for x in after if x not in before]})
+    return out
+
+
+def _fit_plan(payload: Json, max_chars: int, plan_key: str | None = None) -> Json:
+    """계획(또는 후보) 결과를 max_chars 안으로 줄인다. 무엇을 줄였는지 결과에 남긴다.
+
+    1. diffs의 before/after를 정류장 ID 목록으로 (항상)
+    2. 정류장의 stationName, eta를 뺀다
+    3. 끝난(DONE) 정류장을 뺀다
+    4. 정류장의 reason을 뺀다
+    5. 가장 긴 트럭 경로의 뒤쪽 정류장부터 잘라 낸다 (truncated, totalStops)
+    """
+    plan = payload[plan_key] if plan_key else payload
+    if payload.get("diffs"):
+        payload["diffs"] = _compact_diffs(payload["diffs"])
+    routes = plan.get("routes") or []
+    total = sum(len(r.get("stops") or []) for r in routes)
+    omitted: list[str] = []
+
+    def stops():
+        return [s for r in routes for s in r.get("stops") or []]
+
+    for field in (*STOP_OPTIONAL_FIELDS, "DONE_STOPS", "reason"):
+        if _size(payload) <= max_chars:
+            break
+        if field == "DONE_STOPS":
+            for r in routes:
+                r["stops"] = [s for s in r.get("stops") or [] if s.get("status") != "DONE"]
+        else:
+            for s in stops():
+                s.pop(field, None)
+        omitted.append(field)
+        plan["omitted"] = omitted
+    while _size(payload) > max_chars and stops():
+        longest = max(routes, key=lambda r: len(r.get("stops") or []))
+        longest["stops"].pop()
         plan["truncated"] = True
+    if omitted or plan.get("truncated"):
         plan["totalStops"] = total
-    return plan
+    return payload
 
 
-def build_server(internal: InternalApi, *, max_chars: int = 4000) -> FastMCP:
+def build_server(internal: InternalApi, *, max_chars: int = DEFAULT_MAX_CHARS) -> FastMCP:
     mcp = FastMCP("business-mcp", instructions=INSTRUCTIONS, version="0.1.0", mask_error_details=True)
 
     async def call(awaitable: Awaitable[T]) -> T:
@@ -125,11 +179,13 @@ def build_server(internal: InternalApi, *, max_chars: int = 4000) -> FastMCP:
         docks(거치대 수), risk, role, neededBikes(대, 양수 회수·음수 배치), priority, emptyAt(예상 빈 시각),
         reasons[], observedAt).
         """
-        rows = await call(internal.risk_stations(region_id, horizon_h, limit))
+        # 위험 종류로 거를 때는 넉넉히 받아(계약 최대 200) 거른 뒤 limit으로 자른다. 자른 뒤 거르면 결과가 비기 쉽다.
+        rows = await call(internal.risk_stations(region_id, horizon_h, RISK_FETCH_LIMIT if risk != "ALL" else limit))
         if risk != "ALL":
             rows = [r for r in rows if r.get("risk") == risk]
-        return _fit({"source": "GET /internal/stations/risk", "horizonH": horizon_h, "stations": rows},
-                    "stations", max_chars)
+        payload = {"source": "GET /internal/stations/risk", "horizonH": horizon_h, "stations": rows[:limit],
+                   "truncated": len(rows) > limit, "total": len(rows)}
+        return _fit(payload, "stations", max_chars)
 
     @mcp.tool(annotations=READ, tags={"read"})
     async def get_station_detail(station_id: StationId) -> Json:
@@ -162,10 +218,11 @@ def build_server(internal: InternalApi, *, max_chars: int = 4000) -> FastMCP:
         반환: planId, version, status(DRAFT·PROPOSED·ACTIVE·REJECTED·CLOSED), provisional(임시안 여부),
         routes[] (truckId, capacity(대), startLoad(대), stops[] (seq, stationId, action(PICKUP 회수·DROPOFF 배치),
         bikes(대), loadAfter(대), eta, reason, status(PENDING·DONE·SKIPPED))), unserved[] (stationId, priority, reason),
-        explanation. 정류장이 50개를 넘으면 트럭별 앞 10개만 준다.
+        explanation. 결과가 3,800자를 넘으면 정류장 이름·도착 시각, 끝난 정류장, 사유 순으로 빼고 그래도 길면 뒤쪽 정류장을
+        잘라 omitted·truncated·totalStops로 알린다.
         """
         plan = await call(internal.current_plan(shift_id))
-        return _fit_plan({"source": f"GET /internal/shifts/{shift_id}/plan", **plan})
+        return _fit_plan({"source": f"GET /internal/shifts/{shift_id}/plan", **plan}, max_chars)
 
     @mcp.tool(annotations=READ, tags={"read"})
     async def get_truck_status(
@@ -197,7 +254,7 @@ def build_server(internal: InternalApi, *, max_chars: int = 4000) -> FastMCP:
         issue(BLOCKED·CONSTRUCTION·INVENTORY_MISMATCH·OTHER), memo, reportedAt).
         """
         rows = await call(internal.field_reports(shift_id, _check_dt("since", since) if since else None))
-        rows = sorted(rows, key=lambda r: r["reportedAt"], reverse=True)
+        rows = list(reversed(rows))  # backend는 보고 순서대로 준다 (계약). 최신순으로 뒤집는다
         payload = {"source": f"GET /internal/shifts/{shift_id}/reports", "reports": rows[:limit],
                    "truncated": len(rows) > limit, "total": len(rows)}
         return _fit(payload, "reports", max_chars)
@@ -214,7 +271,7 @@ def build_server(internal: InternalApi, *, max_chars: int = 4000) -> FastMCP:
         반환: events[] (auditId, occurredAt, type, actor(role, display), targetId, detail).
         """
         rows = await call(internal.audit_events(shift_id, _check_dt("since", since) if since else None))
-        rows = sorted(rows, key=lambda r: r["occurredAt"], reverse=True)
+        rows = list(reversed(rows))  # backend는 기록 순서대로 준다 (계약). 최신순으로 뒤집는다
         payload = {"source": f"GET /internal/shifts/{shift_id}/audit", "events": rows[:limit],
                    "truncated": len(rows) > limit, "total": len(rows)}
         return _fit(payload, "events", max_chars)
@@ -235,21 +292,23 @@ def build_server(internal: InternalApi, *, max_chars: int = 4000) -> FastMCP:
         반환: candidateId(경로 변경 적용 때 넘김), status(OK 또는 TIMEOUT_PROVISIONAL = 시간 초과로 만든 임시안),
         plan(get_current_plan과 같은 형식), grade(활성 계획 대비 변경 등급 NONE·MINOR·MAJOR, 백엔드 규칙),
         requiredApprovers(승인 순서: NONE [], MINOR [DRIVER], MAJOR [MANAGER, DRIVER]),
-        diffs[] (truckId, before[], after[], addedMinutes(분)).
+        diffs[] (truckId, before[]·after[]·removed[]·added[] 정류장 ID, addedMinutes(분)).
+        결과가 길면 정류장 이름·도착 시각부터 빼고 plan.omitted·truncated·totalStops로 알린다.
         """
         request: Json = {"shiftId": shift_id, "kind": kind}
         if truck_ids:
             request["truckIds"] = truck_ids
         if exclude_station_ids:
             request["excludeStationIds"] = exclude_station_ids
+        # Harness는 승인 규칙이 있는 도구에만 task_id 인자를 채운다. 계산 도구는 X-Task-Id 헤더로도 받는다.
+        task_id = task_id or get_http_headers(include={"x-task-id"}).get("x-task-id")
         if task_id and UUID_RE.match(task_id):
             request["requestedBy"] = {"taskId": task_id}
         candidate = await call(internal.solve(request))
-        _fit_plan(candidate["plan"])
         result = {"source": "POST /internal/plans/solve", **candidate}
         if candidate.get("status") == "TIMEOUT_PROVISIONAL":
             result["notice"] = "최적화 시간이 초과돼 탐욕 휴리스틱으로 만든 임시안입니다. 화면에 임시안으로 표시하세요."
-        return result
+        return _fit_plan(result, max_chars, plan_key="plan")
 
     # ── 변경 (destructiveHint, 승인 필요) ───────────────────
 
@@ -294,7 +353,7 @@ def build_server(internal: InternalApi, *, max_chars: int = 4000) -> FastMCP:
         반환: 활성화된 계획(status=ACTIVE). 더 새로운 계획이 있으면 PLAN_SUPERSEDED와 최신 계획 ID가 온다.
         """
         plan = await call(internal.activate_plan(plan_id, _approved_change(approval_id, task_id)))
-        return _fit_plan({"source": f"POST /internal/plans/{plan_id}/activate", **plan})
+        return _fit_plan({"source": f"POST /internal/plans/{plan_id}/activate", **plan}, max_chars)
 
     @mcp.tool(annotations=WRITE, tags={"write"})
     async def propose_route_change(

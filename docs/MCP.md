@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 상태 | 초안 v0.3 (specs internal-api v0.2·openapi v0.3, HARNESS v0.5에 맞춤) |
+| 문서 상태 | 초안 v0.5 (specs internal-api v0.5·openapi v0.4, PR #12 리뷰 반영) |
 | 작성일 | 2026-10-20 |
 | 담당 | 3 MCP · RAG |
 | 사용 | 1 에이전트 그래프 (MCP Client), 2 Harness (도구 허용 목록, 승인, 마스킹), 4 백엔드 (`/internal/**`) |
@@ -45,7 +45,10 @@
 
 - 모든 결과에 `source`(호출한 내부 API, 예 `GET /internal/stations/risk`)를 넣는다. 근거 패널의 `Source{kind: TOOL}`에 쓴다.
 - specs가 배열로 주는 응답은 `{source, <목록 이름>: [...], truncated, total}`로 감싼다.
-- 목록은 `limit`(기본 20, 최대 50)으로 자르고, 결과 JSON이 4,000자를 넘으면 목록 뒤쪽부터 잘라 `truncated: true`. 계획은 정류장이 50개를 넘으면 트럭별 앞 10개만 준다. Harness `tools.result_max_chars`(4000)와 같은 값이다.
+- **결과 길이는 3,800자 안**(`DEFAULT_MAX_CHARS`). Harness는 `tools.result_max_chars`(4,000자)에서 글자 단위로 자르는데, JSON 중간이 잘리면 Harness가 결과를 파싱하지 못해 `candidateId`·`planId` 검증이 거부된다. 그래서 MCP가 먼저 온전한 JSON으로 줄인다.
+  - 목록: `limit`(기본 20, 최대 50)으로 자르고, 그래도 길면 뒤쪽부터 잘라 `truncated: true`, `total`.
+  - 계획·후보: `diffs`의 before/after를 정류장 ID 목록(+`removed`, `added`)으로 줄인다. 그래도 길면 정류장의 `stationName`, `eta`, 끝난 정류장, `reason` 순으로 빼고(`plan.omitted`), 마지막으로 가장 긴 경로의 뒤쪽 정류장을 자른다(`plan.truncated`, `plan.totalStops`). 가짜 MAJOR 후보: 4,301자 -> 2,177자.
+- 감사 기록·현장 보고는 backend가 시간 순서대로 주므로 MCP가 뒤집어 최신순으로 준다. `since`는 그 시각을 뺀다 (계약 0.5.0).
 - 기사 이름은 백엔드가 마스킹해서 준다 (`driver: "기사 A"`). Harness도 한 번 더 마스킹한다.
 
 ### 2.3 오류 형식 (`ToolError`)
@@ -59,7 +62,8 @@
 
 | 백엔드 응답 | MCP `code` | `retryable` | `hint` |
 | --- | --- | --- | --- |
-| 404, 409, 400 `ToolProblem` | 백엔드 `code` 그대로 (목록은 `ToolProblem.code`) | true | `candidates` = `suggestions` |
+| 404, 409, 400 `ToolProblem` | 백엔드 `code` 그대로 (목록은 `ToolProblem.code`) | `suggestions`가 있거나 400·422일 때만 true | `candidates` = `suggestions` |
+| 본문 없는 401·403·404·409 | `UNAUTHORIZED`·`FORBIDDEN`·`NOT_FOUND`·`CONFLICT` | false | |
 | 403 `APPROVAL_REQUIRED` | `APPROVAL_REQUIRED` | false (사람 승인을 기다려야 함) | |
 | 5xx, 타임아웃 | `UPSTREAM_UNAVAILABLE` | true | `retry_after_s` |
 | MCP 인자 검사 실패 | `INVALID_ARGUMENT` (시각 형식, 기간 순서, 필수 `value`) | true | 예시 |
@@ -77,6 +81,7 @@
    - `propose_route_change`: `request_route_plan` 결과의 `requiredApprovers` 순서. MINOR는 `[DRIVER]` 한 장, MAJOR는 `[MANAGER, DRIVER]` 두 장. **기사 카드 승인이 곧 기사 수락**이라 따로 수락 단계가 없다 (specs openapi v0.3, HARNESS 10절 (나)). 앞 카드가 거절되면 뒤 카드는 보내지 않고 기존 경로를 유지한다.
 3. 사람이 승인하면 backend가 기록하고 `ai.tasks` `RESUME`(approvalId)을 보낸다.
 4. Harness가 마지막 카드의 approvalId와 taskId를 채워 도구를 실행한다. business-mcp는 값을 요청 본문의 `approvalId`, `taskId`로 옮긴다. 값이 없으면 `APPROVAL_REQUIRED`.
+   승인 규칙이 없는 `request_route_plan`은 Harness가 `task_id`를 채우지 않으므로, Harness가 모든 MCP 호출에 붙이는 `X-Task-Id` 헤더로 `requestedBy.taskId`를 채운다.
 5. backend가 필요한 승인이 순서대로 모두 `APPROVED`인지 한 번 더 확인한다 (아니면 403). 경로 변경의 기사 승인은 그 트럭 기사의 것이어야 한다.
 
 grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부르지 않는다.
@@ -93,7 +98,7 @@ grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부�
 | 4 | `get_current_plan` | 조회 | `GET /internal/shifts/{shiftId}/plan` | 전체 |
 | 5 | `get_truck_status` | 조회 | `GET /internal/shifts/{shiftId}/trucks` | 전체 |
 | 6 | `get_field_reports` | 조회 | `GET /internal/shifts/{shiftId}/reports` | 전체 |
-| 7 | `get_audit` | 조회 | `GET /internal/shifts/{shiftId}/audit` (**계약 미반영**, ISSUES ISS-06) | qa (harness.yaml에서 결정 전까지 빠짐) |
+| 7 | `get_audit` | 조회 | `GET /internal/shifts/{shiftId}/audit` (계약 0.5.0, PR #20) | qa (harness.yaml에 다시 넣을지 2번 결정) |
 | 8 | `request_route_plan` | 계산 | `POST /internal/plans/solve` | plan_draft, field_report, manager_request |
 | 9 | `add_constraint` | 변경 | `POST /internal/constraints` | manager_request |
 | 10 | `submit_plan` | 변경 | `POST /internal/plans/{planId}/activate` | plan_draft |
@@ -141,6 +146,8 @@ agent --rag_search_docs--> rag-mcp: 질문 임베딩 -> 코사인 후보 -> 키�
 | `doc_types` | `ops_standard`(운영 기준), `seoul_notice`(서울시 공지), `reverse_analysis`(역산 분석), `handover`(인수인계 양식), `reference_paper`(외부 논문), `general`(종류 미지정) |
 
 결과: `{as_of, source, embedding{model, dim}, chunks[], truncated}`. `as_of`는 색인을 만든 시각이다.
+
+에이전트는 이 모양을 그대로 읽는다: 그래프 `doc_sources`(PR #11)와 Harness `contract.sources`(이 PR)가 `chunks[]`를 계약 `Source{kind: DOC}`로 옮긴다. 제목은 `title · section`, uri는 chunk `uri`, excerpt는 `text` 앞 120자 (ISSUES ISS-23).
 
 | chunk 필드 | 뜻 | `Source` 대응 |
 | --- | --- | --- |
@@ -224,7 +231,8 @@ DB 없이 돌릴 때(`RAG_STORE=memory`)는 파일을 읽어 키워드 점수만
 
 | 환경 변수 | 서버 | 뜻 |
 | --- | --- | --- |
-| `INTERNAL_MODE` (.env `MCP_INTERNAL_MODE`) | business-mcp | `fake`(기본, 가짜 `/internal`) 또는 `http` |
+| `INTERNAL_MODE` (.env `MCP_INTERNAL_MODE`) | business-mcp | `fake`(기본, 가짜 `/internal`), `http`, `hybrid`(backend가 연 API만 http) |
+| `INTERNAL_HTTP_METHODS` (.env `MCP_INTERNAL_HTTP_METHODS`) | business-mcp | hybrid에서 http로 부를 것. 기본 `field_reports,add_constraint,audit_events` (PR #19·#20) |
 | `BACKEND_URL`, `INTERNAL_TOKEN` | business-mcp | `http` 모드의 백엔드 주소와 서비스 토큰 |
 | `RAG_STORE` | rag-mcp | `pgvector`(PG 접속 정보가 있으면 기본) 또는 `memory` |
 | `PGHOST`·`PGUSER`·`PGPASSWORD`·`PGDATABASE` 또는 `VECTOR_DSN` | rag-mcp, rag-indexer | vectordb 접속 |
@@ -240,13 +248,14 @@ DB 없이 돌릴 때(`RAG_STORE=memory`)는 파일을 읽어 키워드 점수만
 
 | 항목 | 상대 | 내용 |
 | --- | --- | --- |
-| `get_audit` 계약 | 4 백엔드 | 내부 API `GET /internal/shifts/{shiftId}/audit`와 `AuditEvent` 추가 여부 (ISSUES ISS-06). 결정되면 harness.yaml `qa`에 다시 넣음 |
+| `get_audit` Harness 허용 | 2 Harness | 계약에 올라옴(0.5.0, PR #20). harness.yaml `qa`의 허용 목록에 `business_get_audit`을 다시 넣을지 |
+| 가짜 `/internal` 기본값 | 4 백엔드 | `/internal`이 다 열리면 기본값을 `http`로 바꾸고 `fake_internal.py`를 `tests/`로 옮김 (PR #12 리뷰). 그전에는 `hybrid`로 열린 API만 실제로 부를 수 있음 |
 | `Source`의 `citation`·`basis` | 4 백엔드, 화면 담당 | 근거 패널에 출처·등급을 보이려면 openapi `Source`에 필요 (PR #5 제안, 닫힘) |
 | 대여소 ID 형식 | 전원 | 6번 합의 1번 제안 `"108"`. MCP는 `ST-1023`과 `108` 둘 다 받는다. Harness `id_pattern`, 승인 카드 화면도 함께 바꿔야 함 |
 | 권역 ID 형식 | 6 데이터, 4 백엔드 | `N01`~`S09` 제안 (합의 2번). MCP는 대문자도 받음 |
 | `Forecast` 시간별 값 | 6 데이터, 4 백엔드 | `rentalsH`·`returnsH` 제안 (합의 15번). 백엔드가 주면 MCP는 그대로 전달 |
 | `horizonH` 최대값 | 4 백엔드 | specs 6, MCP 5. 6번도 5시간 제안 (합의 29번) |
-| CI·배포 경로 | 5 인프라 | `.github/workflows` 수정 권한이 필요해 이 PR에 넣지 못함. PR 설명의 제안대로 `mcp` 잡과 배포 `paths` 추가 |
+| CI `mcp` 잡 | 4·5 인프라 | 배포 `paths`는 PR #14로 반영됨. 테스트 잡(`mcp`, pgvector 서비스)은 `.github/workflows` 권한이 필요해 PR #12 설명 7절 그대로 추가 부탁 |
 | 근거 패널 화면 | 3 (M4) | `frontend/src/features/evidence`. 계약의 `Source` 필드가 정해진 뒤 |
 | 불꽃축제 폐쇄 대여소 목록 | 6 데이터 | 서울시 첨부 PDF를 대여소 ID와 맞춰 [notice-seoul-fireworks-2025](evidence/notice-seoul-fireworks-2025.md) 5절 예시를 채움 |
 | 검색 개선 | 3 | 확인용 질문에서 놓친 "재고 불일치 -> INVENTORY_OVERRIDE" 문항. 문서가 늘면 혼합 비중 다시 점검 |
