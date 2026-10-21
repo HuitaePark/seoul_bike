@@ -6,23 +6,21 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 
 /** 회원가입은 승인 전까지 로그인 불가, 관리자만 승인·발급·비활성화, 기사는 트럭 필수. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = TestInfra.PROPS)
-@Import(TestInfra.class)
+@IntegrationTest
 class AccountFlowTest {
 
 	@LocalServerPort
@@ -96,6 +94,57 @@ class AccountFlowTest {
 	}
 
 	@Test
+	void reopenedAccountGetsBackInOnlyWithANewToken() throws Exception {
+		String manager = token("manager");
+		String loginId = uniqueLoginId();
+		String userId = json.readTree(call("POST", "/api/admin/users", manager,
+				body(loginId, "password-123", "책임자 4", "role", "EXECUTIVE")).body()).path("id").asString();
+		String enable = "/api/admin/users/" + userId + "/enable";
+		String before = json.readTree(login(loginId, "password-123").body()).path("accessToken").asString();
+		assertThat(code(call("POST", enable, manager, null))).isEqualTo("ACCOUNT_NOT_DISABLED");
+
+		call("POST", "/api/admin/users/" + userId + "/disable", manager, null);
+		assertThat(call("GET", "/api/me", before, null).statusCode()).isEqualTo(401);
+		var reopened = call("POST", enable, manager, null);
+		assertThat(reopened.statusCode()).isEqualTo(200);
+		assertThat(json.readTree(reopened.body()).path("status").asString()).isEqualTo("ACTIVE");
+		assertThat(json.readTree(reopened.body()).path("role").asString()).isEqualTo("EXECUTIVE");
+
+		// 비활성화 전에 받은 토큰은 다시 열어도 쓰지 못한다. 새로 로그인해야 한다.
+		assertThat(call("GET", "/api/me", before, null).statusCode()).isEqualTo(401);
+		String after = json.readTree(login(loginId, "password-123").body()).path("accessToken").asString();
+		assertThat(call("GET", "/api/me", after, null).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void rejectedSignupIsNotReopenedIntoTheRoleItAskedFor() throws Exception {
+		String manager = token("manager");
+		String loginId = uniqueLoginId();
+		String signupId = json.readTree(call("POST", "/api/auth/signup", null,
+				body(loginId, "password-123", "거절할 신청", "requestedRole", "MANAGER")).body()).path("id").asString();
+		String enable = "/api/admin/users/" + signupId + "/enable";
+		// 승인 대기도 이 길로는 승인되지 않는다. 역할·트럭은 승인에서 정한다.
+		assertThat(code(call("POST", enable, manager, null))).isEqualTo("ACCOUNT_NOT_DISABLED");
+
+		call("POST", "/api/admin/users/" + signupId + "/disable", manager, null);
+		assertThat(code(call("POST", enable, manager, null))).isEqualTo("SIGNUP_REJECTED");
+		assertThat(code(login(loginId, "password-123"))).isEqualTo("ACCOUNT_DISABLED");
+
+		// 화면은 approvedAt으로 다시 열 수 있는 계정과 거절한 신청을 구분한다.
+		var disabled = json.readTree(call("GET", "/api/admin/users?status=DISABLED", manager, null).body());
+		var rejected = disabled.valueStream().filter(a -> a.path("id").asString().equals(signupId)).findFirst().orElseThrow();
+		assertThat(rejected.path("approvedAt").isString()).isFalse();
+	}
+
+	@Test
+	void onlyManagersReopenAccounts() throws Exception {
+		String enable = "/api/admin/users/u-no-such-user/enable";
+		assertThat(call("POST", enable, token("driver1"), null).statusCode()).isEqualTo(403);
+		assertThat(call("POST", enable, token("executive"), null).statusCode()).isEqualTo(403);
+		assertThat(call("POST", enable, token("manager"), null).statusCode()).isEqualTo(404);
+	}
+
+	@Test
 	void repeatedWrongPasswordsBlockOnlyThatLoginIdFromThatIp() throws Exception {
 		String manager = token("manager");
 		String loginId = uniqueLoginId();
@@ -123,7 +172,7 @@ class AccountFlowTest {
 	}
 
 	private HttpResponse<String> loginFrom(String ip, String loginId, String password) throws Exception {
-		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login"))
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login")).timeout(Duration.ofSeconds(30))
 			.header("Content-Type", "application/json")
 			.header("X-Forwarded-For", ip)
 			.POST(HttpRequest.BodyPublishers.ofString(
@@ -193,7 +242,7 @@ class AccountFlowTest {
 	}
 
 	private HttpResponse<String> call(String method, String path, String token, String body) throws Exception {
-		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).timeout(Duration.ofSeconds(30))
 			.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
 		if (body != null) {
 			req.header("Content-Type", "application/json");

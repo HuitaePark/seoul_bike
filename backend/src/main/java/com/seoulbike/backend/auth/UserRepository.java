@@ -14,23 +14,28 @@ import org.springframework.stereotype.Repository;
 class UserRepository {
 
 	record StoredUser(String id, String loginId, String passwordHash, String name, Role role, String truckId,
-			AccountStatus status, Instant createdAt) {
+			AccountStatus status, Instant createdAt, Instant approvedAt, int tokenVersion) {
 
 		CurrentUser toCurrentUser() {
 			return new CurrentUser(id, name, role, truckId);
 		}
 
-		/** 계약 Account. 비밀번호 해시는 밖으로 내보내지 않는다. */
+		/** 계약 Account. 비밀번호 해시와 토큰 버전은 밖으로 내보내지 않는다. */
 		Account toAccount() {
-			return new Account(id, loginId, name, role, truckId, status, createdAt);
+			return new Account(id, loginId, name, role, truckId, status, createdAt, approvedAt);
 		}
 	}
 
+	/** approvedAt이 없으면 승인된 적 없는 계정(대기 중이거나 거절한 가입 신청)이다. */
 	record Account(String id, String loginId, String name, Role role, String truckId, AccountStatus status,
-			Instant createdAt) {
+			Instant createdAt, Instant approvedAt) {
 	}
 
-	private static final String COLUMNS = "id, login_id, password_hash, name, role, truck_id, status, created_at";
+	/** 요청마다 토큰을 확인할 때 읽는 값. */
+	record TokenState(AccountStatus status, int tokenVersion) {
+	}
+
+	private static final String COLUMNS = "id, login_id, password_hash, name, role, truck_id, status, created_at, approved_at, token_version";
 
 	private final JdbcClient jdbc;
 
@@ -49,10 +54,10 @@ class UserRepository {
 		return jdbc.sql("select " + COLUMNS + " from users where id = :id").param("id", id).query(UserRepository::map).optional();
 	}
 
-	Optional<AccountStatus> statusOf(String id) {
-		return jdbc.sql("select status from users where id = :id")
+	Optional<TokenState> tokenStateOf(String id) {
+		return jdbc.sql("select status, token_version from users where id = :id")
 			.param("id", id)
-			.query((rs, row) -> AccountStatus.valueOf(rs.getString(1)))
+			.query((rs, row) -> new TokenState(AccountStatus.valueOf(rs.getString(1)), rs.getInt(2)))
 			.optional();
 	}
 
@@ -75,12 +80,13 @@ class UserRepository {
 			.list();
 	}
 
-	/** 같은 login_id가 이미 있으면 넣지 않고 false. */
+	/** 같은 login_id가 이미 있으면 넣지 않고 false. ACTIVE로 넣는 계정(관리자 발급, 시드)은 승인된 것으로 본다. */
 	boolean insertIfAbsent(String id, String loginId, String passwordHash, String name, Role role, String truckId,
 			AccountStatus status) {
 		return jdbc.sql("""
-				insert into users (id, login_id, password_hash, name, role, truck_id, status)
-				values (:id, :loginId, :passwordHash, :name, :role, :truckId, :status)
+				insert into users (id, login_id, password_hash, name, role, truck_id, status, approved_at)
+				values (:id, :loginId, :passwordHash, :name, :role, :truckId, :status,
+				        case when :status = 'ACTIVE' then now() end)
 				on conflict (login_id) do nothing
 				""")
 			.param("id", id)
@@ -96,7 +102,7 @@ class UserRepository {
 	/** PENDING일 때만 승인한다. 이미 처리된 신청이면 false. */
 	boolean approve(String id, Role role, String truckId) {
 		return jdbc.sql("""
-				update users set status = 'ACTIVE', role = :role, truck_id = :truckId
+				update users set status = 'ACTIVE', role = :role, truck_id = :truckId, approved_at = now()
 				where id = :id and status = 'PENDING'
 				""")
 			.param("role", role.name())
@@ -105,14 +111,29 @@ class UserRepository {
 			.update() == 1;
 	}
 
+	/** 토큰 버전을 올려 이미 발급된 토큰을 모두 무효로 한다. 다시 열어도 그 토큰은 돌아오지 않는다. */
 	void disable(String id) {
-		jdbc.sql("update users set status = 'DISABLED' where id = :id").param("id", id).update();
+		jdbc.sql("update users set status = 'DISABLED', token_version = token_version + 1 where id = :id")
+			.param("id", id)
+			.update();
+	}
+
+	/** 승인된 적 있는 DISABLED 계정만 다시 연다. 그사이 상태가 바뀌었으면 false. */
+	boolean enable(String id) {
+		return jdbc.sql("""
+				update users set status = 'ACTIVE'
+				where id = :id and status = 'DISABLED' and approved_at is not null
+				""")
+			.param("id", id)
+			.update() == 1;
 	}
 
 	private static StoredUser map(ResultSet rs, int row) throws SQLException {
 		OffsetDateTime createdAt = rs.getObject("created_at", OffsetDateTime.class);
+		OffsetDateTime approvedAt = rs.getObject("approved_at", OffsetDateTime.class);
 		return new StoredUser(rs.getString("id"), rs.getString("login_id"), rs.getString("password_hash"),
 				rs.getString("name"), Role.valueOf(rs.getString("role")), rs.getString("truck_id"),
-				AccountStatus.valueOf(rs.getString("status")), createdAt.toInstant());
+				AccountStatus.valueOf(rs.getString("status")), createdAt.toInstant(),
+				approvedAt == null ? null : approvedAt.toInstant(), rs.getInt("token_version"));
 	}
 }

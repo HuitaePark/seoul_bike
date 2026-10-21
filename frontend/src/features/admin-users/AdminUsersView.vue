@@ -43,12 +43,21 @@ async function approve(a: Account) {
   await load()
 }
 
-// 비활성화(가입 거절 포함)는 되돌리는 API가 없다. 잘못 누르지 않게 한 번 묻는다.
+// 비활성화(가입 거절 포함)는 바로 로그인을 막으므로 한 번 묻는다. 비활성 계정은 아래 enable로 다시 연다.
 async function disable(a: Account) {
   const what = a.status === 'PENDING' ? '가입 신청을 거절' : '계정을 비활성화'
-  if (!window.confirm(`${a.name} (${a.loginId}) ${what}할까? 되돌릴 수 없다.`)) return
+  if (!window.confirm(`${a.name} (${a.loginId}) ${what}할까? 바로 로그인할 수 없게 된다.`)) return
   error.value = ''
   const { error: e } = await api.POST('/api/admin/users/{userId}/disable', { params: { path: { userId: a.id } } })
+  if (e) error.value = `${a.loginId}: ${problemMessage(e)}`
+  await load()
+}
+
+// 역할·트럭은 비활성화 전 그대로 돌아온다. 거절한 가입 신청(approvedAt 없음)은 backend가 SIGNUP_REJECTED로 막는다.
+async function enable(a: Account) {
+  if (!window.confirm(`${a.name} (${a.loginId}) 계정을 ${roleLabel[a.role]} 역할로 다시 열까? 예전에 받은 로그인은 쓸 수 없고 새로 로그인해야 한다.`)) return
+  error.value = ''
+  const { error: e } = await api.POST('/api/admin/users/{userId}/enable', { params: { path: { userId: a.id } } })
   if (e) error.value = `${a.loginId}: ${problemMessage(e)}`
   await load()
 }
@@ -113,10 +122,12 @@ onMounted(load)
         <tr v-for="a in others" :key="a.id">
           <td>{{ a.name }}<br /><span class="muted">{{ a.loginId }}</span></td>
           <td>{{ roleLabel[a.role] }}<template v-if="a.truckId"> · {{ a.truckId }}</template></td>
-          <td><span :class="['badge', a.status]">{{ statusLabel[a.status] }}</span></td>
+          <td><span :class="['badge', a.status]">{{ a.status === 'DISABLED' && !a.approvedAt ? '가입 거절' : statusLabel[a.status] }}</span></td>
           <td>
             <!-- 자기 계정은 backend가 막는다 (CANNOT_DISABLE_SELF). 누를 수 없는 버튼은 보이지 않는다. -->
             <button v-if="a.status === 'ACTIVE' && a.id !== auth.user?.id" class="ghost" @click="disable(a)">비활성화</button>
+            <!-- 거절한 가입 신청은 다시 열 수 없다 (backend가 SIGNUP_REJECTED로 막는다). 다시 가입을 받는다. -->
+            <button v-else-if="a.status === 'DISABLED' && a.approvedAt" class="ghost" @click="enable(a)">다시 활성화</button>
           </td>
         </tr>
       </table>

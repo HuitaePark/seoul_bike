@@ -14,14 +14,23 @@ flowchart LR
 
 | 파일 | 역할 |
 | --- | --- |
-| `infra/compose.yaml` | 서비스 정의: frontend(nginx + Vue, :3000), backend(Spring Boot, :8080), postgres(PostGIS), vectordb(pgvector), redpanda. 서버 포트는 모두 127.0.0.1에만 연다 |
+| `infra/compose.yaml` | 서비스 정의: frontend(nginx + Vue, :3000), backend(Spring Boot, :8080), agent, business-mcp, rag-mcp(+rag-indexer), optimizer(OR-Tools 경로 계산), postgres(PostGIS), vectordb(pgvector), redpanda. 서버 포트는 모두 127.0.0.1에만 연다 |
 | `infra/.env.example` | 로컬 실행용 `.env` 양식. 서버 `.env`는 배포가 GitHub `production` 환경 값으로 만든다 |
 | `infra/runner/install-macos.sh` | 서버에 러너 설치 + launchd 서비스 등록 |
 | `.github/workflows/ci.yml` | PR·main 검사 (GitHub 호스팅 러너) |
 | `.github/workflows/deploy.yml` | main 배포 (서버 러너, `seoul-bike` 라벨) |
 
-역할 5의 OSRM·최적화 단독 검증은 [독립 개발 환경](optimizer/README.md)을 사용한다.
-별도 Compose 파일이며 위 서버 배포 서비스에는 아직 연결하지 않았다.
+역할 5의 OSRM·최적화 단독 검증은 [독립 개발 환경](optimizer/README.md)을 사용한다 (별도 Compose 파일·브로커).
+
+### optimizer (경로 계산 worker)
+
+`or-tools/`의 `rebalancing.worker`를 `or-tools/Dockerfile`(루트 context)로 빌드해 띄운다. `solve.requests`·`solve.requests.retry`를 소비해 `solve.results`를 발행하고, 처리할 수 없는 요청은 `solve.requests.dlq`로 보낸다 (규칙: [KAFKA.md](optimizer/KAFKA.md)). 공개 포트와 `.env` 변수는 없다.
+
+- **토픽:** 네 토픽(파티션 6개)은 backend가 시작할 때 만든다. worker는 자동 생성하지 않으므로 backend가 healthy가 된 뒤 뜬다.
+- **이동 시간:** 지금은 `--travel-source haversine`(직선거리 추정)이다. OSRM은 서울 도로 데이터 전처리와 서버 메모리(8GB 중 여유)를 정한 뒤 `--travel-source osrm`과 OSRM 서비스를 함께 넣는다.
+- **상태:** `optimizer-state` 볼륨(`/state`)에 requestId별 결과와 발행 여부를 남겨 재시작해도 같은 요청을 다시 계산·발행하지 않는다. 한 worker·한 볼륨이 전제라 늘려 띄우지 않는다. 볼륨을 지우면(`down -v`) 중복 방지 기록도 사라진다. group-id(`optimizer-v1`)와 브로커 주소는 상태 identity라 바꾸지 않는다.
+- **헬스체크:** worker가 준비 신호를 따로 내지 않아, 브로커에서 소비자 그룹 `optimizer-v1`이 STABLE이고 멤버가 있는지 본다.
+- **로그:** 요청마다 JSON 한 줄(`solve.started`·`solve.completed`·`solve.routed`). `docker compose logs optimizer`로 본다. DLQ는 자동 재처리하지 않는다: `docker exec seoul-bike-redpanda-1 rpk topic consume solve.requests.dlq -o start`.
 
 ## 서버 최초 설정 (한 번)
 
@@ -65,7 +74,7 @@ Tailscale funnel --https=443 off                                 # 공개 중단
 
 ## 배포하기
 
-- **자동:** compose가 빌드하는 폴더(`infra/`, `backend/`, `frontend/`, `agent/`, `business-mcp/`, `rag-mcp/`), `docs/specs/`, `docs/evidence/`, `deploy.yml`이 바뀐 커밋이 main에 들어오면 실행된다. 새 서비스를 넣으면 `deploy.yml`의 `paths`에도 넣는다.
+- **자동:** compose가 빌드하는 폴더(`infra/`, `backend/`, `frontend/`, `agent/`, `business-mcp/`, `rag-mcp/`, `or-tools/`, 루트 `requirements.txt`), `docs/specs/`, `docs/evidence/`, `deploy.yml`이 바뀐 커밋이 main에 들어오면 실행된다. 새 서비스를 넣으면 `deploy.yml`의 `paths`에도 넣는다.
 - **수동:** Actions → deploy → Run workflow.
 
 서비스를 추가하면 `infra/compose.yaml`에 `build:`와 `healthcheck`를 넣는다. `--wait`가 헬스체크 통과까지 기다리므로, 헬스체크가 없으면 배포 성공 여부를 알 수 없다.

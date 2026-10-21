@@ -232,7 +232,9 @@ def build_server(internal: InternalApi, *, max_chars: int = DEFAULT_MAX_CHARS) -
 
         반환: planId, version, status(DRAFT·PROPOSED·ACTIVE·REJECTED·CLOSED), provisional(임시안 여부),
         routes[] (truckId, capacity(대), startLoad(대), stops[] (seq, stationId, action(PICKUP 회수·DROPOFF 배치),
-        bikes(대), loadAfter(대), eta, reason, status(PENDING·DONE·SKIPPED))), unserved[] (stationId, priority, reason),
+        bikes(대), loadAfter(대), eta, reason, status(PENDING·DONE·SKIPPED))), unserved[] (stationId, priority,
+        reason(BLOCKED 제외·차단, NO_TRUCKS 트럭 없음, CAPACITY_EXCEEDED 트럭 용량 초과,
+        NOT_SELECTED 시간·적재량 안에서 우선순위에 밀림, NO_SOLUTION 해 없음)),
         explanation. 결과가 3,800자를 넘으면 정류장 이름·도착 시각, 끝난 정류장, 사유·적재량, 포기 대여소 뒤쪽·긴 설명 순으로
         줄이고, 그래도 길면 뒤쪽 정류장을 잘라 omitted·truncated·totalStops로 알린다.
         """

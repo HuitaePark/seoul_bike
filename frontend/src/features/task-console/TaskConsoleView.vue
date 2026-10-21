@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, problemMessage, type Schemas } from '../../shared/api/client'
 import { useTaskStream } from '../../shared/composables/useTaskStream'
+import RegionPicker from '../../shared/region/RegionPicker.vue'
+import { makeShiftId, SHIFT_SLOTS, todayInSeoul, type ShiftSlot } from '../../shared/region/regions'
 import ApprovalCard from '../approval/ApprovalCard.vue'
 import type { ApprovalDecision } from '../approval/approval'
 
@@ -16,8 +18,9 @@ const types: { value: TaskType; label: string }[] = [
   { value: 'REQUEST', label: '상황 반영 요청' },
   { value: 'QUESTION', label: '질의' },
 ]
-const today = new Date().toISOString().slice(0, 10)
-const form = ref({ type: 'PLAN_DRAFT' as TaskType, shiftId: `gwangjin-seongdong:${today}:AM`, text: '' })
+// 근무조는 권역·날짜·시간대를 따로 골라 근무조 ID(권역:날짜:시간대)로 합친다
+const form = ref({ type: 'PLAN_DRAFT' as TaskType, regionId: 'gwangjin-seongdong', date: todayInSeoul(), slot: 'AM' as ShiftSlot, text: '' })
+const shiftId = computed(() => makeShiftId(form.value.regionId, form.value.date, form.value.slot))
 const formError = ref('')
 const tasks = ref<Schemas['Task'][]>([])
 const selected = ref<string | null>(null)
@@ -52,7 +55,7 @@ async function refresh() {
 async function create() {
   formError.value = ''
   const { data, error } = await api.POST('/api/ai/tasks', {
-    body: { type: form.value.type, shiftId: form.value.shiftId, text: form.value.text || undefined },
+    body: { type: form.value.type, shiftId: shiftId.value, text: form.value.text || undefined },
   })
   if (error || !data) {
     formError.value = problemMessage(error)
@@ -102,7 +105,20 @@ const statusLabel: Record<Schemas['TaskStatus'], string> = {
             <option v-for="t in types" :key="t.value" :value="t.value">{{ t.label }}</option>
           </select>
         </label>
-        <label>근무조 <input v-model="form.shiftId" required /></label>
+        <fieldset class="shift">
+          <legend>근무조</legend>
+          <RegionPicker v-model="form.regionId" label="권역" required />
+          <div class="shift-row">
+            <label>날짜 <input v-model="form.date" type="date" required /></label>
+            <label>
+              시간대
+              <select v-model="form.slot">
+                <option v-for="s in SHIFT_SLOTS" :key="s.id" :value="s.id">{{ s.label }} {{ s.time }}</option>
+              </select>
+            </label>
+          </div>
+          <span class="hint">근무조 ID <code>{{ shiftId }}</code></span>
+        </fieldset>
         <label>요청·질문 <textarea v-model="form.text" rows="3" placeholder="예: 여의도 불꽃축제로 대여·반납 중지" /></label>
         <p v-if="formError" class="error">{{ formError }}</p>
         <button>작업 접수</button>
@@ -162,6 +178,11 @@ const statusLabel: Record<Schemas['TaskStatus'], string> = {
 </template>
 
 <style scoped>
+.shift { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.shift legend { padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.shift-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.shift-row input, .shift-row select { width: 100%; min-width: 0; }
+.shift code { font-size: 11.5px; color: var(--ink-2); overflow-wrap: anywhere; }
 .log { margin-top: 12px; font-size: 13px; }
 .log ol { padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 </style>

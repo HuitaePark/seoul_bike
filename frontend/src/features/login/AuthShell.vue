@@ -58,15 +58,19 @@ import CityScene from './CityScene.vue'
 .legend li { display: flex; align-items: center; gap: 6px; }
 .legend i { width: 9px; height: 9px; border-radius: 50%; }
 
-/* 좁은 화면(기사 휴대폰 포함): 그림을 위에 작게, 폼을 아래에 */
+/* 좁은 화면(기사 휴대폰 포함): 위는 그림, 아래는 흰 시트에 폼. 내용은 가운데 한 줄(최대 440px)로 맞춘다 */
 @media (max-width: 900px) {
   .auth { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
-  .art { order: -1; padding: 12px 16px 0; height: 240px; }
-  .art :deep(.scene) { max-height: 100%; }
-  .legend { right: 16px; bottom: 4px; }
-  .panel { padding: 20px 16px 24px; }
+  .art { order: -1; flex-direction: column; gap: 8px; padding: 16px 16px 20px; }
+  .art :deep(.scene) { width: 100%; max-width: 400px; height: auto; max-height: 34vh; }
+  .legend { position: static; padding: 6px 12px; font-size: 11px; }
+  .panel { align-items: center; padding: 28px 20px 20px; background: #fff; border-radius: 24px 24px 0 0; box-shadow: 0 -8px 24px rgb(15 23 42 / 0.06); }
+  .panel > * { width: 100%; max-width: 440px; }
+  .body :slotted(.auth-form) { max-width: none; }
   .identity { margin-top: 0; }
   .company { font-size: 26px; }
-  .tagline { margin: 12px 0 20px; }
+  .tagline { margin: 12px 0 22px; }
+  .body { margin-bottom: 0; }
+  .copy { margin-top: auto; padding-top: 32px; }
 }
 </style>

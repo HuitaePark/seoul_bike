@@ -71,4 +71,9 @@ class AccountController {
 	Account disable(@AuthenticationPrincipal Jwt jwt, @PathVariable String userId) {
 		return accounts.disable(CurrentUser.from(jwt), userId);
 	}
+
+	@PostMapping("/api/admin/users/{userId}/enable")
+	Account enable(@PathVariable String userId) {
+		return accounts.enable(userId);
+	}
 }

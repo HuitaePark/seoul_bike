@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import RegionPicker from '../../shared/region/RegionPicker.vue'
 import StationDetail from './StationDetail.vue'
 import PlanMap from './PlanMap.vue'
 import { usePlanReview } from './usePlanReview'
@@ -18,6 +19,10 @@ const filteredStations = computed(() => stations.value.filter(s =>
 const unserved = computed(() => [...(plan.value?.unserved ?? [])].sort((a, b) => b.priority - a.priority))
 const totalStops = computed(() => plan.value?.routes.reduce((n, r) => n + r.stops.length, 0) ?? 0)
 const streamLabels: Record<string, string> = { idle: '연결 전', connecting: '연결 중', open: '실시간 연결', reconnecting: '재연결 중', done: '작업 종료', failed: '연결 실패' }
+// 권역을 바꾸면 근무조 ID 앞의 권역도 같이 바꾼다 (권역:날짜:근무조). 권역을 비웠다가(`:날짜:AM`) 다시 넣어도 붙인다.
+watch(() => query.regionId, (next, prev) => {
+  if (query.shiftId.startsWith(`${prev}:`)) query.shiftId = `${next}${query.shiftId.slice(prev.length)}`
+})
 function selectTruck(id: string) {
   selectedTruck.value = id
   selectedStation.value = plan.value?.routes.find(r => r.truckId === id)?.stops[0]?.stationId ?? selectedStation.value
@@ -33,7 +38,7 @@ function selectTruck(id: string) {
     <div v-if="demo" class="demo-banner" role="note"><strong>시연 데이터 · 실제 계획에 반영되지 않습니다</strong><span>위치·관측·예측·방문 순서는 검토 흐름을 확인하기 위한 가상 자료입니다.</span><button class="ghost" :disabled="sending" @click="review.reset">시연 초기화</button></div>
 
     <form class="panel query-form" aria-label="계획 조회" @submit.prevent="review.search">
-      <label>권역 ID<input v-model="query.regionId" :readonly="demo" :disabled="sending" required placeholder="예: gwangjin-seongdong"></label>
+      <RegionPicker v-model="query.regionId" label="권역 ID" :readonly="demo" :disabled="sending" required />
       <label class="shift-field">근무조 ID<input v-model="query.shiftId" :readonly="demo" :disabled="sending" required placeholder="권역:날짜:근무조"></label>
       <label>예측 구간<select v-model.number="query.horizonH" :disabled="demo || sending"><option v-for="h in 6" :key="h" :value="h">{{ h }}시간 후</option></select></label>
       <button type="submit" :disabled="sending">계획 조회</button>
