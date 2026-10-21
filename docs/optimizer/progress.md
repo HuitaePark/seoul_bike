@@ -3,7 +3,7 @@
 ## 확인 기준
 
 - 최초 확인 origin/main: 221caf5. main f3e5cd7에서 시작했고 PR #34의 35e5b48(공개 API v0.9·내부 API v0.5·Kafka v0.5)을 추가 반영했다.
-- 최신 main 8b3f65a의 계획 활성화·조회 권한·대시보드 개편·의존성 보안 패치와 데이터 PR #10을 반영했다. PR #34의 43b87ad가 추가한 요청 retry/DLQ 토픽 생성도 유지한다. 공개 API v0.11·내부 API v0.6·Kafka v0.5 기준이며 기존 PR #34에서 함께 검토한다.
+- 최신 main ded2abe의 계획 활성화·조회 권한·대시보드 개편·의존성 보안 패치와 데이터 PR #10을 반영했다. PR #34의 43b87ad가 추가한 요청 retry/DLQ 토픽 생성도 유지한다. 공개 API v0.11·내부 API v0.6·Kafka v0.5 기준이며 PR #34는 CI 8개 통과 후 ded2abe로 main에 병합됐다. 지도 초기화 수정·최신 문서 정리는 hyunmoo의 후속 변경으로 보관한다.
 - 현재 개발 브랜치: `hyunmoo`(main f3e5cd7에서 시작). 기존 `feat/optimizer-core`의 PR #29는 병합 완료됐다.
 - 기존 원격 작업: `aeaa62c`(최적화 코어), `e0d3d36`(실행 안내·명세 초안).
 - `9460226`에서 최신 main을 개인 브랜치에 충돌 없이 병합했다.

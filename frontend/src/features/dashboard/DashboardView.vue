@@ -3,8 +3,8 @@
 붙일 API: GET /api/regions/{regionId}/stations, GET /api/shifts/{shiftId}/plan, 작업 SSE의 APPROVAL_REQUIRED.
 -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
 import { reasonText } from '../plan-map/model'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Schemas } from '../../shared/api/client'
 import { DUMMY_PENDING, DUMMY_PLAN, DUMMY_REGION, DUMMY_STATIONS, DUMMY_TRUCKS } from '../../shared/dummy'

@@ -419,7 +419,10 @@ ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exa
   수정 후 같은 지도 검사 **10회 연속 통과**, 전체 Chromium **24개 통과**.
 - 작업 중 추가된 PR #34의 43b87ad(backend 요청 retry/DLQ 토픽 생성)와 main 8b3f65a(데이터 PR #10)도 반영했다.
   데이터 파트 소스와 forecast/는 원본 그대로 유지하며 optimizer 예측기 계약은 이번에 변경하지 않았다.
-- GitHub 최종 CI 상태는 [PR #34 Checks](https://github.com/HuitaePark/skala_seoul_bike/pull/34/checks)에서 확인한다.
+- 요청 retry/DLQ 토픽 생성 반영 후 backend의 실제 Kafka 왕복 **7개**를 추가로 통과했다.
+- PR #34의 43b87ad는 [CI 8개를 통과](https://github.com/HuitaePark/skala_seoul_bike/pull/34/checks)한 뒤
+  관리자가 ded2abe로 main에 병합했다. 그 결과도 hyunmoo에 반영했다. 지도 초기화 수정·문서 정리는
+  hyunmoo 후속 변경이며, 이 후속 커밋의 GitHub CI는 별도 실행하지 않았다.
   실제 도로·운영 backend와 worker를 잇는 전체 흐름은 후속 검증이다.
 
 ## 아직 검증하지 않은 범위
@@ -427,4 +430,4 @@ ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exa
 운영 backend와 실제 worker 사이의 solve 요청/응답, 운영 retry/DLQ 토픽·관제·재처리,
 분산 중복 방지·볼륨 유실 복구,
 실제 OSRM 도로망·전처리·컨테이너, 서버 배포,
-실제 예측과 시뮬레이터, 실제 업무 서버와의 계획 승인·도로 경로선 통합, Linux GitHub 호스팅 러너에서의 실제 CI 실행.
+실제 예측과 시뮬레이터, 실제 업무 서버와의 계획 승인·도로 경로선 통합.
