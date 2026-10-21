@@ -69,7 +69,7 @@ for (const { role, home } of [
       await page.locator('.topbar').getByRole('link', { name: '계획 검토', exact: true }).click()
       await expect(page).toHaveURL('http://127.0.0.1:5185/plans/review')
       await expect(page.getByRole('link', { name: '작업 콘솔로 이동 →' })).toHaveAttribute('href', '/console')
-      await expect(page.locator('.topbar')).toHaveCSS('height', '56px')
+      await expect(page.locator('.topbar')).toHaveCSS('height', '60px')
     }
   })
 }

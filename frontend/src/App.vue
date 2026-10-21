@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth } from './shared/auth/store'
-import { roleLabel } from './shared/labels'
+import { companyName, roleLabel } from './shared/labels'
 
 const auth = useAuth()
 const route = useRoute()
@@ -17,11 +17,11 @@ const initial = computed(() => auth.user?.name.slice(0, 1) ?? '')
     <header class="topbar">
       <RouterLink to="/" class="brand">
         <span class="brand-mark" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="5.5" cy="17" r="3.5" /><circle cx="18.5" cy="17" r="3.5" /><path d="M5.5 17 9 9h6l3.5 8M9 9 12 17h1.5M14 5h2.5" />
           </svg>
         </span>
-        따릉이 재배치 <small>Rebalancing Agent</small>
+        <span class="brand-text">{{ companyName }} <small>따릉이 재배치 에이전트</small></span>
       </RouterLink>
       <nav v-if="auth.user">
         <template v-if="auth.user.role === 'MANAGER'">
@@ -39,7 +39,7 @@ const initial = computed(() => auth.user?.name.slice(0, 1) ?? '')
         <a href="/status" target="_blank">시스템 상태</a>
         <span class="who">
           <span class="avatar">{{ initial }}</span>
-          {{ auth.user.name }} · {{ roleLabel[auth.user.role] }}
+          <span class="who-name">{{ auth.user.name }} · {{ roleLabel[auth.user.role] }}</span>
           <button class="ghost" @click="auth.logout()">로그아웃</button>
         </span>
       </nav>

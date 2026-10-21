@@ -100,7 +100,7 @@ grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부�
 | 6 | `get_field_reports` | 조회 | `GET /internal/shifts/{shiftId}/reports` | 전체 |
 | 7 | `get_audit` | 조회 | `GET /internal/shifts/{shiftId}/audit` (계약 0.5.0, PR #20) | qa (2번 결정, PR #27) |
 | 8 | `request_route_plan` | 계산 | `POST /internal/plans/solve` | plan_draft, field_report, manager_request |
-| 9 | `add_constraint` | 변경 | `POST /internal/constraints` | manager_request |
+| 9 | `add_constraint` | 변경 | `POST /internal/constraints` | manager_request, field_report (기사 메모의 현장 상황, 관리자 승인) |
 | 10 | `submit_plan` | 변경 | `POST /internal/plans/{planId}/activate` | plan_draft |
 | 11 | `propose_route_change` | 변경 | `POST /internal/routes/{truckId}/apply` | field_report |
 

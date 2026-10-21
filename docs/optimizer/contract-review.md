@@ -1,6 +1,6 @@
 # 공통 solve 명세 대응 기록
 
-공개 API 0.9.0-draft, 내부 API 0.5.0-draft·Kafka 0.5.0-draft를 따른다.
+공개 API 0.11.0-draft, 내부 API 0.6.0-draft·Kafka 0.5.0-draft를 따른다.
 공유 YAML을 유지하고 구현 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
@@ -38,5 +38,5 @@ ai.events 재시도/DLQ와 solve.results 재시도/DLQ는 backend가 담당한�
 새 TaskEvent.code를 SolveResult에 추가하지 않는다.
 작업 이벤트 seq도 backend가 부여하므로 SolveResult에 추가하지 않는다.
 
-기존 공개 API v0.8의 로그인 제한은 유지하며 v0.9의 미처리 사유 값 목록을 따른다.
+공개 API v0.10의 계획 조회 권한·기사의 오늘 경로 규칙을 유지하며 v0.11의 미처리 사유 값 목록을 따른다.
 명세·예시와 역할 5 구현·인프라는 같은 저장소에 있으며, [실행 안내](README.md)도 상대 경로로 연결한다.
