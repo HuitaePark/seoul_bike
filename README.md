@@ -7,7 +7,7 @@
 
 ![아키텍처 구성도](docs/images/architecture.png)
 
-Docker Compose로 운영하며, 밖으로 여는 포트는 frontend(:3000) 하나다. backend(:8080)는 서버 안에서만 열리고 화면 nginx가 `/api`를 넘겨 준다. 업무 규칙과 데이터 변경은 Spring Boot 한 곳에서만 일어나고, Agent는 MCP 도구로 조회·계산·변경을 요청한다. 변경 도구는 사람이 승인하기 전까지 멈춘다.
+Docker Compose로 운영하며, 서버 포트는 모두 서버 자신에게만 열고 밖에서는 공개 주소(Tailscale Funnel → frontend :3000)로만 들어온다. backend(:8080)는 화면 nginx가 `/api`를 넘겨 준다. 업무 규칙과 데이터 변경은 Spring Boot 한 곳에서만 일어나고, Agent는 MCP 도구로 조회·계산·변경을 요청한다. 변경 도구는 사람이 승인하기 전까지 멈춘다.
 
 | 계층 | 스택 |
 | --- | --- |
