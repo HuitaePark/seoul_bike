@@ -14,20 +14,26 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -67,9 +73,9 @@ class SecurityConfig {
 
 	@Bean
 	@Order(2)
-	SecurityFilterChain api(HttpSecurity http, JsonMapper json) throws Exception {
+	SecurityFilterChain api(HttpSecurity http, JsonMapper json, UserRepository users) throws Exception {
 		AuthenticationEntryPoint unauthorized = (req, res, e) -> writeProblem(res, json, HttpStatus.UNAUTHORIZED,
-				"UNAUTHORIZED", "로그인이 필요하다");
+				"UNAUTHORIZED", e instanceof DisabledException ? "계정이 활성 상태가 아니다. 다시 로그인한다" : "로그인이 필요하다");
 		AccessDeniedHandler forbidden = (req, res, e) -> writeProblem(res, json, HttpStatus.FORBIDDEN, "FORBIDDEN",
 				"권한이 없다");
 		return http
@@ -86,11 +92,19 @@ class SecurityConfig {
 				.permitAll()
 				.anyRequest().authenticated())
 			// 토큰이 틀린 경우(리소스 서버)와 토큰이 아예 없는 경우(exceptionHandling) 모두 같은 본문을 쓴다.
-			.oauth2ResourceServer(o -> o.jwt(jwt -> jwt.jwtAuthenticationConverter(roleConverter()))
+			// 로그인·가입은 토큰을 보지 않는다. 브라우저에 남은 옛 토큰(비활성 계정 등)이 붙어 오면 그 토큰 때문에
+			// 401이 나서 다시 로그인할 수 없게 된다.
+			.oauth2ResourceServer(o -> o.bearerTokenResolver(ignoringAuthEndpoints())
+				.jwt(jwt -> jwt.jwtAuthenticationConverter(activeAccountsOnly(users)))
 				.authenticationEntryPoint(unauthorized)
 				.accessDeniedHandler(forbidden))
 			.exceptionHandling(e -> e.authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden))
 			.build();
+	}
+
+	private static BearerTokenResolver ignoringAuthEndpoints() {
+		DefaultBearerTokenResolver header = new DefaultBearerTokenResolver();
+		return req -> req.getRequestURI().startsWith("/api/auth/") ? null : header.resolve(req);
 	}
 
 	@Bean
@@ -120,6 +134,20 @@ class SecurityConfig {
 		JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
 		converter.setJwtGrantedAuthoritiesConverter(authorities);
 		return converter;
+	}
+
+	/**
+	 * 토큰이 아직 살아 있어도 계정이 ACTIVE가 아니면(비활성화, 삭제) 바로 막는다. 토큰 만료(최대 12시간)를 기다리지 않는다.
+	 * 요청마다 기본 키 조회 한 번이다. 이미 열린 SSE 연결은 끊지 않는다 (작업이 끝나면 닫힌다).
+	 */
+	private static Converter<Jwt, AbstractAuthenticationToken> activeAccountsOnly(UserRepository users) {
+		JwtAuthenticationConverter roles = roleConverter();
+		return jwt -> {
+			if (users.statusOf(jwt.getSubject()).filter(AccountStatus.ACTIVE::equals).isEmpty()) {
+				throw new DisabledException("계정이 활성 상태가 아니다");
+			}
+			return roles.convert(jwt);
+		};
 	}
 
 	private static void writeProblem(HttpServletResponse res, JsonMapper json, HttpStatus status, String code,

@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.5.0-draft
+  version: 0.6.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
-    **초안 v0.5.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
+    **초안 v0.6.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.6: 비활성화한 계정은 이미 받은 토큰도 다음 요청부터 401 (만료를 기다리지 않는다).
     - v0.5: 현장 보고 `POST /api/reports` 규칙(기사만, `issue`가 있으면 재경로 작업). FIELD_REPORT 작업은 작업 API로 만들지 않는다 (G13).
     - v0.4: `TaskEvent.code`(FAILED 실패 종류). SSE는 계약 필드만 보낸다.
     - v0.3: 경로 변경 승인 카드에 `candidateId`·`requiredApprovers`. 큰 변경(MAJOR)은 관리자 → 기사 카드 두 장.
@@ -321,7 +322,7 @@ paths:
       summary: 계정 비활성화 (관리자)
       description: |
         로그인을 막는다. 가입 신청 거절에도 쓴다. 자기 계정은 비활성화할 수 없다 (CANNOT_DISABLE_SELF).
-        이미 발급된 토큰은 만료(최대 12시간)될 때까지 남는다.
+        이미 발급된 토큰도 다음 요청부터 401이다. 이미 열린 SSE 연결은 바로 끊지 않고, 다시 연결할 때 401이다.
       parameters:
         - $ref: '#/components/parameters/UserId'
       responses:
@@ -473,7 +474,9 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: "역할 클레임: MANAGER, DRIVER, EXECUTIVE. DRIVER 토큰에는 truckId가 들어간다."
+      description: |
+        역할 클레임: MANAGER, DRIVER, EXECUTIVE. DRIVER 토큰에는 truckId가 들어간다.
+        계정이 ACTIVE가 아니면(비활성화 등) 토큰이 만료 전이어도 다음 요청부터 401 `UNAUTHORIZED`다.
 
   parameters:
     TaskId:
@@ -508,7 +511,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Unauthorized:
-      description: 토큰 없음 또는 만료
+      description: 토큰 없음, 만료, 또는 계정이 활성 상태가 아님(비활성화 등)
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

@@ -76,10 +76,17 @@ class AccountFlowTest {
 				body(loginId, "password-123", "책임자 2", "role", "EXECUTIVE"));
 		assertThat(created.statusCode()).isEqualTo(201);
 		String userId = json.readTree(created.body()).path("id").asString();
-		assertThat(login(loginId, "password-123").statusCode()).isEqualTo(200);
+		String issued = json.readTree(login(loginId, "password-123").body()).path("accessToken").asString();
+		assertThat(call("GET", "/api/me", issued, null).statusCode()).isEqualTo(200);
 
 		assertThat(call("POST", "/api/admin/users/" + userId + "/disable", manager, null).statusCode()).isEqualTo(200);
 		assertThat(code(login(loginId, "password-123"))).isEqualTo("ACCOUNT_DISABLED");
+		// 이미 받은 토큰도 만료를 기다리지 않고 바로 막힌다.
+		assertThat(code(call("GET", "/api/me", issued, null))).isEqualTo("UNAUTHORIZED");
+		// 그 옛 토큰이 브라우저에 남아 로그인 요청에 붙어 와도 다른 계정으로 로그인할 수 있다.
+		assertThat(call("POST", "/api/auth/login", issued,
+				json.writeValueAsString(json.createObjectNode().put("loginId", "driver1").put("password", "test-password")))
+			.statusCode()).isEqualTo(200);
 
 		assertThat(code(call("POST", "/api/admin/users/u-manager/disable", manager, null))).isEqualTo("CANNOT_DISABLE_SELF");
 		assertThat(code(call("POST", "/api/admin/users", manager,
