@@ -67,10 +67,17 @@ class SimpleRule(Policy):
                 continue
             # 한 번에 트럭 용량을 넘게는 못 옮긴다(plan_greedy는 용량보다 큰 불균형을 아예 건너뛴다)
             todo.append(Imbalance(s.id, max(-truck_capacity, min(truck_capacity, delta))))
-        return plan_greedy(depot, stations, todo, depot_trucks(trucks, truck_capacity), blocked_station_ids=blocked)
+        return plan_greedy(depot, stations, todo, depot_trucks(trucks, truck_capacity), travel_time=SimTravelTime(),
+                           blocked_station_ids=blocked)
 
 
 class CurrentOps(Policy):
+    """역산 방문의 배치는 적재 제한 없는 +n이라 회수보다 많이 내리면 구역 밖 자전거가 들어온다(2025-06-09~15 강북-03 하루 +130대).
+    same_supply이면 그날 회수한 것 + 거점 예비 안에서만 내린다(CURRENT_OPS_CAP, 분석용): 경로 정책과 같은 공급 조건."""
+
+    def __init__(self, same_supply: bool = False):
+        self.same_supply = same_supply
+
     def events(self, day) -> list[tuple[datetime, int, int]]:
         return day.visits
 

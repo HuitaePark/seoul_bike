@@ -33,8 +33,9 @@ MODEL_FALLBACK = "강남-05"  # 구역 모형이 없으면 옮겨 쓴다. 강북
 
 def policies_for(terr, d, day) -> dict:
     # 이름은 공개 API의 Policy 값과 같다(docs/specs/openapi.yaml)
-    # CURRENT_OPS_LW(지난주 같은 요일의 방문으로 운영)는 API에 없는 분석용 정책이다
-    out = {"NONE": NoRebalancing(), "GREEDY": SimpleRule(day.fixed_pickup), "CURRENT_OPS": CurrentOps(), "CURRENT_OPS_LW": CurrentOpsLastWeek()}
+    # CURRENT_OPS_LW(지난주 같은 요일의 방문으로 운영)와 CURRENT_OPS_CAP(현행 운영 재현을 본 시스템과 같은 공급으로)은 API에 없는 분석용 정책이다
+    out = {"NONE": NoRebalancing(), "GREEDY": SimpleRule(day.fixed_pickup), "CURRENT_OPS": CurrentOps(),
+           "CURRENT_OPS_CAP": CurrentOps(same_supply=True), "CURRENT_OPS_LW": CurrentOpsLastWeek()}
     model = terr if (ROOT / f"data/models/nowcast_{terr}_rent.txt").exists() else MODEL_FALLBACK
     if (ROOT / f"data/models/nowcast_{model}_rent.txt").exists():  # 본 시스템은 학습된 예측기가 있을 때만(forecast/nowcast.py)
         from forecast.nowcast import load_predictor
@@ -93,14 +94,14 @@ def many_days(args) -> None:
             rows.append(dict(date=d, region=args.terr, world="recorded", policy=name, failed_rentals=r0.failed, failed_rentals_adjusted=r.failed,
                              empty_station_minutes=round(r.empty_min), overflow_station_minutes=round(r.over_min),
                              bikes_moved=r.moved, bikes_moved_per_truck_hour=round(r.moved_per_truck_h, 1),
-                             closed_rentals=r.closed_rentals, diverted_returns=r.diverted_returns))
+                             bikes_dropped=r.dropped, closed_rentals=r.closed_rentals, diverted_returns=r.diverted_returns))
         for k, w in enumerate(worlds):  # 다시 뽑은 하루: 억눌린 수요 포함 값만 낸다(failed_rentals는 그중 다시 뽑은 대여의 실패)
             for name, r in w.items():
                 rows.append(dict(date=d, region=args.terr, world=f"resample{k}", policy=name, failed_rentals=r.failed - r.failed_latent,
                                  failed_rentals_adjusted=r.failed, empty_station_minutes=round(r.empty_min),
                                  overflow_station_minutes=round(r.over_min), bikes_moved=r.moved,
                                  bikes_moved_per_truck_hour=round(r.moved_per_truck_h, 1),
-                                 closed_rentals=r.closed_rentals, diverted_returns=r.diverted_returns))
+                                 bikes_dropped=r.dropped, closed_rentals=r.closed_rentals, diverted_returns=r.diverted_returns))
         print(f"{d} " + "  ".join(f"{n} {r0.failed}/{r.failed}" for n, (r0, r) in res.items()), flush=True)
         d += timedelta(days=1)
     with open(out, "w", newline="") as f:

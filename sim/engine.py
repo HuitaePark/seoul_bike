@@ -67,6 +67,7 @@ class Result:
     over_min: float = 0.0  # 과적재 대여소-분 (재고 > 거치대 수)
     moved: int = 0  # 트럭이 실제로 옮긴 대수(회수 기준)
     pick_short: int = 0  # 회수하러 갔는데 재고가 모자라 덜 실은 대수
+    dropped: int = 0  # 내린(배치한) 대수. moved는 회수만 센다
     truck_h: float = 0.0  # 트럭 운행 시간
     closed_rentals: int = 0  # 대여소가 닫혀 못 한 대여(판단 지표인 failed와 따로 센다)
     diverted_returns: int = 0  # 반납소가 닫혀 가장 가까운 열린 대여소로 옮긴 반납
@@ -115,7 +116,7 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
         stock[s] += dx
         since[s] = now
 
-    # 사건 큐: (시각, 순서, 종류, 값). 같은 시각이면 대여(0) → 반납(1) → 트럭(2) 순
+    # 사건 큐: (시각, 순서, 종류, 값). 같은 시각이면 대여(0) → 반납(1) → 거점 귀환(1.5) → 트럭(2) 순. 귀환이 먼저라야 같은 시각의 계획이 돌아온 자전거를 싣는다
     q: list = []
     for i, (rt, rs, ut, us) in enumerate(day.trips):
         if rt is not None and rs in stock:
@@ -129,6 +130,7 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
             q.append((day.start + timedelta(hours=h), 2, "plan", (day.start + timedelta(hours=min(h + (step or h1 - h0), h1)),
                                                                   day.start + timedelta(hours=h1))))
     carry = getattr(policy, "carry_trucks", False)
+    same_supply = getattr(policy, "same_supply", False)  # 역산 방문 재생도 그날 회수한 것 + 거점 예비 안에서만 내린다
     fleet: dict[int, tuple] = {}  # carry일 때 근무조 안의 트럭 상태: 트럭 → (경로 키, 위치, 다음 일을 시작할 수 있는 시각)
     ops = [(t, s, dx) for t, s, dx in policy.events(day) if s in stock and day.start <= t < end]
     q += [(t, 2, "ops", (s, dx)) for t, s, dx in ops]
@@ -217,11 +219,11 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
                 fleet.pop(r.truck_id, None)
                 back = min(t + timedelta(minutes=leg_minutes(pos, day.depot)), shift_end if carry else v)
                 res.truck_h += (back - t0).total_seconds() / 3600
-                heapq.heappush(q, (back, 3, "unload", rk))
+                heapq.heappush(q, (back, 1.5, "unload", rk))
             if carry and v >= shift_end:  # 경로 없이 근무조가 끝난 트럭도 거점으로 돌아가 내린다
                 for i, (rk, pos, ready) in list(fleet.items()):
                     back = min(ready + timedelta(minutes=leg_minutes(pos or day.depot, day.depot)), shift_end)
-                    heapq.heappush(q, (max(back, now), 3, "unload", rk))
+                    heapq.heappush(q, (max(back, now), 1.5, "unload", rk))
                     fleet.pop(i)
         elif kind == "stop":
             rk, s, action, bikes = v
@@ -236,14 +238,21 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
             else:
                 n = min(bikes, load[rk])
                 load[rk] -= n
+                res.dropped += n
                 change(s, now, +n)
         elif kind == "unload":
             depot_bikes += load.pop(v)
         elif kind == "ops":
             s, dx = v
             n = max(dx, -stock[s])  # 회수는 있는 만큼만
-            res.moved += -n if n < 0 else 0
-            res.pick_short += n - dx
+            if same_supply:
+                n = min(n, depot_bikes)
+                depot_bikes -= n
+            if dx < 0:
+                res.moved -= n
+                res.pick_short += n - dx
+            else:
+                res.dropped += n
             change(s, now, n)
 
     for s in stock:  # 하루 끝까지 남은 시간을 지표에 더한다

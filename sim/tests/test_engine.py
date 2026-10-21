@@ -51,6 +51,16 @@ class ReplayTest(unittest.TestCase):
         self.assertEqual(r.stock, {1: 0, 2: 4})
         self.assertEqual((r.moved, r.pick_short), (3, 2))
 
+    def test_current_ops_same_supply_drops_only_what_it_picked_plus_depot_spare(self):
+        # 트럭 1대: 거점 예비 7대. A에서 3대 회수 → 내릴 수 있는 것은 10대. B에 12대를 내리려 해도 10대만, 그 뒤 C에는 0대
+        stations = {1: Station(1, "A", 37.50, 127.00, 10, 3), 2: Station(2, "B", 37.51, 127.01, 20, 0), 3: Station(3, "C", 37.52, 127.0, 10, 0)}
+        visits = [(at(8), 1, -3), (at(8, 30), 2, +12), (at(9), 3, +2)]
+        day = Day(T0, stations, [], (37.505, 127.005), visits=visits)
+        r = replay(day, CurrentOps(same_supply=True), trucks=1)
+        self.assertEqual(r.stock, {1: 0, 2: 10, 3: 0})
+        self.assertEqual((r.moved, r.dropped), (3, 10))
+        self.assertEqual(replay(day, CurrentOps(), trucks=1).stock, {1: 0, 2: 12, 3: 2})  # 기본은 들어온 대로
+
     def test_latent_rentals_are_counted_apart_from_recorded(self):
         stations = {1: Station(1, "A", 37.50, 127.00, 10, 1)}
         trips = [(at(8), 1, None, None),       # 기록된 대여: 성공
@@ -107,6 +117,22 @@ class ReplayTest(unittest.TestCase):
         r = replay(Day(T0, stations, trips, (37.500, 127.0)), Hourly(frozenset({1})), trucks=1)
         self.assertEqual(r.stock[2], 5)   # 07시 경로가 B를 채웠다
         self.assertEqual(r.stock[1], 10)  # A에서 거치대 수까지 뺐다
+
+    def test_route_cut_at_replan_unloads_before_the_new_plan_loads(self):
+        # 트럭 1대(거점 예비 7대). 07시: 8.9km 떨어진 C에 1대 → 08시에 끊겨 6대를 싣고 거점에 돌아온다.
+        # 08시 계획은 거점 옆 빈 B에 6대: 귀환이 계획보다 먼저 처리돼야 그 6대를 싣는다(예전에는 0대)
+        class Hourly(Policy):
+            replan_h = 1
+            shifts = ((7, 9),)
+
+            def plan(self, now, stations, depot, trucks, cap, blocked=frozenset()):
+                if now.hour == 7:
+                    return Plan([Route(0, 7, [Stop(3, "dropoff", 1, 6)])], [], "t")
+                return Plan([Route(0, 7, [Stop(2, "dropoff", 6, 1)])], [], "t")
+
+        stations = {2: Station(2, "B", 37.501, 127.0, 10, 0), 3: Station(3, "C", 37.580, 127.0, 10, 0)}
+        r = replay(Day(T0, stations, [], (37.500, 127.0)), Hourly(), trucks=1)
+        self.assertEqual(r.stock, {2: 6, 3: 1})
 
     def test_policy_shifts_set_when_trucks_work(self):
         # 엔진은 정책의 shifts로 계획 시각을 잡는다. 없으면 기본 근무조(7–10, 13–16, 19–21)
