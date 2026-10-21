@@ -1,12 +1,14 @@
 package com.seoulbike.backend.ref;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import com.seoulbike.backend.IntegrationTest;
@@ -80,6 +82,80 @@ class RefDataLoaderTest {
 		assertThat(count("select count(*) from ref.stations where active")).isEqualTo(2716);
 		// 다음 재시작(같은 jar)은 파일이 같으므로 아무것도 하지 않는다.
 		assertThat(loader.loadIfChanged(REGIONS, STATIONS)).isNull();
+	}
+
+	@Test
+	void 깨진_파일은_통째로_되돌리고_해시를_남기지_않아_다음_시작_때_다시_시도한다() {
+		String shaBefore = stationsSha();
+		// 앞쪽 행(ST-4 이름)은 바꾸고 맨 끝 행은 역할 값이 틀렸다. 앞쪽 변경까지 남지 않아야 한다.
+		String broken = STATIONS.lines()
+			.map(line -> line.startsWith("102,ST-4,") ? line.replace("망원역 1번출구 앞", "바뀐 이름") : line)
+			.collect(Collectors.joining("\n"))
+				+ "\n99998,ST-99998,깨진 행,N04,마포구,주소,37.5,126.9,10,1.0,BROKEN\n";
+
+		assertThatThrownBy(() -> loader.loadIfChanged(REGIONS, broken)).isInstanceOf(DataAccessException.class);
+
+		assertThat(station("ST-4")).containsEntry("name", "망원역 1번출구 앞");
+		assertThat(count("select count(*) from ref.stations where station_id = 'ST-99998'")).isZero();
+		assertThat(stationsSha()).isEqualTo(shaBefore);
+	}
+
+	@Test
+	void 두_대여소의_번호가_맞바뀐_파일도_올라간다() {
+		// 행마다 바로 검사하면 첫 행에서 103이 겹친다. 커밋 때 검사하므로 올라가야 한다.
+		String swapped = STATIONS.lines()
+			.map(line -> line.startsWith("102,ST-4,") ? "103" + line.substring(3)
+					: line.startsWith("103,ST-5,") ? "102" + line.substring(3) : line)
+			.collect(Collectors.joining("\n"));
+		try {
+			assertThat(loader.load(REGIONS, swapped).changedStations()).isEqualTo(2);
+			assertThat(station("ST-4")).containsEntry("station_no", "103");
+			assertThat(station("ST-5")).containsEntry("station_no", "102");
+		}
+		finally {
+			loader.load(REGIONS, STATIONS);
+		}
+		assertThat(station("ST-4")).containsEntry("station_no", "102");
+	}
+
+	@Test
+	void 비활성_대여소의_번호를_새_대여소가_써도_올라간다() {
+		// ST-4가 빠지고 같은 번호 102가 새 ST- ID로 들어온 주. 지난 계획이 가리키는 ST-4는 번호를 가진 채 비활성으로 남는다.
+		String reused = STATIONS.lines()
+			.map(line -> line.startsWith("102,ST-4,") ? "102,ST-99999" + line.substring("102,ST-4".length()) : line)
+			.collect(Collectors.joining("\n"));
+		try {
+			var result = loader.load(REGIONS, reused);
+
+			assertThat(result.deactivatedStations()).isEqualTo(1);
+			assertThat(station("ST-4")).containsEntry("station_no", "102").containsEntry("active", false);
+			assertThat(station("ST-99999")).containsEntry("station_no", "102").containsEntry("active", true);
+		}
+		finally {
+			// 테스트끼리 DB를 같이 쓰므로 원래 파일로 되돌리고 시험용 대여소를 지운다.
+			loader.load(REGIONS, STATIONS);
+			jdbc.sql("delete from ref.stations where station_id = 'ST-99999'").update();
+		}
+		assertThat(station("ST-4")).containsEntry("active", true);
+	}
+
+	@Test
+	void 파일이_같아도_표가_비어_있으면_다시_올린다() {
+		loader.load(REGIONS, STATIONS);
+		// DB를 초기화하거나 손으로 지운 경우. 해시만 보고 건너뛰면 대여소 없이 뜬다.
+		jdbc.sql("delete from ref.stations").update();
+
+		var result = loader.loadIfChanged(REGIONS, STATIONS);
+
+		assertThat(result).isNotNull();
+		assertThat(count("select count(*) from ref.stations where active")).isEqualTo(2716);
+	}
+
+	private String stationsSha() {
+		return jdbc.sql("select sha256 from ref.source_files where file_name = :f")
+			.param("f", RefDataLoader.STATIONS_FILE)
+			.query(String.class)
+			.single();
 	}
 
 	private int count(String sql) {

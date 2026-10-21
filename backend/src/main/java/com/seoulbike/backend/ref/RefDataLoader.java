@@ -56,14 +56,21 @@ class RefDataLoader implements ApplicationRunner {
 			loadIfChanged(regions, stations);
 		}
 		catch (RuntimeException e) {
+			if (count("ref.stations", false) == 0) {
+				// 첫 배포처럼 기준 정보가 하나도 없으면 대여소 없이 뜨는 것보다 시작을 멈추는 편이 바로 드러난다.
+				throw new IllegalStateException("기준 정보 CSV를 올리지 못했고 ref.stations가 비어 있다", e);
+			}
 			// 주간 파일 하나가 깨졌다고 서비스 전체를 내리지 않는다. 트랜잭션이 되돌려져 지난주 기준 정보가 그대로 남는다.
+			// 해시도 기록되지 않으므로 다음 시작 때 다시 시도한다.
 			log.error("기준 정보 CSV를 올리지 못했다. 이전 기준 정보를 그대로 쓴다", e);
 		}
 	}
 
-	/** 두 파일 내용이 지난번에 올린 것과 같으면 아무것도 하지 않고 null을 돌려준다. */
+	/** 두 파일 내용이 지난번에 올린 것과 같고 표가 비어 있지 않으면 아무것도 하지 않고 null을 돌려준다. */
 	Result loadIfChanged(String regionsCsv, String stationsCsv) {
-		if (sha256(regionsCsv).equals(loadedSha(REGIONS_FILE)) && sha256(stationsCsv).equals(loadedSha(STATIONS_FILE))) {
+		// 해시가 같아도 표가 비어 있으면(수동 삭제, DB 초기화) 다시 올린다.
+		if (sha256(regionsCsv).equals(loadedSha(REGIONS_FILE)) && sha256(stationsCsv).equals(loadedSha(STATIONS_FILE))
+				&& count("ref.regions", false) > 0 && count("ref.stations", false) > 0) {
 			log.info("기준 정보 파일이 지난번과 같아 건너뛴다: 구역 {}개, 대여소 {}개(활성 {}개)", count("ref.regions", false),
 					count("ref.stations", false), count("ref.stations", true));
 			return null;
