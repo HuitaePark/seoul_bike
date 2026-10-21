@@ -92,11 +92,15 @@ class Agent(Policy):
     경로는 5의 plan_routes(OR-Tools)를 그대로 쓴다.
     경로 탐색은 5의 기본값을 따른다(해 50개에서 멈춤, 실행마다 같은 답). time_limit_s는 주지 않는다(주면 CPU 부하에 따라 답이 바뀐다).
     carry_trucks이면 엔진이 근무조 안에서 트럭의 현재 위치·적재량·남은 근무 시간을 Truck으로 넘긴다(PRD v0.2 재경로).
-    아니면 다시 계획할 때마다 거점에서 반쯤 싣고 출발한다. sim_travel이면 최적화기에 엔진과 같은 이동 시간을 준다(합의 19번)."""
+    아니면 다시 계획할 때마다 거점에서 반쯤 싣고 출발한다. sim_travel이면 최적화기에 엔진과 같은 이동 시간을 준다(합의 19번).
+    fail_priority를 주면 대여소를 포기하는 벌점 점수를 대수 × 가중치 대신 실패 대여 기대값으로 둔다(PRD 우선순위):
+      배치  그 대수를 지금 내려 막는 실패 대여 기대값(fails_avoided)   회수  대당 fail_priority(배치를 가능하게 하는 공급 가치)
+    배치 필요가 실을 수 있는 자전거보다 훨씬 많아(계획마다 360~470대 vs 수십 대) 어디에 내릴지가 실패를 가른다."""
 
     def __init__(self, predictor, sources: frozenset[int], z: float = 1.0, replan_h: int | None = None,
                  horizon: int | None = None, time_limit_s: int | None = None, z_pick: float | None = None, bridge: bool = False,
-                 shifts: tuple = SHIFTS, carry_trucks: bool = False, sim_travel: bool = False):
+                 shifts: tuple = SHIFTS, carry_trucks: bool = False, sim_travel: bool = False,
+                 fail_priority: float | None = None):
         self.predictor = predictor
         self.sources = sources
         self.z = z  # 배치 여유
@@ -108,6 +112,7 @@ class Agent(Policy):
         self.shifts = shifts  # 엔진도 이 근무조로 계획 시각을 잡는다
         self.carry_trucks = carry_trucks
         self.travel_time = SimTravelTime() if sim_travel else None
+        self.fail_priority = fail_priority  # 회수 1대의 공급 가치(실패 대여 단위). None이면 5의 기본 점수
 
     def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int,
              blocked: frozenset[int] = frozenset()) -> Plan:
@@ -130,7 +135,29 @@ class Agent(Policy):
             else:
                 continue
             if delta:  # 회수량을 내림하면 0이 될 수 있다
-                todo.append(Imbalance(s.id, max(-truck_capacity, min(truck_capacity, delta))))
+                delta = max(-truck_capacity, min(truck_capacity, delta))
+                prio = None  # 5의 기본 점수: 대수 × 가중치
+                if self.fail_priority is not None:
+                    var = list(accumulate((r + n for r, n in zip(f.rentals_h, f.returns_h)), initial=0.0))  # 포아송 분산: 대여 + 반납
+                    prio = delta * self.fail_priority if delta > 0 else fails_avoided(traj, var, -delta)
+                todo.append(Imbalance(s.id, delta, prio))
         fleet = trucks if isinstance(trucks, list) else depot_trucks(trucks, truck_capacity)  # carry_trucks면 엔진이 Truck 목록을 준다
         return plan_routes(depot, stations, todo, fleet, time_limit_s=self.time_limit_s, travel_time=self.travel_time,
                            blocked_station_ids=blocked)
+
+
+def exp_short(gap: float, var: float) -> float:
+    """E[max(0, Y)], Y ~ N(gap, var). 재고보다 더 빠져나갈 대수의 기대값(포아송을 정규로 근사)."""
+    if var <= 0:
+        return max(0.0, gap)
+    sd = math.sqrt(var)
+    k = gap / sd
+    return gap * 0.5 * (1 + math.erf(k / math.sqrt(2))) + sd * math.exp(-k * k / 2) / math.sqrt(2 * math.pi)
+
+
+def fails_avoided(traj: list[float], var: list[float], bikes: int) -> float:
+    """지금 bikes대를 내리면 막는 실패 대여 기대값. 실패 기대값은 궤적의 시각마다 E[모자란 대수]의 최대(하한)로 본다."""
+    def fails(extra):
+        return max(exp_short(-t - extra, v) for t, v in zip(traj, var))
+
+    return max(0.0, float(fails(0) - fails(bikes)))  # 5는 파이썬 float만 받는다(예측값은 numpy float)

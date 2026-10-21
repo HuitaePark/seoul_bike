@@ -220,6 +220,22 @@ class ReplayTest(unittest.TestCase):
         self.assertNotIn(1, stops)
         self.assertIn(1, {u.station_id for u in plan.unserved})
 
+    def test_fail_priority_skips_empty_station_where_no_rentals_come(self):
+        # A: 비었지만 3시간 동안 대여 예측이 0(LOW만큼 2대 모자람). B: 재고 1, 시간당 4대씩 빠진다(13대 모자람).
+        # 트럭은 15대로 나가 둘 다 채울 수 있다. 기본 점수(대수 × 가중치)는 둘 다 채우고, 실패 기대값은 막을 실패가 없는 A를 건너뛴다
+        class Fake:
+            demand = {1: 0.0, 2: 4.0}
+
+            def predict(self, st, start, horizon_h):
+                return Forecast(start, (self.demand[st.id],) * horizon_h, (0.0,) * horizon_h, "fake")
+
+        stations = [Station(1, "A", 37.505, 127.000, 10, 0), Station(2, "B", 37.495, 127.000, 10, 1)]
+        stops = lambda p: {s.station_id: s.bikes for r in p.routes for s in r.stops}  # noqa: E731
+        default = Agent(Fake(), frozenset(), z=0).plan(at(7), stations, (37.500, 127.000), 1, 30)
+        fail = Agent(Fake(), frozenset(), z=0, fail_priority=0.25).plan(at(7), stations, (37.500, 127.000), 1, 30)
+        self.assertEqual(stops(default), {1: 2, 2: 13})
+        self.assertEqual(stops(fail), {2: 13})
+
     def test_resampled_day_keeps_hour_and_level_and_leaves_latent_alone(self):
         stations = {1: Station(1, "A", 37.50, 127.00, 10, 50), 2: Station(2, "B", 37.51, 127.01, 10, 0)}
         rec = [(at(8, m % 60), 1, at(8, m % 60) + timedelta(minutes=12), 2) for m in range(100)]  # 08시에 A → B 100건
