@@ -46,6 +46,8 @@ export const router = createRouter({
       component: () => import('./features/admin-users/AdminUsersView.vue'),
       meta: { roles: ['MANAGER'] },
     },
+    { path: '/plans/review/demo', component: () => import('./features/plan-map/PlanReviewView.vue'), props: { demo: true }, meta: { public: true } },
+    { path: '/plans/review', component: () => import('./features/plan-map/PlanReviewView.vue'), meta: { roles: ['MANAGER', 'EXECUTIVE'] } },
     { path: '/console', component: () => import('./features/task-console/TaskConsoleView.vue') },
     {
       path: '/',

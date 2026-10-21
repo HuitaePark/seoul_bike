@@ -41,3 +41,7 @@ Docker Compose로 운영하며, 서버 포트는 모두 서버 자신에게만 �
 - [MCP 명세](docs/MCP.md): business-mcp 도구 11개, rag-mcp 검색(pgvector)·Resource·색인기, 승인 전달 (코드 `business-mcp/`, `rag-mcp/`, 근거 문서 [docs/evidence](docs/evidence/README.md))
 - [품질 매핑](docs/QUALITY.md): ISO/IEC 25010:2023 품질 특성별 측정 방법과 증거
 - [OR-Tools 파이프라인 가이드](docs/or-tools/README.md)
+- [최적화 코어 개발 안내](docs/optimizer/README.md): 현재 실행법, 운영 제약, 단독 검증·성능 측정
+- [최적화 · 인프라 명세](docs/specs/optimizer.md): 공통 solve 대응, 실행 설정·구현 범위
+- [역할 5 진행 정리](docs/optimizer/progress.md): 최신 main 확인, 완료 범위와 협의 항목
+- [OSRM 독립 개발 환경](infra/optimizer/README.md): 도로 데이터 준비와 최적화 단독 실행

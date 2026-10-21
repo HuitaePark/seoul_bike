@@ -35,6 +35,7 @@ tools:
       - business_get_field_reports
       - business_request_route_plan
       - business_propose_route_change
+      - business_add_constraint        # 기사 메모의 현장 상황(행사·사고)을 관리자 승인 카드로 올린다 (이슈 #35)
     manager_request:
       - business_get_risk_stations
       - business_get_station_detail

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "shiftId": "demo:2026-10-20:AM",
+  "requestId": "demo:2026-10-20:AM:1:1",
+  "traceId": "optimizer-contract-example",
+  "eventId": "1d6d7b35-072a-4dd2-b65c-b22c99b5a702",
+  "status": "OK",
+  "routes": [
+    {
+      "truckId": "TR-02",
+      "capacity": 15,
+      "startLoad": 0,
+      "stops": [
+        {
+          "seq": 1,
+          "stationId": "ST-10",
+          "action": "PICKUP",
+          "bikes": 5,
+          "loadAfter": 5,
+          "eta": "2026-10-19T23:00:14Z",
+          "status": "PENDING"
+        },
+        {
+          "seq": 2,
+          "stationId": "ALT-10",
+          "action": "DROPOFF",
+          "bikes": 5,
+          "loadAfter": 0,
+          "eta": "2026-10-19T23:05:58Z",
+          "status": "PENDING"
+        }
+      ]
+    }
+  ],
+  "unserved": [],
+  "stats": {
+    "solveMs": 13,
+    "bikesMoved": 10
+  },
+  "occurredAt": "2026-10-19T23:00:01Z"
+}

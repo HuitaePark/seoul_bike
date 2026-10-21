@@ -17,9 +17,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt pytest
+      - run: pip install -r requirements.txt -r or-tools/requirements-worker.txt -r or-tools/requirements-dev.txt
       - run: python -m pytest -q
         working-directory: or-tools
+      - name: 독립 Kafka 브로커 시작
+        run: docker compose -f infra/optimizer/compose.kafka.yaml up -d --wait broker
+      - name: 최적화 Kafka 송수신·재시작 검증
+        working-directory: or-tools
+        env:
+          OPTIMIZER_KAFKA_BOOTSTRAP: 127.0.0.1:19092
+        run: python -m pytest -q tests/integration/test_kafka_live.py
+      - name: 독립 Kafka 테스트 환경 정리
+        if: always()
+        run: docker compose -f infra/optimizer/compose.kafka.yaml down --volumes
 
   # agent(그래프·Harness), business-mcp, rag-mcp의 pytest. rag-mcp의 색인·검색 테스트는 pgvector 서비스로 돈다.
   # agent의 Postgres 체크포인터 테스트(AGENT_TEST_PG_URL)와 rag-mcp의 임베딩 모델 테스트(RAG_TEST_FASTEMBED)는 건너뛴다.
@@ -90,6 +100,23 @@ jobs:
         run: npm run gen:api && git diff --exit-code src/shared/api/schema.d.ts
       - run: npm run build
         working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - name: 화면 검증용 Chromium 설치
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: 계획 검토 브라우저 검증
+        run: npm run test:e2e
+        working-directory: frontend
+      - name: 실패한 화면 검사 기록
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: frontend-plan-review
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
 
   contracts:
     runs-on: ubuntu-latest
@@ -110,3 +137,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: compose 파일 검증
         run: docker compose -f infra/compose.yaml --env-file infra/.env.example config -q
+      - name: 최적화 독립 개발 환경 검증
+        run: |
+          sh -n infra/optimizer/prepare-osrm.sh
+          docker compose -f infra/optimizer/compose.dev.yaml --profile prepare --profile tools config -q
+          docker compose -f infra/optimizer/compose.kafka.yaml config -q
