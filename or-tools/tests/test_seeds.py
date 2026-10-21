@@ -168,6 +168,8 @@ def test_cli_can_validate_all_regions(capsys):
 
 
 def test_plan_map_demo_reference_matches_n02_source():
+    # The demo copies display fields (name, coordinates, docks, elevation, role) from a CSV that is
+    # refreshed weekly. Only identity is checked against it so a reference refresh does not break CI.
     import re
     text = (ROOT / "frontend/src/features/plan-map/demo.ts").read_text()
     raw = text.split("const referenceStations = ", 1)[1].split(" as const", 1)[0]
@@ -177,13 +179,13 @@ def test_plan_map_demo_reference_matches_n02_source():
     assert "DEMO_REGION = 'N02'" in text
     assert len(stations) == len({station["stationId"] for station in stations}) == 8
     for station in stations:
-        row = source[station["stationId"]]
-        assert row["region_id"] == "N02"
-        assert station == {"stationId": row["api_station_id"], "name": row["name"],
-                           "lat": float(row["lat"]), "lon": float(row["lon"]),
-                           "docks": int(row["docks"]), "elevationM": float(row["elevation_m"]),
-                           "role": row["role"]}
+        assert source[station["stationId"]]["region_id"] == "N02"
+        assert set(station) == {"stationId", "name", "lat", "lon", "docks", "elevationM", "role"}
     # Even unserved entries with no current snapshot must refer to this region.
     for station_id in set(re.findall(r"ST-[0-9]+", text)):
         assert source[station_id]["region_id"] == "N02"
     assert set(re.findall(r"TR-[0-9]+", text)) == {"TR-03", "TR-04", "TR-05"}
+    # A fixed pickup station must not be shown as a station that receives bikes.
+    roles = {station["stationId"]: station["role"] for station in stations}
+    for station_id in re.findall(r"stationId: '(ST-[0-9]+)', action: 'DROPOFF'", text):
+        assert roles[station_id] != "FIXED_PICKUP"

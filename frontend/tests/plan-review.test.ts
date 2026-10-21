@@ -113,10 +113,10 @@ test('원본을 변경하지 않고 seq 순서대로 방문 연결선을 만든�
   assert.equal(result.lines.features.filter(f => !f.properties.selected).length, 2)
 })
 test('좌표가 없는 중간 거점을 건너 연결하거나 미처리 좌표를 만들어내지 않는다', () => {
-  const stations = demoStations.filter(s => s.stationId !== 'ST-1660')
+  const stations = demoStations.filter(s => s.stationId !== 'ST-2308')
   const result = mapData(stations, demoPlan, 'TR-03', [])
   assert.deepEqual(result.lines.features.filter(f => f.properties.selected).map(f => [f.properties.fromSeq, f.properties.toSeq]), [[3, 4]])
-  assert.deepEqual(result.missingIds.sort(), ['ST-114', 'ST-1660', 'ST-98'])
+  assert.deepEqual(result.missingIds.sort(), ['ST-114', 'ST-2308', 'ST-98'])
   assert.equal(result.points.some(p => p.station.stationId === 'ST-98'), false)
 })
 test('제외 선택은 현재 계획 경로를 바꾸지 않고 마커에 표시한다', () => {

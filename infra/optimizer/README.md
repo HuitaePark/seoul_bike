@@ -85,10 +85,22 @@ Docker 실행은 별도 `matrix-cache` 볼륨을 사용하므로 호스트 캐�
 docker compose --env-file infra/.env.example -f infra/compose.yaml \
   -f infra/optimizer/compose.osrm.yaml config -q
 
-# 실제 실행 환경에서만: 해당 환경의 비밀값 파일을 사용한다. 이 작업에서는 실행하지 않았다.
-docker compose --env-file infra/.env -f infra/compose.yaml \
+# 실제 실행 환경에서만. 서버의 env 파일은 ~/seoul-bike/.env이다. 이 작업에서는 실행하지 않았다.
+docker compose -p seoul-bike --env-file ~/seoul-bike/.env -f infra/compose.yaml \
   -f infra/optimizer/compose.osrm.yaml up -d --build --wait osrm optimizer
 ```
+
+서버에서 overlay를 켤 때 주의할 점:
+
+- 서버의 env 파일은 `infra/.env`가 아니라 `~/seoul-bike/.env`이다. `deploy.yml`이 배포할 때마다 production 환경 값으로
+  새로 쓰므로 이 파일을 손으로 고친 값은 다음 배포에서 사라진다. 바꿀 값은 production 환경 변수에 넣는다.
+- `deploy.yml`은 `infra/compose.yaml`만으로 `up -d --remove-orphans`를 실행한다. 그래서 overlay로 OSRM을 켜 두어도
+  다음 main 배포에서 osrm 컨테이너는 orphan으로 지워지고 optimizer는 하버사인 worker로 다시 만들어진다.
+  배포에 overlay를 넣는 스위치(production 변수)가 생기기 전까지 서버의 OSRM 연결은 다음 배포 전까지만 유지된다고 본다.
+  배포 뒤에는 optimizer가 어느 거리 계산을 쓰는지 다시 확인한다.
+- overlay는 도로 자료를 `infra/optimizer/data/processed`(저장소 안 bind mount)에서 읽는다. 배포 runner의 작업 폴더는
+  `actions/checkout`이 기본값(`clean: true`)으로 추적하지 않는 파일까지 지우므로, 그 안에 만든 전처리 결과도 배포 때 사라진다.
+  서버에서는 runner 작업 폴더 밖에서 전처리하고 보관한다. 배포 스위치를 만들 때 이 경로도 함께 정한다.
 
 추가 osrm은 호스트 포트를 열지 않는다. worker는 같은 네트워크의 `http://osrm:5000`과 읽기 전용
 processed/data-version을 사용한다. 원래 `optimizer-state:/state`는 결과 중복 방지 때문에 보존하고,
