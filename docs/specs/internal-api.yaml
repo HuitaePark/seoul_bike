@@ -6,8 +6,8 @@ info:
   description: |
     **초안 v0.8.** MCP·에이전트 담당 확인 전이다.
 
-    - v0.8.4: 대여소 재고는 실시간 수집과 기사 현장 보고 중 늦은 것 (공개 API 0.13.2와 같다). 그래서 기사가 "꽉 찼다"고 보고한 배치 정류장은
-      재경로(REPLAN) 계산 대상과 고정 정류장에서 빠진다.
+    - v0.8.4: 대여소 재고는 실시간 수집에 기사 현장 보고를 반영한다 (공개 API 0.13.2 `StationStatus.bikes`). 그래서 기사가 꽉 찼다고 보고한
+      배치 정류장은 보고 재고로 다시 판단하고, 필요 대수가 0이면 재경로(REPLAN) 계산 대상과 고정 정류장에서 빠진다.
     - v0.8.3: 트럭 상태(`get_truck_status`) 구현 규칙. 활성 계획이 있으면 그 계획의 트럭, 없으면 구역 트럭이 차고지에 빈 채로.
       재경로(REPLAN) 입력의 트럭 상태와 같은 계산이다. 선택 쿼리 `truckId`, 400 `INVALID_REQUEST`·404 `SHIFT_NOT_FOUND`·`TRUCK_NOT_FOUND`.
     - v0.8.2: 경로 계산(`request_route_plan`) 구현 규칙. 계산 입력(대여소·트럭·차고지·제약)을 만드는 규칙, 시간 초과·실패 때 backend 탐욕 임시안,
@@ -61,7 +61,7 @@ paths:
       summary: 빈·과적재 위험 대여소
       description: |
         `risk`가 EMPTY·OVERFLOW인 대여소만 `priority` 내림차순(같으면 대여소 ID 순)으로 `limit`개. 어느 대여소·관측·예측을 쓰는지와
-        위험 기준은 공개 API `GET /api/regions/{regionId}/stations`와 같다 (운영 중이고 관측이 있는 대여소, 실시간 수집과 현장 보고 중 늦은 재고, 끝나지 않은 가장 이른 예측 구간).
+        위험 기준은 공개 API `GET /api/regions/{regionId}/stations`와 같다 (운영 중이고 관측이 있는 대여소, 실시간 수집에 현장 보고를 반영한 재고, 끝나지 않은 가장 이른 예측 구간).
         `regionId`가 없거나 `horizonH`·`limit`가 범위 밖이면 400 `INVALID_REQUEST`.
       parameters:
         - name: regionId

@@ -299,7 +299,10 @@ class SolveApiTest {
 		assertThat(ids(json.readTree(unknownTruck.body()).path("suggestions"), null)).containsExactly(t1, t2);
 	}
 
-	/** 03b 실서비스 검증에서 찾은 문제: 기사가 "꽉 차 있다"고 보고한 배치 정류장이 재경로 뒤에도 고정된 배치로 남았다. */
+	/**
+	 * 03b 실서비스 검증에서 찾은 문제: 기사가 "꽉 차 있다"고 보고한 배치 정류장이 재경로 뒤에도 고정된 배치로 남았다.
+	 * 보고와 재경로 계산 사이에 다음 수집(같은 틀린 앱 숫자)이 와도 보고가 이겨야 한다.
+	 */
 	@Test
 	void 현장_보고로_필요가_없어진_남은_정류장은_다시_넣지도_고정하지도_않는다() throws Exception {
 		String day = futureDay();
@@ -307,9 +310,10 @@ class SolveApiTest {
 		String full = st.get(1), fresh = st.get(3);
 		String t1 = trucks.get(0);
 		insertActive(shift, json.createArrayNode().add(route(t1, 5, stop(1, full, "DROPOFF", 3, 2, "PENDING"))));
-		observe(full, 0, 10); // 앱 재고로는 비어 있어 배치하러 가던 정류장
+		observe(full, 0, 10, 10); // 앱 재고로는 비어 있어 배치하러 가던 정류장
+		report(shift, t1, full, 10, 7); // 기사가 와 보니 거치대 10개가 다 찼다
+		observe(full, 0, 10, 5); // 다음 수집도 앱 숫자는 그대로 틀렸다
 		observe(fresh, 0, 10);
-		report(shift, t1, full, 10); // 기사가 와 보니 거치대 10개가 다 찼다
 		answerOk(shift, json.createArrayNode().add(route(t1, 5, stop(1, fresh, "DROPOFF", 3, 2, "PENDING"))));
 
 		ObjectNode body = body(shift, "REPLAN");
@@ -428,24 +432,34 @@ class SolveApiTest {
 	}
 
 	private void observe(String stationId, int bikes, int docks) {
-		jdbc.sql("insert into live.station_status (observed_at, station_id, bikes, docks) values (:at, :id, :bikes, :docks)")
-			.param("at", OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(5))
+		observe(stationId, bikes, docks, 5);
+	}
+
+	private void observe(String stationId, int bikes, int docks, int minutesAgo) {
+		jdbc.sql("""
+				insert into live.station_status (observed_at, station_id, bikes, docks)
+				values (now() - make_interval(mins => :ago), :id, :bikes, :docks)
+				""")
+			.param("ago", minutesAgo)
 			.param("id", stationId)
 			.param("bikes", bikes)
 			.param("docks", docks)
 			.update();
 	}
 
-	private void report(String shiftId, String truckId, String stationId, int actualBikes) {
+	private void report(String shiftId, String truckId, String stationId, int actualBikes, int minutesAgo) {
 		jdbc.sql("""
-				insert into field_reports (report_id, shift_id, truck_id, station_id, actual_bikes, issue, reported_by)
-				values (:id, :shift, :truck, :station, :bikes, 'INVENTORY_MISMATCH', 'u-driver-1')
+				insert into field_reports (report_id, shift_id, truck_id, station_id, actual_bikes, issue, reported_by,
+				                           reported_at)
+				values (:id, :shift, :truck, :station, :bikes, 'INVENTORY_MISMATCH', 'u-driver-1',
+				        now() - make_interval(mins => :ago))
 				""")
 			.param("id", UUID.randomUUID())
 			.param("shift", shiftId)
 			.param("truck", truckId)
 			.param("station", stationId)
 			.param("bikes", actualBikes)
+			.param("ago", minutesAgo)
 			.update();
 	}
 
