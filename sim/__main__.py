@@ -21,7 +21,9 @@ from .policies import Agent, CurrentOps, CurrentOpsLastWeek, NoRebalancing, Simp
 # 경로 탐색은 5의 plan_routes 기본값(해 50개에서 멈춤)이라 실행마다 같은 답이 나온다. 예전 2초 제한은 같은 문제를 다시 풀면 16개 중 8개만 같았다
 # 근무조 안에서 트럭 위치·적재량을 다음 계획에 넘기고(carry_trucks), 최적화기에 엔진과 같은 이동 시간을 준다(sim_travel).
 # 서울 1주일(2025-06-09~15) 다시 뽑기: 17,911 → 17,249건(현행 운영 재현 18,092), 기록 재생: 12,343 → 11,614건(11,477)
-AGENT_KW = dict(replan_h=1, horizon=3, z_pick=2, carry_trucks=True, sim_travel=True)
+# 공급이 배치 요청의 30%도 안 되는 계획에서는 공급처 밖의 확실한 넘침(거치대 + 5대 초과)에서도 뺀다(pick_margin, pick_starve).
+# 기준 묶음 main 기록 13,828 → 13,616, 다시 뽑기 40,400 → 40,037건(옮긴 대수 +10%), holdout 6,516 → 6,425, 21,022 → 20,780건
+AGENT_KW = dict(replan_h=1, horizon=3, z_pick=2, carry_trucks=True, sim_travel=True, pick_margin=5, pick_starve=0.3)
 
 
 MODEL_FALLBACK = "강남-05"  # 구역 모형이 없으면 옮겨 쓴다. 강북-02에서 빈 대여소 잡기 50.2%(자체 모형 51.6%), 구역 오차율 12.2%(11.8%)로 차이가 작았다
