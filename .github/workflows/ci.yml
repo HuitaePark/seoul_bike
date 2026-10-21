@@ -85,7 +85,8 @@ jobs:
             requirements.txt
             requirements-data.txt
       - run: pip install -r requirements-data.txt pytest
-      - run: python -m pytest -q sim/tests forecast/tests analysis/collect
+      # analysis/ 전체를 준다: 6번이 새로 넣는 test_*.py(예: test_truck_hours.py)가 따로 등록하지 않아도 돈다.
+      - run: python -m pytest -q sim/tests forecast/tests analysis
 
   backend:
     runs-on: ubuntu-latest
