@@ -65,6 +65,11 @@ class HarnessAgent:
         sleep: Sleep = asyncio.sleep,
     ) -> None:
         self.config = config
+        tools = list(tools)
+        # Tools whose MCP schema takes `task_id` (change tools and request_route_plan) get it from Harness.
+        self.task_id_tools = {
+            t.name for t in tools if isinstance(t.args_schema, dict) and "task_id" in t.args_schema.get("properties", {})
+        }
         self.tools = hide_injected_args(tools, config.guardrails.injected_args)
         self.sink = sink
         kwargs = config.models.kwargs
@@ -102,7 +107,10 @@ class HarnessAgent:
                 UsageMiddleware(),
                 StateBriefMiddleware(),
                 RecoveryMiddleware(cfg.recovery, self.fallback_model, self.sleep),
-                ToolResultMiddleware(cfg.tools, cfg.observability.tool_labels, cfg.guardrails.approval, cfg.guardrails.injected_args),
+                ToolResultMiddleware(
+                    cfg.tools, cfg.observability.tool_labels, cfg.guardrails.approval, cfg.guardrails.injected_args,
+                    self.task_id_tools,
+                ),
                 summarization(self.model, cfg.context),
                 approval_middleware(gated, cfg.guardrails.approval),
             ]
@@ -242,7 +250,7 @@ class HarnessAgent:
 
     def _failed(self, ctx: HarnessContext, run_id: str, code: FailureCode, message: str) -> Outcome:
         message = ctx.masker.text(message)
-        ctx.emit("FAILED", {"error": message}, {"code": str(code), **self._summary(ctx, run_id)})
+        ctx.emit("FAILED", {"error": message, "code": str(code)}, self._summary(ctx, run_id))
         t = ctx.task
         return Outcome("FAILED", t.task_id, t.trace_id, run_id, code=str(code), message=message, stats=ctx.stats)
 

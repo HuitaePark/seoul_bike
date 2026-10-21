@@ -116,13 +116,19 @@ class ToolResultMiddleware(AgentMiddleware):
     """
 
     def __init__(
-        self, settings: ToolSettings, labels: dict[str, str], rules: Mapping[str, ApprovalRule], injected: Iterable[str]
+        self,
+        settings: ToolSettings,
+        labels: dict[str, str],
+        rules: Mapping[str, ApprovalRule],
+        injected: Iterable[str],
+        task_id_tools: Iterable[str] = (),
     ):
         super().__init__()
         self.settings = settings
         self.labels = labels
         self.rules = rules
         self.injected = tuple(injected)
+        self.task_id_tools = frozenset(task_id_tools)
 
     @staticmethod
     def _prepare(text: str, ctx: HarnessContext) -> str:
@@ -141,6 +147,8 @@ class ToolResultMiddleware(AgentMiddleware):
             args["top_k"] = self.settings.rag_top_k
         if call["name"] in self.rules:
             args |= {"approval_id": final_approval_id(ctx.task, call, history, self.rules), "task_id": ctx.task.task_id}
+        elif call["name"] in self.task_id_tools:
+            args["task_id"] = ctx.task.task_id
         return {**call, "args": args}
 
     def _tool(self, name: str, ok: bool | None = None) -> dict[str, Any]:

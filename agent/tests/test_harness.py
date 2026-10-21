@@ -104,6 +104,7 @@ class ApprovalTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(done.status, "DONE")
             self.assertEqual([c["tool"] for c in world.executed_changes], ["submit_plan"])
             self.assertEqual(world.executed_changes[0]["args"]["approval_id"], first.approval["approvalId"])
+            self.assertEqual(next(e for e in world.log if e["tool"] == "request_route_plan")["args"]["task_id"], "task-1")
             self.assertEqual({e.trace_id for e in sink.events}, {"trace-1"})
 
     async def test_route_change_cards_follow_required_approvers(self):
@@ -365,7 +366,7 @@ class LoopTest(unittest.IsolatedAsyncioTestCase):
         async with harness(steps, config=config) as (agent, _, _, _, sink, _):
             out = await agent.start(task("qa", "질문"))
             self.assertEqual((out.status, out.code), ("FAILED", "LOOP_MAX_TURNS"))
-            self.assertEqual(sink.of("FAILED")[0].harness["code"], "LOOP_MAX_TURNS")
+            self.assertEqual(sink.of("FAILED")[0].body["code"], "LOOP_MAX_TURNS")
 
     async def test_same_call_is_blocked_then_fails(self):
         same = call("business_get_station_detail", station_id="ST-2001")
@@ -449,7 +450,7 @@ class ThreadTest(unittest.IsolatedAsyncioTestCase):
 
 
 def _contract_validator(pointer):
-    docs = {name: yaml.safe_load((SPECS / name).read_text(encoding="utf-8")) for name in ("openapi.yaml", "asyncapi.yaml")}
+    docs = {name: yaml.safe_load((SPECS / name).read_text(encoding="utf-8")) for name in ("openapi.yaml", "asyncapi.yaml", "internal-api.yaml")}
     registry = Registry().with_resources([(name, Resource.opaque(doc)) for name, doc in docs.items()])
     return Draft202012Validator({"$ref": pointer}, registry=registry)
 
@@ -472,6 +473,8 @@ class ContractTest(unittest.IsolatedAsyncioTestCase):
         for seq, event in enumerate(events, 1):
             payload = event.to_json()
             self.assertNotIn("seq", payload)  # the backend numbers events (asyncapi TaskEventMessage)
+            if event.type == "FAILED":
+                self.assertEqual(payload["code"], "LOOP_SAME_TOOL")
             self.assertEqual([e.message for e in kafka.iter_errors(payload)], [], event.type)
             self.assertEqual([e.message for e in sse.iter_errors({**payload, "seq": seq})], [], event.type)
 
@@ -479,12 +482,13 @@ class ContractTest(unittest.IsolatedAsyncioTestCase):
         command = {
             "eventId": "e-1", "schemaVersion": 1, "occurredAt": "2026-10-24T13:06:00+09:00", "shiftId": SHIFT_ID,
             "traceId": "tr-9", "taskId": "t-9", "threadId": f"{SHIFT_ID}:t-9", "type": "FIELD_REPORT", "reportId": "R-1",
+            "report": report("R-1", "TR-1", "ST-2003", 3, "INVENTORY_MISMATCH", "실제 3대"),
             "requestedBy": {"userId": "d-1", "role": "DRIVER", "truckId": "TR-1"},
         }
         self.assertEqual([e.message for e in _contract_validator("asyncapi.yaml#/components/schemas/TaskCommand").iter_errors(command)], [])
-        rep = FieldReport.from_contract(report("R-1", "TR-1", "ST-2003", 3, "INVENTORY_MISMATCH", "실제 3대"))
-        t = task_from_command(command, report=rep)
+        t = task_from_command(command)
         self.assertEqual((t.task_type, t.requester, t.input, t.thread_id), ("field_report", DRIVER, "실제 3대", f"{SHIFT_ID}:t-9"))
+        self.assertEqual((t.report.station_id, t.report.actual_bikes), ("ST-2003", 3))
 
 
 class _LangSmithCapture(BaseHTTPRequestHandler):

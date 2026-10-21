@@ -246,10 +246,10 @@ def _driver_scope(r: RunRecord) -> tuple[bool, str]:
     return ok, f"본 트럭 {sorted(seen)}, 계산 {sorted(replanned)}, 적용 {sorted(applied)}"
 
 
-@labeled("근거 조회와 출처 표기")
+@labeled("감사 기록 근거와 출처 표기")
 def _qa_grounded(r: RunRecord) -> tuple[bool, str]:
-    used = bool(r.calls("get_current_plan")) and bool(r.calls("get_field_reports"))
-    cited = "business_get_field_reports" in r.final.answer
+    used = bool(r.calls("get_audit")) and bool(r.calls("get_current_plan"))
+    cited = "business_get_audit" in r.final.answer
     done = [e for e in r.events if e.type == "DONE"]
     sources = done[-1].body.get("sources", []) if done else []
     return used and cited and len(sources) >= 2, f"조회 {used}, 출처 표기 {cited}, DONE sources {len(sources)}개"
@@ -404,14 +404,14 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         "SC-07", "질의: 회수가 왜 많지", "QUESTION", "MANAGER", "오늘 이 구역 회수가 왜 많지?", prd="FR-08",
         script=[
+            call("business_get_audit", shift_id=SHIFT_ID),
             call("business_get_current_plan", shift_id=SHIFT_ID),
-            call("business_get_field_reports", shift_id=SHIFT_ID),
             say(
-                "ST-2006은 과적재 위험으로 회수 대상이고 (business_get_current_plan), "
-                "현장 보고에서 실제 재고가 23대로 확인돼 회수가 늘었다 (business_get_field_reports R-4)."
+                "12:31 계획 활성화 때 과적재 위험 ST-2001, ST-2002, ST-2006을 회수 우선으로 잡았고 (business_get_audit AU-0001), "
+                "현장 보고 R-4에서 ST-2006 실제 재고가 23대로 확인돼 회수가 늘었다 (business_get_audit R-4)."
             ),
         ],
-        expect=Expect(tools_in_order=("get_current_plan", "get_field_reports"), changes=(), checks=(_qa_grounded,)),
+        expect=Expect(tools_in_order=("get_audit", "get_current_plan"), changes=(), checks=(_qa_grounded,)),
         world=lambda: World(reports=[report("R-4", "TR-2", "ST-2006", 23, "INVENTORY_MISMATCH", "앱보다 4대 많음")]),
     ),
     Scenario(
