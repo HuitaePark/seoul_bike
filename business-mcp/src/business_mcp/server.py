@@ -43,13 +43,15 @@ WRITE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True,
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 ConstraintType = Literal["TARGET_ADJUST", "STATION_SUSPENDED", "STATION_BLOCKED", "INVENTORY_OVERRIDE", "PRIORITY_BOOST"]
-StationId = Annotated[str, Field(pattern=r"^(ST-)?\d+$",
-                                 description="대여소 ID, 예: ST-1023. 대여소번호(예 108) 형식도 받는다 (docs/data/agreements.md 1번 합의 전)")]
-RegionId = Annotated[str, Field(pattern=r"^[A-Za-z0-9-]+$", description="권역 ID, 예: S05, gwangjin-seongdong")]
+# 식별자 형식은 docs/data/agreements.md 결정 1·2 (ADR 0001). 대여소번호(예 102)는 실시간 API ID와 숫자가 달라 받지 않는다
+StationId = Annotated[str, Field(pattern=r"^ST-\d+$", description=(
+    "대여소 ID (실시간 API ID 'ST-숫자'), 예: ST-1660. 앞선 조회 결과에 나온 ID만 쓴다. "
+    "대여소 이름 앞의 대여소번호에 'ST-'를 붙여 만들지 않는다 (두 번호는 숫자가 다르다)"))]
+RegionId = Annotated[str, Field(pattern=r"^[NS]\d{2}$", description="구역 ID, 예: N02 (강북 N01~N08, 강남 S01~S09)")]
 ShiftId = Annotated[
     str,
-    Field(pattern=r"^[A-Za-z0-9-]+:\d{4}-\d{2}-\d{2}:(AM|PM|EVE)$",
-          description="근무조 ID '{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}', 예: S05:2026-10-21:AM"),
+    Field(pattern=r"^[NS]\d{2}:\d{4}-\d{2}-\d{2}:(AM|PM|EVE)$",
+          description="근무조 ID '{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}', 예: N02:2026-10-21:AM"),
 ]
 # Harness가 채우는 인자. 모델에게 보이는 스키마에서는 Harness가 지운다.
 InjectedApprovalId = Annotated[str | None, Field(description="승인된 마지막 카드의 approvalId (Harness가 채움)")]
@@ -188,7 +190,7 @@ def build_server(internal: InternalApi, *, max_chars: int = DEFAULT_MAX_CHARS) -
         risk: Annotated[Literal["EMPTY", "OVERFLOW", "ALL"], Field(description="EMPTY = 빈 대여소 위험, OVERFLOW = 과적재")] = "ALL",
         limit: Annotated[int, Field(ge=1, le=50)] = 20,
     ) -> Json:
-        """권역에서 horizon_h시간 안에 빈 대여소 위험 또는 과적재가 예상되는 대여소를 우선순위 높은 순으로 돌려준다.
+        """구역에서 horizon_h시간 안에 빈 대여소 위험 또는 과적재가 예상되는 대여소를 우선순위 높은 순으로 돌려준다.
 
         반환: stations[] (stationId, name, bikes(대, 현재 재고), forecastBikes(대, horizon_h 뒤 예상 재고),
         docks(거치대 수), risk, role, neededBikes(대, 양수 회수·음수 배치), priority, emptyAt(예상 빈 시각),
