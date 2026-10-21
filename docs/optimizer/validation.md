@@ -286,6 +286,29 @@ backend/·frontend/ 폴더와 CI 변경은 main에서 가져왔다. 이번 후�
 실제 OSRM 도로망·운영 backend solve 연결·전체 업무 흐름 10초 완료는 이 결과로 판정하지 않는다.
 운영 배포와 main 직접 push는 수행하지 않는다.
 
+## PR #29 리뷰 대응·main b591daa 반영
+
+- ba23b1e에서 이전 근거 문서 사본 5개를 삭제하고 infra/mcp/SOURCES.md의 이전 경로를 정리했다.
+  실행·검증 대상인 docs/evidence/와 MCP 업무 소스는 유지했다.
+- bf00e37에서 main b591daa(PR #27)를 병합했다. App.vue·router.ts 충돌은 main의 역할별 첫 화면,
+  기사 모바일 레이아웃·대시보드·리포트·작업 콘솔을 보존하고 계획 검토 경로·메뉴를 함께 연결해 해결했다.
+  계획 검토의 작업 콘솔 링크는 /console, 기사 안내 복귀 링크는 /driver로 맞췄다.
+- CodeRabbit의 제안에 따라 지도 스타일 적용·오류 복구 3곳에 diff: false를 사용한다.
+  동일한 배경지도를 재시도할 때 전체 스타일과 자원을 다시 읽고 style.load에서 복구 상태를 갱신한다.
+- 프론트 단위 **15개·Chromium 브라우저 24개 통과**, 타입 검사·배포 빌드 통과.
+  추가 브라우저 검사는 역할별 첫 화면·관리자/책임자 메뉴·기사 안내·390px 관리자 화면과,
+  로드된 배경지도의 타일 실패 후 동일 스타일·타일 재요청을 확인한다. 기존 승인·지도·모바일 회귀도 통과했다.
+- Python 3.12 에이전트 **74개 통과·실제 PostgreSQL 1개 생략**. main에서 수정한 현장 보고 fixture도 포함하며
+  기존 CI의 테스트 제외 규칙은 해제된 상태다. 이번 로컬 실행에서 실제 PostgreSQL 복구 검사는 반복하지 않았다.
+- 최적화 **201개·24개 subtest 통과·실제 Kafka 1개 생략**, MCP 기본 **46개 통과·4개 제외**.
+  실제 Kafka·MCP HTTP·pgvector는 기존 PR CI로 검증하며 별도 CI 작업을 추가하지 않았다.
+- CI YAML 7개 잡과 중복 키·테스트 제외 해제, 운영 Compose 구성·OSRM 스크립트 구문·API 생성 타입 일치 검사를 통과했다.
+  공통 YAML·공유 모듈·backend·agent·MCP 업무 소스는 main b591daa와 같다. PR 기준 diff 검사도 통과했다.
+  기존 OR-Tools SWIG 경고 3건과 지연 로딩된 MapLibre 청크 크기 경고는 남아 있다.
+
+GitHub 호스팅 러너의 최신 실행 결과는 [PR #29 Checks](https://github.com/HuitaePark/skala_seoul_bike/pull/29/checks)에서 확인한다.
+이 검증은 실제 OSRM 도로 경로나 운영 backend의 solve 연결·배포 완료를 의미하지 않는다.
+
 ## 아직 검증하지 않은 범위
 
 운영 backend의 실제 solve 요청/응답, retry/DLQ·분산 중복 방지·볼륨 유실 복구,

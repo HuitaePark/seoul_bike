@@ -33,7 +33,7 @@ function selectTruck(id: string) {
     </div>
     <div v-if="demo" class="demo-banner" role="note"><strong>시연 데이터 · 실제 계획에 반영되지 않습니다</strong><span>위치·관측·예측·방문 순서는 검토 흐름을 확인하기 위한 가상 자료입니다.</span><button class="ghost" :disabled="sending" @click="review.reset">시연 초기화</button></div>
 
-    <section v-if="!canRead" class="panel empty" role="status"><h2>관제·책임자용 계획 검토 화면입니다</h2><p>기사 계정은 자신의 배정 경로 화면을 이용하세요.</p><RouterLink to="/">작업 콘솔로 이동</RouterLink></section>
+    <section v-if="!canRead" class="panel empty" role="status"><h2>관제·책임자용 계획 검토 화면입니다</h2><p>기사 계정은 자신의 배정 경로 화면을 이용하세요.</p><RouterLink to="/driver">기사 화면으로 이동</RouterLink></section>
     <template v-else>
       <form class="panel query-form" aria-label="계획 조회" @submit.prevent="review.search">
         <label>권역 ID<input v-model="query.regionId" :readonly="demo" :disabled="sending" required placeholder="예: gwangjin-seongdong"></label>
@@ -45,7 +45,7 @@ function selectTruck(id: string) {
       <p v-if="changedQuery" class="callout">조건이 바뀌었습니다. 현재 화면은 이전 조회 결과입니다. 계획을 다시 조회하세요.</p>
       <p v-if="loading" role="status" class="callout">계획과 대여소의 최신 상태를 확인하고 있습니다.</p>
       <section v-if="errors.plan" class="panel error-panel" role="alert"><h2>계획을 불러오지 못했습니다</h2><p>{{ errors.plan }}</p><button :disabled="loading || sending" @click="review.reload">다시 시도</button></section>
-      <section v-else-if="!plan && !loading" class="panel empty"><h2>{{ loaded ? '이 근무조의 계획이 아직 없습니다' : '검토할 근무조를 조회하세요' }}</h2><p>작업 콘솔에서 계획 초안을 요청한 뒤 근무조 ID로 조회할 수 있습니다.</p><RouterLink to="/">작업 콘솔로 이동 →</RouterLink></section>
+      <section v-else-if="!plan && !loading" class="panel empty"><h2>{{ loaded ? '이 근무조의 계획이 아직 없습니다' : '검토할 근무조를 조회하세요' }}</h2><p>작업 콘솔에서 계획 초안을 요청한 뒤 근무조 ID로 조회할 수 있습니다.</p><RouterLink to="/console">작업 콘솔로 이동 →</RouterLink></section>
       <p v-if="errors.stations" class="callout warning" role="alert">대여소 현황 조회 실패: {{ errors.stations }} · 계획에 포함된 값만 표시합니다. <button class="ghost" :disabled="loading || sending" @click="review.reload">현황 재조회</button></p>
 
       <template v-if="plan">
@@ -98,7 +98,7 @@ function selectTruck(id: string) {
           <div class="section-heading"><div><p class="eyebrow">계획 결정</p><h2 id="decision-heading">{{ manager ? '검토 후 결정' : '조회 전용' }}</h2></div><span v-if="task" class="pill">{{ label(taskLabels, task.status) }}</span></div>
           <p v-if="!manager" class="callout">책임자 계정은 계획을 조회할 수 있습니다. 승인·거절은 관리자에게 요청하세요.</p>
           <template v-else>
-            <form v-if="!demo" class="task-form" @submit.prevent="review.linkTask"><label>계획 승인 작업 ID<input v-model="taskInput" :disabled="loading || sending" placeholder="작업 콘솔의 UUID" required></label><button type="submit" class="ghost" :disabled="!plan || loading || sending || changedQuery">승인 작업 연결</button><RouterLink to="/">작업 콘솔</RouterLink></form>
+            <form v-if="!demo" class="task-form" @submit.prevent="review.linkTask"><label>계획 승인 작업 ID<input v-model="taskInput" :disabled="loading || sending" placeholder="작업 콘솔의 UUID" required></label><button type="submit" class="ghost" :disabled="!plan || loading || sending || changedQuery">승인 작업 연결</button><RouterLink to="/console">작업 콘솔</RouterLink></form>
             <p v-if="task" class="muted task-id">{{ task.taskId }} · {{ demo ? '시연 작업' : label(streamLabels, streamState) }}</p>
             <p v-if="task?.error" class="callout warning">작업 실패: {{ task.error }}</p>
             <p v-if="errors.task" class="error-text" role="alert">{{ errors.task }}</p>

@@ -46,6 +46,34 @@ async function linkTask(page: Page) {
   await expect(page.getByText('근무조 계획을 검토해 주세요.')).toBeVisible()
 }
 
+for (const { role, home } of [
+  { role: 'MANAGER', home: '/dashboard' },
+  { role: 'EXECUTIVE', home: '/report' },
+  { role: 'DRIVER', home: '/driver' },
+]) {
+  test(`${role}: main의 첫 화면과 계획 검토 진입 동작을 유지한다`, async ({ page }) => {
+    const calls = await mockApi(page, { role })
+    await page.goto('/')
+    await expect(page).toHaveURL(`http://127.0.0.1:5185${home}`)
+    if (role === 'DRIVER') {
+      await expect(page.locator('.topbar')).toHaveCount(0)
+      await expect(page.locator('.app')).toBeVisible()
+      await page.goto('/plans/review')
+      await expect(page.getByRole('heading', { name: '관제·책임자용 계획 검토 화면입니다' })).toBeVisible()
+      await expect(page.getByRole('link', { name: '기사 화면으로 이동' })).toHaveAttribute('href', '/driver')
+      expect(calls).toEqual([])
+    } else {
+      await page.locator('.topbar').getByRole('link', { name: '계획 검토', exact: true }).click()
+      await expect(page).toHaveURL('http://127.0.0.1:5185/plans/review')
+      await expect(page.getByRole('link', { name: '작업 콘솔로 이동 →' })).toHaveAttribute('href', '/console')
+      if (role === 'MANAGER') {
+        await page.setViewportSize({ width: 390, height: 844 })
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      }
+    }
+  })
+}
+
 test('공개 시연: API 호출 없이 경로·상세·빈 트럭·필터를 탐색한다', async ({ page }) => {
   const apiRequests: string[] = []
   page.on('request', r => { if (new URL(r.url()).pathname.startsWith('/api/')) apiRequests.push(r.url()) })
@@ -385,4 +413,39 @@ test('계정 비활성화 401 응답을 받으면 지도와 승인 화면을 종
   await expect(page).toHaveURL(/\/login/)
   await expect(page.locator('.map-station-marker')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '현재 안 최종 승인' })).toHaveCount(0)
+})
+
+
+test('로드된 배경지도 타일 실패 후 같은 스타일을 다시 불러와 복구한다', async ({ page }) => {
+  let failTiles = true
+  let styles = 0
+  let tiles = 0
+  await page.route('https://tiles.openfreemap.org/**', route => {
+    if (route.request().url().includes('/review/')) {
+      tiles++
+      return failTiles ? route.fulfill({ status: 503, body: 'temporary tile failure' }) : route.fulfill({
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNQaPjwHwAE5AKQBYzgxgAAAABJRU5ErkJggg==', 'base64'),
+      })
+    }
+    styles++
+    return route.fulfill({ json: { version: 8, sources: { raster: {
+      type: 'raster', tiles: ['https://tiles.openfreemap.org/review/{z}/{x}/{y}.png'], tileSize: 256,
+    } }, layers: [{ id: 'review-raster', type: 'raster', source: 'raster' }] } })
+  })
+  await page.goto('/plans/review/demo')
+  const map = page.locator('.plan-map-panel')
+  const retry = map.getByRole('button', { name: '배경지도 재시도' })
+  await expect(retry).toBeVisible()
+  await expect(map.locator('.map-station-marker')).toHaveCount(8)
+  await expect.poll(() => tiles).toBeGreaterThan(0)
+  // Let the initial group of tile errors finish before retrying the same style.
+  await page.waitForLoadState('networkidle')
+  const initialTiles = tiles
+  failTiles = false
+  await retry.click()
+  await expect.poll(() => styles).toBe(2)
+  await expect(map.getByText('배경지도 불러오는 중…')).toHaveCount(0)
+  await expect.poll(() => tiles, { timeout: 5000 }).toBeGreaterThan(initialTiles)
+  await expect(retry).toHaveCount(0)
 })

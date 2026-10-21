@@ -112,7 +112,7 @@ async function loadBasemap() {
     controller.abort()
     if (styleController === controller && map === currentMap) {
       baseState.value = 'failed'
-      if (styleChanging) { styleChanging = false; currentMap.setStyle(structuredClone(emptyStyle)) }
+      if (styleChanging) { styleChanging = false; currentMap.setStyle(structuredClone(emptyStyle), { diff: false }) }
     }
   }, 10_000)
   try {
@@ -132,11 +132,11 @@ async function loadBasemap() {
       if ('tiles' in source && Array.isArray(source.tiles)) source.tiles = source.tiles.map(tile => assetUrl(tile, url))
     }
     styleChanging = true
-    currentMap.setStyle(style)
+    currentMap.setStyle(style, { diff: false })
   } catch {
     if (styleController === controller && map === currentMap) {
       baseState.value = 'failed'; clearTimeout(styleTimer)
-      if (styleChanging) { styleChanging = false; currentMap.setStyle(structuredClone(emptyStyle)) }
+      if (styleChanging) { styleChanging = false; currentMap.setStyle(structuredClone(emptyStyle), { diff: false }) }
     }
   }
 }
