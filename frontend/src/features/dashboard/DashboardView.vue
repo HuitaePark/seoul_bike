@@ -1,8 +1,8 @@
 <!--
 관제 대시보드 (PRD 10장, FR-01~09).
 실시간: 승인 대기 카드·묻기 답·결정 결과는 근무조 작업 목록과 작업 SSE로 받는다 (useShiftFeed).
-아직 더미: 대여소 현황(GET /api/regions/{regionId}/stations는 backend에 없다)과 트럭 위치(계약에 없다).
-계획(GET /api/shifts/{shiftId}/plan)은 대여소 좌표가 있어야 지도에 그릴 수 있어 대여소 API와 같이 붙인다.
+아직 더미: 대여소 현황과 트럭 위치(계약에 없다). 대여소 API(GET /api/regions/{regionId}/stations, #83)는 생겼지만
+실시간 재고 수집기(#93)가 넣은 대여소만 돌려준다. 계획(GET /api/shifts/{shiftId}/plan)은 대여소 좌표가 있어야 지도에 그릴 수 있어 대여소와 같이 붙인다.
 구성: 왼쪽 근무조 레일 · 화면별 탭(관제/예측/에이전트/경로/빠진 대여소). 트럭 적재는 3D 지도 안에 둔다.
 계획 만들기·상황 반영 요청은 상단 메뉴의 작업 콘솔에서 한다 (같은 곳으로 가는 버튼을 따로 두지 않는다).
 -->
@@ -506,7 +506,8 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .safety.bad { color: #991b1b; background: var(--empty-soft); border-color: #fecaca; }
 .rail-nav { display: flex; flex-direction: column; gap: 2px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .rail-nav button { display: flex; align-items: center; gap: 10px; padding: 9px 10px; background: transparent; color: var(--ink-2); font-weight: 600; font-size: 13px; text-align: left; border-radius: 10px; }
-.rail-nav button:hover:not(:disabled) { background: #f4f7f9; }
+/* 지금 보는 탭은 마우스를 올려도 강조색을 지킨다 (누른 직후 글자가 배경에 묻히지 않게) */
+.rail-nav button:hover:not(:disabled):not(.on) { background: #f4f7f9; }
 .rail-nav button.on { background: var(--brand); color: #fff; box-shadow: 0 4px 10px rgb(15 157 88 / 0.25); }
 .nav-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px; text-align: center; background: var(--overflow); color: #fff; }
 .nav-count.gray { background: #e2e8f0; color: var(--ink-2); }

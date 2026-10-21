@@ -3,7 +3,7 @@
 // 관제 대시보드와 기사 앱이 같은 근무조를 보도록 한 곳에 둔다.
 
 import type { Schemas } from './api/client'
-import { todayInSeoul } from './region/regions'
+import { todayInSeoul } from './region/regions.ts'
 
 type StationStatus = Schemas['StationStatus']
 type Plan = Schemas['Plan']

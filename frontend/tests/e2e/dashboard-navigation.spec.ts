@@ -9,7 +9,8 @@ async function openDashboard(page: Page) {
   })))
   await page.route('**/api/ai/tasks?**', route => route.fulfill({ json: { items: [] } }))
   await page.goto('/dashboard')
-  await expect(page.getByRole('navigation', { name: '대시보드 화면' })).toBeVisible()
+  // 개발 서버가 대시보드(3D 뷰·지도)를 처음 컴파일하면 5초를 넘길 수 있다. CI는 늘 캐시 없이 돈다.
+  await expect(page.getByRole('navigation', { name: '대시보드 화면' })).toBeVisible({ timeout: 20_000 })
 }
 
 test('초기 관제 화면만 보이고 적재 현황은 3D 지도 안에만 있다', async ({ page }) => {
