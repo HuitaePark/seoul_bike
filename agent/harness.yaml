@@ -13,6 +13,8 @@ tools:
   rag_top_k: 5
   rag_tool: rag_search_docs
   read_only_tasks: [qa]             # 이 작업에는 destructiveHint 도구를 절대 주지 않는다
+  driver_deny:                      # 기사가 보낸 작업에는 허용 목록에 있어도 주지 않는다 (NFR-06)
+    - business_get_audit            # 근무조 전체 기록이고 항목에 truckId가 없어 기사 범위로 거를 수 없다
   allow:
     plan_draft:
       - business_get_risk_stations

@@ -29,6 +29,7 @@ class ToolSettings:
     rag_top_k: int
     rag_tool: str
     read_only_tasks: frozenset[str]
+    driver_deny: frozenset[str]  # tools a driver's task never gets: results the driver scope filter cannot narrow
     allow: dict[str, tuple[str, ...]]
 
 
@@ -128,6 +129,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG, prompts_dir: Path | str = DEF
             rag_top_k=int(t["rag_top_k"]),
             rag_tool=t["rag_tool"],
             read_only_tasks=frozenset(t["read_only_tasks"]),
+            driver_deny=frozenset(t["driver_deny"]),
             allow={task: tuple(names) for task, names in t["allow"].items()},
         ),
         context=ContextSettings(token_budget=int(c["token_budget"]), keep_tokens=int(c["keep_tokens"])),

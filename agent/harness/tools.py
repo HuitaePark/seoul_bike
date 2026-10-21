@@ -53,12 +53,15 @@ def mcp_client(servers: dict[str, str], trace_header: str) -> MultiServerMCPClie
     )
 
 
-def select_tools(tools: Iterable[BaseTool], task_type: str, settings: ToolSettings) -> list[BaseTool]:
-    """Tools the model may see for this task. Read-only tasks never get destructive tools, whatever the allow list says."""
+def select_tools(tools: Iterable[BaseTool], task_type: str, role: str, settings: ToolSettings) -> list[BaseTool]:
+    """Tools the model may see for this task. Read-only tasks never get destructive tools, and a driver's task never
+    gets `driver_deny` tools, whatever the allow list says."""
     tools = list(tools)
     allowed = set(settings.allow.get(task_type, ()))
     if task_type in settings.read_only_tasks:
         allowed -= set(destructive_tools(tools))
+    if role == "driver":
+        allowed -= settings.driver_deny
     return [t for t in tools if t.name in allowed]
 
 

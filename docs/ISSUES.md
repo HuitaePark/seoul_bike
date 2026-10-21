@@ -32,6 +32,7 @@
 | ISS-23 | rag-mcp `search_docs`는 `{chunks: [...]}`를 주는데 Harness `sources`는 목록 모양만 읽는다 | 진행 | 실제 rag-mcp(3, `유은/mcp`)와 붙이면 모델 답변의 문서 근거가 통째로 빠진다 (평가표 "근거와 함께 답함") | 1, 2, 3 | 1에서 처리: 그래프가 DONE의 `sources`에 chunk를 DOC로 채운다 (제목에 절 이름, `graph/approvals.py doc_sources`). Harness `sources`가 MCP 명세 4.1 모양을 읽으면 닫는다 (2) | MCP.md 4.1, openapi `Source`, AGENT-GRAPH 3.5 |
 | ISS-24 | 평가용 가짜 MCP 응답 형식이 실제 business-mcp와 다름 | 열림 | 실제 서버는 `{source, events[], truncated, total}`처럼 감싼 객체를 돌려주는데 가짜는 대부분 목록을 그대로 돌려준다. Harness 처리는 둘 다 되지만 평가가 실제와 다른 입력으로 돈다 | 2 | 가짜 서버 응답을 실제 형식으로 맞추거나, 실제 business-mcp를 가짜 backend에 붙여 평가 | main `business-mcp/src/business_mcp/server.py` |
 | ISS-25 | 역할별 화면(관제 대시보드·기사 앱·성과 리포트)이 더미 데이터로만 그려짐 | 대기 | 화면은 `/dashboard`·`/driver`·`/report`에 있으나 숫자·경로·승인은 `src/shared/dummy.ts`와 화면 안 더미 동작이다. 승인·보고·질의 버튼은 서버에 아무것도 보내지 않음 | 화면 담당, 4 | 화면 담당이 `/api/regions/{regionId}/stations`, `/api/shifts/{shiftId}/plan`, `/api/drivers/me/route`, `/api/reports`, `/api/kpi`, 작업 SSE로 바꾼다. 2번(성훈)이 꾸미기만 했으므로 화면 담당 확인 필요 | `frontend/README.md` 화면 표 |
+| ISS-26 | SC-07은 감사 기록 `PLAN_ACTIVATED`를 근거로 채점하는데 backend는 아직 이 기록을 남기지 않는다 [추정] | 대기 | 실제 backend에 붙이면 "회수가 왜 많지" 질문에 계획 활성화 근거가 없어 SC-07 근거가 약해진다. 가짜 MCP에서만 15/15 | 4, 2 | backend 계획 활성화 API(M3, 5번 최적화 뒤 4번)가 `PLAN_ACTIVATED`를 남기면 실제 backend로 SC-07을 다시 돌린다 | PR 리뷰(4 backend), `evaluation/fake_mcp.py` AU-0001 |
 
 ---
 
