@@ -9,6 +9,8 @@
 - RESUME 정리: 승인자 의견은 사람이 쓴 글이라 기사 이름·연락처를 가리고 `<user_input>`으로 감싼다.
   Harness `decision_from_resume`은 의견을 그대로 모델에게 넘긴다. 거점 제외는 계획 카드에서만, ID 모양만 받는다.
 - 계획 카드 보강: 트럭별 경로(`routes`, 확장 G9)와 포기·제외 사유를 도구 결과에서 옮겨 화면이 '일부 제외'를 고를 수 있게 한다.
+  요약에는 트럭·대여소 수를 붙인다. 정류장 `eta`는 계획 도구 결과에 있으면 그대로 옮기고, 없으면 만들지 않는다
+  (business-mcp가 응답 길이를 맞추려고 먼저 빼는 필드다).
 - 작업 사이 대체: 같은 대상의 새 카드가 나오면 다른 작업의 대기 카드를 닫는다 (G10). backend는 같은 작업 안에서만 대체한다.
 - 근거 보강: rag-mcp `search_docs`는 `{chunks: [...]}`를 준다(MCP 명세 4.1). Harness `sources`는 목록 모양만 읽어 문서 근거가
   빠지므로, 그래프가 DONE의 `sources`에 DOC를 채운다 (ISS-23). Harness가 고치면 중복만 걸러지고 바뀌는 것이 없다.
@@ -85,7 +87,20 @@ def enrich_card(card: dict, results: Iterable[Any], excluded: Iterable[str] = ()
     if excluded:
         reasons.append(f"제외한 대여소: {', '.join(excluded)}")
     routes = [{"truckId": r["truckId"], "stops": r.get("stops", [])} for r in plan.get("routes", []) if r.get("stops")]
-    return {**card, "reasons": reasons, "routes": routes}
+    if plan.get("truncated"):
+        shown = sum(len(r["stops"]) for r in routes)
+        reasons.append(f"카드 경로는 정류장 {shown}/{plan.get('totalStops', shown)}곳만 실렸다 (MCP 응답 길이 제한)")
+    return {**card, "summary": plan_summary(card, plan, routes), "reasons": reasons, "routes": routes}
+
+
+def plan_summary(card: dict, plan: dict, routes: list[dict]) -> str:
+    """계획 카드 요약에 움직이는 트럭 수·들르는 대여소 수를 붙인다 (#91). Harness 요약은 계획 ID뿐이다.
+    business-mcp는 응답이 길면 정류장의 eta·이름을 빼고 뒤쪽 정류장을 자른다. 그때도 대여소 수는 `totalStops`(자르기 전)로 센다.
+    빈 트럭은 따로 센다. 회수할 자전거보다 배치 수요가 많으면 트럭 대부분이 놀 수 있어서 관리자가 바로 보게 한다."""
+    stops = plan.get("totalStops") or sum(len(r["stops"]) for r in routes)
+    idle = len(plan.get("routes", [])) - len(routes)
+    summary = f"계획 {card.get('planId')} 활성화: 트럭 {len(routes)}대, 대여소 {stops}곳"
+    return summary + (f", 빈 트럭 {idle}대" if idle else "")
 
 
 def doc_sources(history: Iterable[BaseMessage]) -> list[dict]:

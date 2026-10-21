@@ -4,22 +4,26 @@ import { actionLabel } from '../approval/approval'
 import { reasonText } from '../plan-map/model'
 import { riskShades } from './iso'
 
+// compact: 관제 뷰의 재고 현황 칸(지도 바로 옆)에 넣는 모양. 카드 테두리 없이 좁은 폭에 맞추고 선택을 풀 수 있다 (#74).
 defineProps<{
   station: Schemas['StationStatus']
   stop: (Schemas['Stop'] & { truckId: string }) | null
   unserved?: Schemas['Unserved']
   colors: Record<string, string>
+  compact?: boolean
 }>()
+const emit = defineEmits<{ close: [] }>()
 
 const riskLabel: Record<Schemas['RiskKind'], string> = { EMPTY: '빈 대여소 위험', OVERFLOW: '과적재 위험', NONE: '정상' }
 const roleLabel: Record<Schemas['StationRole'], string> = { FIXED_PICKUP: '고정 회수', FIXED_DROPOFF: '고정 배치', VARIABLE: '변동' }
 </script>
 
 <template>
-  <section class="card w-detail station-summary">
+  <section :class="['w-detail station-summary', compact ? 'compact' : 'card']">
     <header class="w-head">
       <h2>선택한 대여소</h2>
       <span class="muted">{{ station.stationId }}</span>
+      <button v-if="compact" class="close" type="button" aria-label="대여소 선택 해제" @click="emit('close')">✕</button>
     </header>
     <div class="st-head">
       <span class="st-icon" :style="{ background: riskShades[station.risk][1] }" aria-hidden="true">
@@ -71,5 +75,17 @@ dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
 .stock-bar span { display: block; height: 100%; border-radius: 999px; }
 .plan-note { border-left: 4px solid var(--c); background: #f8fafc; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .plan-note.dropped { --c: var(--ink-3); }
+.close { margin-left: auto; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; color: var(--ink-3); border-radius: 8px; font-size: 13px; }
+.close:hover { background: #f1f5f9; color: var(--ink); }
+.compact { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.compact .w-head { justify-content: flex-start; margin-bottom: 10px; flex-wrap: nowrap; }
+.compact .w-head .muted { font-size: 11px; }
+.compact .st-head { gap: 10px; margin-bottom: 10px; }
+.compact .st-icon { width: 36px; height: 36px; border-radius: 11px; }
+.compact .st-head strong { font-size: 14px; }
+.compact .st-facts { grid-template-columns: 1fr 1fr; }
+.compact .st-facts div { padding: 6px 8px; }
+.compact .plan-note { font-size: 12px; padding: 8px 10px; }
 @media (max-width: 860px) { .st-facts { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 860px) and (min-width: 521px) { .compact .st-facts { grid-template-columns: repeat(4, 1fr); } }
 </style>

@@ -49,6 +49,7 @@ const view = ref<'3d' | 'map'>('3d')
 const mapSelected = ref<string | null>('ST-503')
 const forecastSelected = ref<string | null>(null)
 const routeSelected = ref<string | null>(null)
+const stockPane = ref<HTMLElement | null>(null)
 const focusTruck = ref<string | null>(null)
 const loadTruck = ref('TR-01')
 const toast = ref('')
@@ -59,6 +60,10 @@ const openDropped = ref<string | null>(null)
 // 지도에서 트럭 하나만 보면 적재 패널도 그 트럭을 보여 준다
 watch(focusTruck, (t) => {
   if (t) loadTruck.value = t
+})
+// 대여소를 고르면 재고 현황 칸을 맨 위로 올려 방금 고른 대여소가 바로 보이게 한다
+watch(mapSelected, (id) => {
+  if (id) stockPane.value?.scrollTo({ top: 0, behavior: 'smooth' })
 })
 
 const detailStationId = computed(() => {
@@ -320,28 +325,40 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
           </ul>
         </div>
 
+        <!-- 지도나 목록에서 고른 대여소는 지도 바로 옆, 재고 현황 위에 보인다 (#74). 칸 높이는 지도에 맞추고 넘치면 칸 안에서 스크롤한다. -->
         <aside class="stock">
-          <h2>재고 현황 <span class="muted">위험 순</span></h2>
-          <ul class="stock-list">
-            <li v-for="s in riskOrder.slice(0, 7)" :key="s.stationId">
-              <button :class="{ sel: s.stationId === mapSelected }" @click="mapSelected = s.stationId">
-                <RingGauge :value="s.bikes / s.docks" :size="42" :stroke="5" :color="riskShades[s.risk][1]" />
-                <span class="stock-text">
-                  <span class="stock-name">{{ s.name }}</span>
-                  <span><b>{{ s.bikes }}</b> / {{ s.docks }} · <span :class="['risk', s.risk]">{{ s.risk === 'EMPTY' ? '부족' : '과잉' }}</span></span>
-                </span>
-              </button>
-            </li>
-          </ul>
-          <div class="zone-status">
-            <h3>권역 상태 <span class="muted">{{ stations.length }}곳</span></h3>
-            <div class="stack" role="img" :aria-label="riskCounts.map((r) => `${riskLabel[r.k]} ${r.n}곳`).join(', ')">
-              <span v-for="r in riskCounts" :key="r.k" :style="{ flex: r.n, background: riskShades[r.k][1] }">{{ r.n }}</span>
-            </div>
-            <div class="stack-legend">
-              <span><i style="background: var(--empty)" />부족</span>
-              <span><i style="background: var(--overflow)" />과잉</span>
-              <span><i style="background: var(--ok)" />정상</span>
+          <div ref="stockPane" class="stock-scroll">
+            <StationSummary
+              v-if="active === 'view' && station"
+              compact
+              :station="station"
+              :stop="stopOf"
+              :unserved="unservedOf"
+              :colors="colors"
+              @close="mapSelected = null"
+            />
+            <h2>재고 현황 <span class="muted">위험 순</span></h2>
+            <ul class="stock-list">
+              <li v-for="s in riskOrder.slice(0, 7)" :key="s.stationId">
+                <button :class="{ sel: s.stationId === mapSelected }" @click="mapSelected = s.stationId">
+                  <RingGauge :value="s.bikes / s.docks" :size="42" :stroke="5" :color="riskShades[s.risk][1]" />
+                  <span class="stock-text">
+                    <span class="stock-name">{{ s.name }}</span>
+                    <span><b>{{ s.bikes }}</b> / {{ s.docks }} · <span :class="['risk', s.risk]">{{ s.risk === 'EMPTY' ? '부족' : '과잉' }}</span></span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <div class="zone-status">
+              <h3>권역 상태 <span class="muted">{{ stations.length }}곳</span></h3>
+              <div class="stack" role="img" :aria-label="riskCounts.map((r) => `${riskLabel[r.k]} ${r.n}곳`).join(', ')">
+                <span v-for="r in riskCounts" :key="r.k" :style="{ flex: r.n, background: riskShades[r.k][1] }">{{ r.n }}</span>
+              </div>
+              <div class="stack-legend">
+                <span><i style="background: var(--empty)" />부족</span>
+                <span><i style="background: var(--overflow)" />과잉</span>
+                <span><i style="background: var(--ok)" />정상</span>
+              </div>
             </div>
           </div>
         </aside>
@@ -467,7 +484,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
       </section>
 
       <StationSummary
-        v-if="station && active !== 'routes'"
+        v-if="station && active === 'trend'"
         :station="station"
         :stop="stopOf"
         :unserved="unservedOf"
@@ -584,7 +601,9 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .pv-actions button { padding: 4px 10px; font-size: 12px; }
 
 /* 재고 현황 (오른쪽 패널) */
-.stock { display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; border-left: 1px solid var(--line); background: #fff; }
+.stock { position: relative; border-left: 1px solid var(--line); background: #fff; }
+/* 칸이 지도 높이를 늘리지 않게 내용은 칸 안에 띄워 두고 스크롤한다 (좁은 화면에서는 아래로 흘린다) */
+.stock-scroll { position: absolute; inset: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; }
 .stock h2 { margin: 0; justify-content: space-between; }
 .stock h2 .muted { font-size: 11px; font-weight: 600; }
 .stock-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -692,6 +711,7 @@ dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
 @media (max-width: 860px) {
   .hero { grid-template-columns: minmax(0, 1fr); }
   .stock { border-left: 0; border-top: 1px solid var(--line); }
+  .stock-scroll { position: static; overflow: visible; }
   .routes-panel { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
