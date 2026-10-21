@@ -73,6 +73,7 @@ export interface paths {
          * 질문·요청으로 작업을 만든다
          * @description 작업 상태를 저장하고 Kafka `ai.tasks`로 에이전트에 넘긴 뒤 바로 202를 돌려준다.
          *     같은 근무조(`shiftId`)의 작업은 순서대로 처리된다.
+         *     **FIELD_REPORT는 `POST /api/reports`로만 만든다.** 이 API로 보내면 400 `USE_REPORTS_API`.
          */
         post: operations["createTask"];
         delete?: never;
@@ -205,7 +206,7 @@ export interface paths {
         /**
          * 계정 비활성화 (관리자)
          * @description 로그인을 막는다. 가입 신청 거절에도 쓴다. 자기 계정은 비활성화할 수 없다 (CANNOT_DISABLE_SELF).
-         *     이미 발급된 토큰은 만료(최대 12시간)될 때까지 남는다.
+         *     이미 발급된 토큰도 다음 요청부터 401이다. 이미 열린 SSE 연결은 바로 끊지 않고, 다시 연결할 때 401이다.
          */
         post: operations["disableAccount"];
         delete?: never;
@@ -279,8 +280,11 @@ export interface paths {
         put?: never;
         /**
          * 정류장 현장 보고
-         * @description 보고는 바로 저장하고, 재경로가 필요하면 `FIELD_REPORT` 작업을 만들어 `taskId`를 함께 돌려준다.
-         *     DRIVER는 자기 트럭의 정류장만 보고할 수 있다.
+         * @description **DRIVER만** 보고한다. 트럭은 로그인한 기사의 트럭이다 (본문에 받지 않는다).
+         *     보고는 바로 저장하고, **`issue`가 있으면** 재경로 `FIELD_REPORT` 작업을 만들어 `taskId`를 함께 돌려준다.
+         *     `issue`가 없는 보고(진행 기록)는 저장만 하고 `taskId`는 null이다.
+         *     작업 명령(`ai.tasks`)에는 보고 값(`report`)을 같이 실어 agent가 다시 읽지 않게 한다.
+         *     정류장이 그 기사의 경로에 있는지는 경로가 생기면(M3) 확인한다.
          */
         post: operations["createFieldReport"];
         delete?: never;
@@ -402,7 +406,7 @@ export interface components {
         CreateTaskRequest: {
             type: components["schemas"]["TaskType"];
             shiftId: string;
-            /** @description REQUEST·QUESTION의 자연어 입력 */
+            /** @description REQUEST·QUESTION의 자연어 입력. FIELD_REPORT는 이 API로 만들지 않는다 (`POST /api/reports`) */
             text?: string;
         };
         TaskAccepted: {
@@ -592,8 +596,8 @@ export interface components {
             stationId: string;
             /** @description 도착했을 때 실제 재고 */
             actualBikes: number;
-            loaded?: number;
-            unloaded?: number;
+            loaded?: number | null;
+            unloaded?: number | null;
             /** @enum {string|null} */
             issue?: "BLOCKED" | "CONSTRUCTION" | "INVENTORY_MISMATCH" | "OTHER" | null;
             memo?: string | null;
@@ -655,7 +659,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description 토큰 없음 또는 만료 */
+        /** @description 토큰 없음, 만료, 또는 계정이 활성 상태가 아님(비활성화 등) */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;
@@ -729,6 +733,18 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /**
+             * @description 같은 아이디로 비밀번호를 여러 번(기본 10번) 틀려 잠시 막힘 (TOO_MANY_LOGIN_FAILURES).
+             *     첫 실패부터 기본 10분이 지나야 풀리며, 그동안은 맞는 비밀번호도 받지 않는다. 없는 아이디도 똑같이 센다.
+             */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     signup: {
@@ -756,6 +772,15 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             /** @description 이미 쓰는 아이디 (LOGIN_ID_TAKEN) */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description 승인 대기 가입 신청이 너무 많이(기본 50건) 쌓여 받지 않음 (TOO_MANY_PENDING_SIGNUPS). 관리자가 처리하면 다시 받는다 */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1154,6 +1179,18 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /**
+             * @description 작업 큐에 넣지 못함 (QUEUE_UNAVAILABLE). 보고도 남기지 않으니 다시 보낸다.
+             *     전송 시간 초과 뒤 명령이 늦게 도착할 수 있어, 드물게 재경로 작업이 한 번 더 생길 수 있다.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getKpi: {

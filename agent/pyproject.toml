@@ -11,14 +11,17 @@ dependencies = [
     "langgraph>=1.2",
     "langgraph-checkpoint-postgres>=3.2",
     "langchain-openai>=1.7",
+    "langchain-ollama>=1.1",
     "langchain-mcp-adapters>=0.3",
     "langsmith>=0.14",
     "mcp>=1.30",
     "pyyaml>=6",
+    "aiokafka[snappy,lz4,zstd]>=0.12",  # 근무조 그래프: ai.tasks 소비, ai.events 발행. 압축 해제(cramjam)가 없으면 압축된 메시지 하나에 계속 죽는다
+    "psycopg[binary]>=3.2",    # 근무조 그래프: 처리 기록 (체크포인터와 같은 DB)
 ]
 
 [project.optional-dependencies]
 dev = ["jsonschema>=4.20", "referencing>=0.30"]   # 계약(docs/specs) 스키마 검사 테스트
 
 [tool.setuptools]
-packages = ["harness", "evaluation"]
+packages = ["harness", "evaluation", "graph"]

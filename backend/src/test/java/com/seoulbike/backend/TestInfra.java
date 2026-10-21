@@ -16,6 +16,10 @@ public class TestInfra {
 			app.auth.seed-password=test-password
 			app.fake-agent.enabled=true
 			app.fake-agent.step-millis=5
+			app.internal.token=test-internal-token
+			app.kafka.retry.delay=200
+			app.auth.login-max-failures=3
+			app.auth.max-pending-signups=5
 			""";
 
 	@Bean

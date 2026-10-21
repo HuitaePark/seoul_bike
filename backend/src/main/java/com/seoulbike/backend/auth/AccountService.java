@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.seoulbike.backend.auth.UserRepository.Account;
 import com.seoulbike.backend.common.ApiException;
@@ -20,18 +21,35 @@ class AccountService {
 
 	private final UserRepository users;
 	private final PasswordEncoder passwords;
+	private final TransactionTemplate tx;
+	private final int maxPendingSignups;
 
-	AccountService(UserRepository users, PasswordEncoder passwords) {
+	AccountService(UserRepository users, PasswordEncoder passwords, TransactionTemplate tx, AuthProperties props) {
 		this.users = users;
 		this.passwords = passwords;
+		this.tx = tx;
+		this.maxPendingSignups = props.maxPendingSignups();
 	}
 
+	/**
+	 * 누구나 부를 수 있으므로 승인 대기가 너무 쌓이면 받지 않는다 (가입 도배로 표가 끝없이 늘지 않게).
+	 * 가입 신청을 DB 잠금으로 한 줄로 세워, 몰아 보낸 신청도 상한을 넘지 않게 한다.
+	 * 비밀번호 해시(bcrypt)는 잠금과 DB 연결을 잡기 전에 만든다.
+	 */
 	Account signup(String loginId, String password, String name, Role requestedRole) {
-		return insert(loginId, password, name, requestedRole, null, AccountStatus.PENDING);
+		String hash = passwords.encode(password);
+		return tx.execute(status -> {
+			users.lockSignups();
+			if (users.countPending() >= maxPendingSignups) {
+				throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_PENDING_SIGNUPS",
+						"승인을 기다리는 가입 신청이 너무 많다. 관리자가 처리한 뒤 다시 신청한다");
+			}
+			return insert(loginId, hash, name, requestedRole, null, AccountStatus.PENDING);
+		});
 	}
 
 	Account create(String loginId, String password, String name, Role role, String truckId) {
-		return insert(loginId, password, name, role, requireTruck(role, truckId), AccountStatus.ACTIVE);
+		return insert(loginId, passwords.encode(password), name, role, requireTruck(role, truckId), AccountStatus.ACTIVE);
 	}
 
 	List<Account> list(AccountStatus status) {
@@ -57,10 +75,10 @@ class AccountService {
 		return find(userId).toAccount();
 	}
 
-	private Account insert(String loginId, String password, String name, Role role, String truckId,
+	private Account insert(String loginId, String passwordHash, String name, Role role, String truckId,
 			AccountStatus status) {
 		String id = "u-" + UUID.randomUUID();
-		if (!users.insertIfAbsent(id, loginId, passwords.encode(password), name, role, truckId, status)) {
+		if (!users.insertIfAbsent(id, loginId, passwordHash, name, role, truckId, status)) {
 			throw ApiException.conflict("LOGIN_ID_TAKEN", "이미 쓰는 아이디다: " + loginId);
 		}
 		return find(id).toAccount();
