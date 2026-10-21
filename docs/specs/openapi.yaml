@@ -6,7 +6,7 @@ info:
   description: |
     **초안 v0.9.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
-    - v0.9: 미처리 대여소 사유 `Unserved.reason`을 값 목록으로 (optimizer가 내는 값 그대로).
+    - v0.9: 미처리 대여소 사유 `Unserved.reason`을 값 목록으로 (optimizer가 지금 내는 소문자 코드를 대문자로 고정한다).
     - v0.8: 로그인 실패 제한을 아이디와 접속 IP 묶음으로 센다 (남이 일부러 틀려도 다른 IP에서는 로그인할 수 있다).
     - v0.7: 로그인 실패 제한(429 `TOO_MANY_LOGIN_FAILURES`), 승인 대기 가입 상한(429 `TOO_MANY_PENDING_SIGNUPS`).
     - v0.6: 비활성화한 계정은 이미 받은 토큰도 다음 요청부터 401 (만료를 기다리지 않는다).

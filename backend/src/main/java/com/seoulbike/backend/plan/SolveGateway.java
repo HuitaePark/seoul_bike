@@ -70,7 +70,7 @@ public class SolveGateway {
 	/**
 	 * 경로를 계산한다. 결과가 올 때까지(최대 app.solve.timeout) 이 스레드가 기다린다.
 	 *
-	 * @param inputs 계약 SolveRequest 중 봉투 밖의 필드 (stations, trucks, blockedStationIds, params)
+	 * @param inputs 계약 SolveRequest 중 봉투 밖의 필드 (depot, asOf, stations, trucks, blockedStationIds, params)
 	 * @param taskId 요청한 작업. 없으면 null. 현장 보고 작업이면 변경 등급을 FIELD_REPORT 기준으로 매긴다
 	 * @throws ApiException 503 QUEUE_UNAVAILABLE: 브로커가 요청을 받았다고 확인하지 않았다
 	 */

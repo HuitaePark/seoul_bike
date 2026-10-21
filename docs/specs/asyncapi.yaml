@@ -328,7 +328,7 @@ components:
           if:
             properties: { status: { enum: [TIMEOUT, FAILED] } }
           then:
-            required: [code, error]
+            required: [code, retryable, error]
           properties:
             requestId: { type: string }
             status:
