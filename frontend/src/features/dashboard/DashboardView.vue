@@ -77,10 +77,8 @@ function ask() {
       <h1>관제 대시보드 <span class="dummy-tag">더미 데이터</span></h1>
       <p>{{ DUMMY_REGION.name }} · 오전 근무조 07:00–10:00 · 계획 v{{ plan.version }} <span class="badge ACTIVE">활성</span></p>
     </div>
-    <div class="head-actions">
-      <button class="ghost" @click="router.push('/console')">상황 반영 요청</button>
-      <button @click="router.push('/console')">계획 초안 만들기</button>
-    </div>
+    <!-- 계획 초안·상황 반영 요청·질의는 모두 작업 콘솔에서 종류를 골라 만든다 -->
+    <button @click="router.push('/console')">작업 요청</button>
   </div>
 
   <section class="kpis">
@@ -231,7 +229,6 @@ function ask() {
 </template>
 
 <style scoped>
-.head-actions { display: flex; gap: 8px; }
 .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
 .kpi::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--ink-3); }
