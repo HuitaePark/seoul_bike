@@ -25,20 +25,6 @@ export const demoPlan: Plan = {
   planId: 'demo-plan-001-v1', shiftId: DEMO_SHIFT, version: 1, status: 'PROPOSED', provisional: false,
   explanation: '회수 거점과 빈 대여소를 연결한 검토용 시연 계획입니다. 실제 관측·예측·도로 계산 결과가 아닙니다.',
   routes: [
-<<<<<<< HEAD
-    { truckId: 'TR-01', capacity: 15, startLoad: 4, stops: [
-      { seq: 1, stationId: 'ST-101', action: 'PICKUP', bikes: 6, loadAfter: 10, eta: '2026-10-21T08:20:00+09:00', status: 'PENDING', reason: '과적재 위험 거점에서 회수해 서울숲 거점에 보충합니다. (시연)' },
-      { seq: 2, stationId: 'ST-102', action: 'DROPOFF', bikes: 7, loadAfter: 3, eta: '2026-10-21T08:40:00+09:00', status: 'PENDING', reason: '예상 재고가 부족한 거점입니다. (시연)' },
-      { seq: 3, stationId: 'ST-103', action: 'PICKUP', bikes: 5, loadAfter: 8, eta: '2026-10-21T09:00:00+09:00', status: 'PENDING' },
-      { seq: 4, stationId: 'ST-104', action: 'DROPOFF', bikes: 4, loadAfter: 4, eta: '2026-10-21T09:20:00+09:00', status: 'PENDING' },
-    ] },
-    { truckId: 'TR-02', capacity: 15, startLoad: 0, stops: [
-      { seq: 1, stationId: 'ST-201', action: 'PICKUP', bikes: 10, loadAfter: 10, eta: '2026-10-21T08:25:00+09:00', status: 'PENDING' },
-      { seq: 2, stationId: 'ST-202', action: 'DROPOFF', bikes: 6, loadAfter: 4, eta: '2026-10-21T08:50:00+09:00', status: 'PENDING' },
-      { seq: 3, stationId: 'ST-203', action: 'DROPOFF', bikes: 4, loadAfter: 0, eta: '2026-10-21T09:10:00+09:00', status: 'PENDING' },
-    ] },
-    { truckId: 'TR-03', capacity: 15, startLoad: 3, stops: [] },
-=======
     { truckId: 'TR-03', capacity: 15, startLoad: 4, stops: [
       { seq: 1, stationId: 'ST-102', action: 'PICKUP', bikes: 6, loadAfter: 10, eta: '2026-10-21T08:20:00+09:00', status: 'PENDING', reason: '과적재 위험 거점에서 회수해 빈 대여소에 보충합니다. (시연)' },
       { seq: 2, stationId: 'ST-1660', action: 'DROPOFF', bikes: 7, loadAfter: 3, eta: '2026-10-21T08:40:00+09:00', status: 'PENDING', reason: '예상 재고가 부족한 거점입니다. (시연)' },
@@ -51,7 +37,6 @@ export const demoPlan: Plan = {
       { seq: 3, stationId: 'ST-3390', action: 'DROPOFF', bikes: 4, loadAfter: 0, eta: '2026-10-21T09:10:00+09:00', status: 'PENDING' },
     ] },
     { truckId: 'TR-05', capacity: 15, startLoad: 3, stops: [] },
->>>>>>> 2b4b4e8491d564abe346b6cc9934c8eb91e82ede
   ],
   unserved: [
     { stationId: 'ST-988', priority: 91.5, reason: 'CAPACITY_EXCEEDED' },
