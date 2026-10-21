@@ -3,6 +3,7 @@
 # Purpose: Checks plan feasibility (load limits, no duplicate visits) and OR-Tools vs greedy cost.
 
 import unittest
+from datetime import datetime
 
 from rebalancing.baseline import plan_greedy
 from rebalancing.forecast import HeuristicPredictor
@@ -14,7 +15,7 @@ from rebalancing.planner import plan_routes
 
 def build(hour: int, seed: int = 7, trucks: int = 3):
     stations, kinds = make_stations(seed=seed)
-    imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=seed), hour)
+    imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=seed), datetime(2026, 10, 20, hour))
     return stations, imbalances, make_trucks(trucks)
 
 

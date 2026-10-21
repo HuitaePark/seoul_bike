@@ -74,6 +74,17 @@ backend 포트는 서버 로컬로 제한했고 화면 nginx에는 지도 외부
 - 최적화 268개·subtest 24개, 프론트 단위 24개·Chromium 25개, 빌드·타입 생성 일치·Compose 검사 통과.
   운영 서버 변경이나 새 CI 잡은 추가하지 않았다.
 
+## 시간별 예측 연결
+
+- 데이터 담당의 junyeop-ortools 3b773e9 중 안 B 인터페이스를 검토해 현재 코어에 반영했다.
+  날짜·1~5시간·모델 버전·실수 배열을 수용하고, 기본 1시간과 기존 9개 mock 시나리오 필요량을 유지한다.
+- naive KST와 UTC/+09:00 입력을 같은 정시 창으로 정규화한다. 비정시·배열 길이·버전·수요 오류는 거부한다.
+- 시간별 합계를 Decimal로 계산하고 최종 목표 하한 올림·상한 내림으로 정수 필요량을 만든다.
+- data 모듈의 세 예측기 출력과 연결했다. 학습·시뮬레이터 정책·공개 API·Kafka payload는 변경하지 않는다.
+  운영 worker는 여전히 계산된 neededBikes를 받는다. 모델 품질·실제 서버 입력 공급을 완료했다는 뜻은 아니다.
+- 실제 Kafka 포함 최적화 323개·subtest 24개, 데이터·시뮬레이터 18개 통과.
+  베이스라인 실제 호출과 LightGBM/Nowcast 캐시 클래스의 출력 연결을 확인했으며, 학습 품질은 측정하지 않았다.
+
 ## 협의·연결이 필요한 항목
 
 재경로·p95·메모리 캐시 비교와 worker 실행 로그 보강을 완료했다.
@@ -84,7 +95,7 @@ backend 포트는 서버 로컬로 제한했고 화면 nginx에는 지도 외부
 아래 운영 통합 항목은 아직 남아 있다.
 백엔드 제안에 동의해 depot{lat,lon}·시간대 있는 asOf·오류/미처리 사유 enum의 계약 PR은 역할 4가 맡고,
 역할 5는 solve.requests.retry → .dlq와 PR #34의 메시지 설정·실패 필드·대문자 사유 대응을 구현했다.
-backend가 요청 retry/DLQ 토픽도 app.kafka.partitions(기본 6)로 생성한다. backend healthy 이후 worker 시작·상태 볼륨·헬스체크는 PR #46에 반영됐다. main에 병합된 데이터 PR #10은 forecast/에 datetime 예측기를 제공하며, or-tools 어댑터 통합은 별도 후속이다.
+backend가 요청 retry/DLQ 토픽도 app.kafka.partitions(기본 6)로 생성한다. backend healthy 이후 worker 시작·상태 볼륨·헬스체크는 PR #46에 반영됐다. main에 병합된 데이터 PR #10은 forecast/에 datetime 예측기를 제공하며, or-tools의 날짜·시간별 예측 연결을 hyunmoo에서 구현했다. 운영 입력 구성과 예측 DB 연결은 후속이다.
 
 1. **운영 설정·backend 연결:** [공통 대응 명세](../specs/optimizer.md)를 기준으로
    권역·스냅샷의 차고지·기준 시각을 자동 공급하는 경로를 담당자와 확인한다.

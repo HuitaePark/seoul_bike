@@ -8,9 +8,10 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, replace
+from datetime import datetime
 
 from .baseline import plan_greedy
-from .forecast import HeuristicPredictor
+from .forecast import HeuristicPredictor, forecast_window
 from .imbalance import compute_imbalances
 from .mock_data import DEPOT, make_stations, make_trucks
 from .models import Plan
@@ -37,7 +38,10 @@ def print_plan(plan: Plan, names: dict[int, str]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hour", type=int, default=8, help="hour of day to plan for (0-23)")
+    when = ap.add_mutually_exclusive_group()
+    when.add_argument("--hour", type=int, default=8, help="mock hour on fixed 2026-10-20 KST (0-23)")
+    when.add_argument("--start", help="explicit whole-hour ISO datetime; naive values mean KST")
+    ap.add_argument("--horizon-h", type=int, default=1, choices=range(1, 6), help="forecast hours (default 1)")
     ap.add_argument("--trucks", type=int, default=3)
     ap.add_argument("--truck-capacity", type=int, default=15)
     ap.add_argument("--start-load", type=int, default=0)
@@ -60,6 +64,15 @@ def main() -> None:
     if args.matrix_cache_dir and (not args.osrm_url or args.osrm_data_version == "unversioned"):
         ap.error("disk cache requires --osrm-url and an explicit --osrm-data-version")
 
+    if args.start and "T" not in args.start and " " not in args.start:
+        ap.error("--start must include both a date and a time")
+    try:
+        start = forecast_window(datetime.fromisoformat(args.start) if args.start
+                                else datetime(2026, 10, 20, args.hour), args.horizon_h)
+    except ValueError as error:
+        ap.error(str(error))
+    args.hour = start.hour
+
     stations, kinds = make_stations(seed=args.seed)
     if args.operating_limit is not None:
         stations = [replace(s, operating_limit=args.operating_limit) for s in stations]
@@ -72,7 +85,7 @@ def main() -> None:
                                   max_locations=args.osrm_max_locations, timeout_s=args.osrm_timeout_seconds,
                                   budget_s=args.osrm_budget_seconds, snap_radius_m=args.osrm_snap_radius_metres)
             provider = CachedTravelTime(road, namespace=road.cache_namespace, cache_dir=args.matrix_cache_dir)
-        imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), args.hour)
+        imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), start, args.horizon_h)
         kwargs = {"options": PlanningOptions(solution_limit=args.solution_limit),
                   "travel_time": provider}
         plans = [plan_greedy(DEPOT, stations, imbalances, trucks, **kwargs),
@@ -86,7 +99,8 @@ def main() -> None:
                        if args.osrm_url else {"travel_source": "haversine-estimate", "speed_kph": args.speed_kph})
     if args.json:
         print(json.dumps({"hour": args.hour, "seed": args.seed,
-                          "settings": {"truck_capacity": args.truck_capacity, "start_load": args.start_load,
+                          "settings": {"forecast_start_kst": start.isoformat(), "forecast_horizon_h": args.horizon_h,
+                                       "truck_capacity": args.truck_capacity, "start_load": args.start_load,
                                        "shift_seconds": args.shift_minutes * 60, "solution_limit": args.solution_limit,
                                        **travel_settings},
                           "plans": [asdict(p) for p in plans]},

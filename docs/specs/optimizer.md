@@ -64,6 +64,27 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
 완료·관리자 제외 거점은 backend가 남은 후보를 구성할 때 제거한다.
 현재 wire에 없는 completedStationIds·excludeStationIds를 새로 정의하지 않는다.
 
+## 로컬 수요 예측 연결
+
+`DemandPredictor.predict(station, start, horizon_h)`는 `start`, `rentals_h`, `returns_h`,
+`model_version`을 제공한다. `forecast/`의 별도 Forecast 클래스도 같은 필드로 직접 받을 수 있으며,
+공통 모델 파일이나 학습 의존성을 optimizer 이미지에 합치지 않는다. 호출자가 미리 준비한 예측기를 주입한다.
+
+- `start`는 명시적인 정시다. 시간대 없는 값은 데이터 파일과 같은 KST이며, 시간대 있는 값은 KST로 변환한 뒤
+  시간대를 제거해 데이터 예측기를 호출한다. 날짜를 현재 시각에서 만들거나 비정시 입력을 임의로 내리지 않는다.
+- `horizon_h`는 1~5 정수다. 기존 단독 데모의 기본 1시간은 유지하며 3시간은 호출자가 명시한다.
+- 두 시간별 배열의 길이·시작 시각·모델 버전과 비음수 유한 실수 값을 검사한다. NumPy 실수 출력도 수용한다.
+- 합계는 시간별 값의 Decimal 표현으로 더한다. 대여·반납을 각각 먼저 반올림하지 않는다.
+  구간 끝 목표 하한 `max(0, rentals - returns + safety)`는 올림하고,
+  상한 `max(0, operating_limit + rentals - returns)`은 내림해 정수 필요량을 만든다.
+  목표 상한보다 안전 하한이 크면 기존처럼 하한을 우선하며, 거치대 수로 재고나 필요량을 잘라내지 않는다.
+- 이 단계는 기존 **구간 끝 재고 정책**이다. 시간별 배열을 받더라도 중간의 빈 시각·재고 궤적 안전을 보장하지 않는다.
+  기본 3시간 전환·궤적 정책·비정시 재경로 예측 정렬은 후속 협의 범위다.
+
+이는 로컬 예측·시뮬레이션 연결이며 Kafka worker의 역할을 확장하지 않는다.
+worker는 계속 이미 계산된 `neededBikes`를 받는다. 운영 수요·우선순위·재고 입력 생성과 예측 DB 적재는
+역할 4·6의 경계에서 연결하며 공개 API·Kafka 메시지 필드는 추가하지 않는다.
+
 ## 메시지의 계산 기준과 이동 공급자
 
 SolveRequest의 필수 `depot {lat, lon}`·`asOf`에서 SolveContext를 만든다.

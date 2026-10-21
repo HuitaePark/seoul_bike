@@ -74,7 +74,7 @@ def build_case(args, provider):
     if args.all_candidates:
         stations = [replace(s, bikes=5 if s.id % 2 == 0 else 0) for s in stations]
     jobs = ([Imbalance(s.id, 5 if s.id % 2 == 0 else -5) for s in stations]
-            if args.all_candidates else compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), 8))
+            if args.all_candidates else compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), datetime(2026, 10, 20, 8)))
     case = BenchmarkCase(stations, jobs, make_trucks(args.trucks), PlanningOptions(solution_limit=args.solution_limit))
     if args.scenario == "plan":
         return case
