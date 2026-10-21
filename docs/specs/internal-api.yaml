@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.6.0-draft
+  version: 0.6.1-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
     **초안 v0.6.** MCP·에이전트 담당 확인 전이다.
@@ -54,7 +54,7 @@ paths:
           schema: { type: string }
         - name: horizonH
           in: query
-          schema: { type: integer, minimum: 1, maximum: 6, default: 3 }
+          schema: { type: integer, minimum: 1, maximum: 5, default: 3 }
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
@@ -105,7 +105,7 @@ paths:
           schema: { type: string, format: date-time }
         - name: horizonH
           in: query
-          schema: { type: integer, minimum: 1, maximum: 6, default: 3 }
+          schema: { type: integer, minimum: 1, maximum: 5, default: 3 }
       responses:
         '200':
           description: 예측

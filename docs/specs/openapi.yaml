@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.11.0-draft
+  version: 0.11.1-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
     **초안 v0.11.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
@@ -366,7 +366,7 @@ paths:
         - name: horizonH
           in: query
           description: 예측 구간(시간)
-          schema: { type: integer, minimum: 1, maximum: 6, default: 3 }
+          schema: { type: integer, minimum: 1, maximum: 5, default: 3 }
       responses:
         '200':
           description: 대여소 목록
