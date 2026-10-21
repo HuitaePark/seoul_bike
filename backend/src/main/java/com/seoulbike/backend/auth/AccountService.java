@@ -90,6 +90,8 @@ class AccountService {
 			throw ApiException.conflict("SIGNUP_REJECTED",
 					"승인된 적 없는 계정(거절한 가입 신청)이라 다시 열 수 없다. 다시 가입을 받거나 새로 발급한다");
 		}
+		// 기사는 트럭 목록(ref.trucks)에 있는 활성 트럭을 가져야 한다. 목록 밖 트럭(예전 형식 등)을 가진 채로 다시 열지 않는다.
+		requireTruck(user.role(), user.truckId());
 		if (!users.enable(userId)) {
 			throw ApiException.conflict("ACCOUNT_NOT_DISABLED", "비활성 상태가 아니다");
 		}
