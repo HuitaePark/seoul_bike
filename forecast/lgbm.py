@@ -21,9 +21,11 @@ import duckdb
 import lightgbm as lgb
 import pandas as pd
 
-from rebalancing.models import Forecast, Station
+from rebalancing.models import Station
 from sim.engine import ROOT, SHIFTS
 from sim.latent import empty_segments, hourly_empty
+
+from . import Forecast
 
 EMPTY_MAX = 6  # 한 시각 안에 재고 0이 이 분 이상이면 대여 모형 학습에서 뺀다 (10%)
 FEATS = ["hh", "dow", "off", "mon", "base_rent", "plain_rent", "base_ret", "lag_rent_1d", "lag_rent_1w",

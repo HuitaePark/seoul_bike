@@ -36,7 +36,7 @@
 
 | # | 맞출 것 | 제안 | 쓰이는 곳 | 상태 |
 | --- | --- | --- | --- | --- |
-| 14 | `predict()` 시그니처 | `predict(station, start, horizon_h) -> Forecast`. `Forecast`는 시간별 `rentals_h`·`returns_h`와 합계 `rentals`·`returns`, `model_version`. 가짜 예측기까지 `or-tools/`에 반영해 두었다 ([predict.md](predict.md)) | `compute_imbalances` | 5 확인 필요. 4는 `or-tools/` 변경을 PR #10에서 빼서 따로 올리자고 제안 (5의 `feat/optimizer-core`와 충돌) |
+| 14 | `predict()` 시그니처 | `predict(station, start, horizon_h) -> Forecast`. `Forecast`는 시간별 `rentals_h`·`returns_h`와 합계 `rentals`·`returns`, `model_version`. 가짜 예측기까지 `or-tools/`에 반영해 두었다 ([predict.md](predict.md)) | `compute_imbalances` | 5 확인 필요. `or-tools/` 변경은 PR #10에서 빼서 `junyeop-ortools` 브랜치로 따로 제안했다(5의 `feat/optimizer-core`와 충돌 피하기). 6의 예측기는 같은 모양의 `Forecast`를 `forecast/`에 두고 쓴다 |
 | 15 | 내부 API `Forecast`에 시간별 값 | `rentalsH`·`returnsH`(number 배열, 선택)를 추가한다. 합계만 있으면 3시간 중간에 비는 대여소를 놓친다 | `internal-api` Forecast (백엔드·MCP도 함께) | 4 찬성: 13번과 같이 계약에 넣는다 |
 | 16 | 예측 구간과 궤적 검사 | `compute_imbalances`의 기본 예측 구간을 PRD대로 3시간으로 바꾸고, 구간 중간에 비는지 보는 검사를 넣는 시점을 정한다 (지금 기본 1시간) | `imbalance.py` | 질문 |
 | 17 | `Station.capacity`의 뜻 | 지금 `Station.capacity`는 거치대 수, `Truck.capacity`는 적재 용량이라 이름이 같다. `Station.docks`로 바꾸기를 제안한다 | `models.py` | 제안 |

@@ -98,7 +98,7 @@
 - [x] 대여소 마스터와 ID 대응표: `analysis/out/stations.csv` (3,246곳, `st_no` ↔ `st_id` 1:1, 운영 중 2,716곳 모두 매칭). 대여소 정보 API 원본을 `data/raw/stations/`에 날짜별로 받아 만든다 (`analysis/collect/stations_api.py`, 주 1회)
 - [x] 데이터 명세 초안: [data-spec.md](../data/data-spec.md)
 - [x] `predict()` 시그니처 초안: [predict.md](../data/predict.md) → [ ] 5와 합의
-- [x] 가짜 구현: `HeuristicPredictor`를 새 시그니처로 바꿈 (`or-tools/` 4개 파일과 테스트. 테스트 6개 통과, 기존 실행 결과와 같음) → [ ] 5가 PR에서 확인
+- [x] 가짜 구현: `HeuristicPredictor`를 새 시그니처로 바꿈 (`or-tools/` 4개 파일과 테스트) → PR #10에서 빼서 `junyeop-ortools` 브랜치로 따로 제안 (4 제안, 5와 충돌 피하기) → [ ] 5 확인
 - [x] 계획 단위: 전 구역 17개로 결정 (2026-10-20). 구역이 빈 대여소 중 운영 중인 21곳은 가장 가까운 구역에 붙였다 (나머지 420곳은 운영하지 않음) ([regions.md](../data/regions.md))
 - [x] 개발 기준 구역 비교, 강남-05 제안 → [ ] 팀 결정
 - [x] 공유 데이터: 다른 역할에 필요한 것은 대여소 마스터 `analysis/out/stations.csv`(0.5MB)뿐이라 깃으로 공유한다. 대여이력 묶음 `data/shared/강남-05/`(182MB)는 깃헙 파일 한도(100MB)를 넘어 6이 로컬에서만 쓴다

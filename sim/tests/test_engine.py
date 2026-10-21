@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from sim.engine import Day, replay
 from sim.latent import poisson_arrivals
 from sim.policies import Agent, CurrentOps, NoRebalancing, SimpleRule
-from rebalancing.models import Forecast, Station
+from forecast import Forecast
+from rebalancing.models import Station
 
 T0 = datetime(2025, 6, 11)
 

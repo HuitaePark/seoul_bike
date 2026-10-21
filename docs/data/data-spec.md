@@ -14,7 +14,7 @@
 
 ## 만드는 법
 
-저장소 루트에서 실행한다. 환경은 `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`.
+저장소 루트에서 실행한다. 환경은 `python3 -m venv .venv && .venv/bin/pip install -r requirements-data.txt`(최적화기의 `requirements.txt`를 포함한다).
 
 ```bash
 /usr/bin/python3 analysis/collect/stations_api.py      # 대여소 정보 API 원본 (주 1회)

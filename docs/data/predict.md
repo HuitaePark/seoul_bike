@@ -4,7 +4,7 @@
 | --- | --- |
 | 문서 상태 | 초안 v0.1 (5 최적화 담당과 M1에 합의) |
 | 작성일 | 2026-10-20 |
-| 대상 코드 | [forecast.py](../../or-tools/rebalancing/forecast.py), [imbalance.py](../../or-tools/rebalancing/imbalance.py), [models.py](../../or-tools/rebalancing/models.py) |
+| 대상 코드 | `or-tools/rebalancing/` `forecast.py`, `imbalance.py`, `models.py`. 바꾼 코드는 PR #10에서 빼서 `junyeop-ortools` 브랜치로 따로 제안했다(5 확인 대기). 6의 예측기는 그동안 같은 모양의 `Forecast`를 [forecast/\_\_init\_\_.py](../../forecast/__init__.py)에 두고 쓴다 |
 
 **제안:** 시그니처를 `predict(station, start, horizon_h)`로 바꾸고, `Forecast`가 **시간별** 대여·반납을 담게 한다. 기존 `rentals`·`returns`는 합계 속성으로 남겨 `healthy_band`는 그대로 돈다.
 

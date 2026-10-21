@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from rebalancing.models import Forecast, Station
+from rebalancing.models import Station
+
+from . import Forecast
 
 
 class BaselinePredictor:

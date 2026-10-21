@@ -91,7 +91,7 @@ flowchart LR
         L3["도로 거리/소요시간<br/>(OSRM, 카카오 모빌리티 등)"]
     end
     N1 ==>|"Station을 돌려주기만 하면 됨"| L1
-    N2 ==>|"predict(station, start, horizon_h)->Forecast<br/>만 구현하면 됨"| L2
+    N2 ==>|"predict(station, hour)->Forecast<br/>만 구현하면 됨"| L2
     N3 ==>|"distance_matrix()만 교체"| L3
 ```
 

@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Literal
 
 # [읽는 법] 이 파일은 "데이터를 담는 그릇"만 정의한다. 계산 로직은 없다.
@@ -41,26 +40,14 @@ class Truck:
 class Forecast:
     """한 대여소의 '예측 구간' 동안의 예상 수요. AI 모델이 내놓는 값이다.
 
-    예측 구간 = start부터 horizon_h시간. 값은 1시간 단위로 나눠 담는다.
-    rentals_h[i], returns_h[i]는 start + i시간부터 1시간 동안의 값이다(길이 = horizon_h).
-    시간별로 담는 이유: 구간 합계만 보면 "아침에 비었다가 저녁에 다시 차는" 대여소를 정상으로 본다(PRD 7.1 궤적).
-    값은 기댓값이라 실수일 수 있다. 정수 대수가 필요한 곳에서 반올림한다.
+    예측 구간 = 예측값이 몇 시간 동안의 대여·반납 수인지를 정하는 시간 길이(N시간).
+    이 클래스는 N을 정하지 않는다. 예측기가 쓰는 시간 단위가 곧 N이다.
+    (mock 예측기는 hour 단위로 예측하므로 N=1시간이다.)
+    rentals와 returns는 반드시 같은 구간을 기준으로 해야 한다.
     """
 
-    start: datetime  # 예측 구간 시작 시각(정시)
-    rentals_h: tuple[float, ...]  # 시간별로 대여되어 대여소에서 나갈 것으로 예상되는 자전거 수
-    returns_h: tuple[float, ...]  # 시간별로 반납되어 대여소로 들어올 것으로 예상되는 자전거 수
-    model_version: str  # 어떤 예측기·버전이 만든 값인지(API의 modelVersion). 거점별 근거(FR-03)에 표시한다
-
-    @property
-    def rentals(self) -> float:
-        # 예측 구간 전체의 예상 대여 수(합계)
-        return sum(self.rentals_h)
-
-    @property
-    def returns(self) -> float:
-        # 예측 구간 전체의 예상 반납 수(합계)
-        return sum(self.returns_h)
+    rentals: int  # 예측 구간 동안 대여되어 대여소에서 나갈 것으로 예상되는 자전거 수
+    returns: int  # 예측 구간 동안 반납되어 대여소로 들어올 것으로 예상되는 자전거 수
 
 
 @dataclass(frozen=True)

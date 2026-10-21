@@ -22,8 +22,9 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-from rebalancing.models import Forecast, Station
+from rebalancing.models import Station
 
+from . import Forecast
 from .lgbm import EMPTY_MAX, FEATS, ROOT, SHIFTS, features, fit, shift_mae, shift_start_stock, stockout, zone_wape
 
 LEADS = range(1, 6)

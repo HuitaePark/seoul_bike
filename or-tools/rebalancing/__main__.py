@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 
 from .baseline import plan_greedy
 from .forecast import HeuristicPredictor
@@ -37,8 +36,7 @@ def main() -> None:
 
     stations, kinds = make_stations(seed=args.seed)
     trucks = make_trucks(args.trucks, args.truck_capacity)
-    start = datetime(2025, 5, 1, args.hour)  # mock 예측기는 날짜를 보지 않고 시각만 본다
-    imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), start)
+    imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), args.hour)
     names = {s.id: s.name for s in stations}
 
     pick = sum(i.delta for i in imbalances if i.delta > 0)

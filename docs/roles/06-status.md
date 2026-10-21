@@ -18,7 +18,7 @@
 | 구역 시드 (활동 구역 17개, 거점, 트럭 하한) | `analysis/out/ref_regions.csv` | 4, 5, 1 | 구역 ID 합의 대기 (합의 2·7번) |
 | 대여소 마스터 전체 (폐쇄 포함 3,246곳, 역할·고도·구역) | `analysis/out/stations.csv` | 전원 | 사용 가능 |
 | 데이터 계약 (ID 규칙, 시각, 열 정의) | [data-spec.md](../data/data-spec.md) | 전원 | 초안 |
-| 예측 인터페이스 `predict(station, start, horizon_h)` | [predict.md](../data/predict.md), `or-tools/rebalancing/` | 5 | 가짜 예측기까지 `or-tools/`에 반영. 5 확인 대기 |
+| 예측 인터페이스 `predict(station, start, horizon_h)` | [predict.md](../data/predict.md), `forecast/` | 5 | 6의 예측기는 시간별 `Forecast`(`forecast/__init__.py`)를 쓴다. `or-tools/` 쪽 바꿈은 PR #10에서 빼서 `junyeop-ortools` 브랜치로 따로 제안, 5 확인 대기 |
 | 역산 요약 (RAG 근거 문서) | [docs/evidence/rebal-summary.md](../evidence/rebal-summary.md) | 3 | 위치·머리말 형식 합의 대기 (합의 21번) |
 | 시뮬레이터 결과 (정책 4종) | [sim-results.md](../data/sim-results.md), `data/derived/sim_*.csv`(로컬) | 기획 리드, 4 (성과 API) | 결과 파일 형식 합의 대기 (합의 11번) |
 
@@ -99,7 +99,7 @@
 ## 6. 직접 돌려 보려면
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements-data.txt
 .venv/bin/python -m sim --terr 강남-05 --date 2025-06-11      # 정책 4종 하루 비교
 .venv/bin/python -m forecast.nowcast --terr 강남-05            # 예측기 학습·채점 (약 10분)
 ```
