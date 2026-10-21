@@ -32,10 +32,12 @@
 | 로그인 · `/api/me` · JWT · 역할 3개 | 구현 |
 | 회원가입(승인 대기) · 관리자 계정 관리 (`/api/admin/users`) | 구현 (v0.2) |
 | 작업 API 5개 (202 · SSE · `Last-Event-ID` 재전송 · 승인) | 구현 |
-| `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. **재시도·DLQ(`*.retry` · `*.dlq`)는 아직 없다 (M4)** |
+| `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. `ai.events` 소비는 **재시도(`ai.events.retry`) → `ai.events.dlq`** (형식 오류는 바로 dlq) |
 | `/api/system/status` | 구현 |
-| 대여소 · 계획 · 현장 보고 · 성과 API | 계약만 |
-| `/internal/**` · `solve.*` | 계약만 (backend는 `/internal/**`를 아직 막아 둔다) |
+| 현장 보고 `POST /api/reports` (기사만, `issue`가 있으면 재경로 작업) | 구현 (v0.5). 정류장이 기사 경로에 있는지는 경로가 생기면(M3) 확인 |
+| 대여소 · 계획 · 성과 API | 계약만 |
+| `/internal/**` 서비스 토큰(`X-Internal-Token`) · 현장 보고 조회(`get_field_reports`) · 제약 추가(`add_constraint`) · 감사 기록(`get_audit`) | 구현 (internal-api v0.5) |
+| 나머지 `/internal/**`(대여소·예측·계획·트럭·경로 계산·계획 활성화·경로 적용) · `solve.*` | 계약만. 대여소 데이터(PR #10)와 최적화(5)가 들어오면 연다 |
 | 변경 등급 규칙 · 경로 변경 승인 순서 확인 | 구현 (등급 기준은 `application.properties`의 `app.route-change.*`). 확인 규칙을 부를 적용 API `/internal/routes/{truckId}/apply`는 `/internal`과 함께 M3. 그전까지는 가짜 에이전트가 같은 확인 규칙을 부른다 |
 
 ## 이 초안이 정한 것
@@ -48,6 +50,8 @@
 - LangGraph `thread_id`는 **작업 단위 `{shiftId}:{taskId}`**다. backend가 `TaskCommand.threadId`로 보내고 agent는 직접 만들지 않고 그대로 쓴다. 근무조 상태(계획)의 원본은 DB다. (근무조 단위로 쓰면 같은 근무조 작업끼리 대기 중인 승인이 섞인다. HARNESS ISS-03)
 - 기사 작업은 `requestedBy.truckId`로 그 트럭에 한정한다 (NFR-06). backend는 JWT의 트럭으로 채운다.
 - SSE로는 계약 `TaskEvent` 필드만 보낸다. agent의 `harness` 같은 확장 필드는 저장·전달하지 않는다.
+- **감사 기록(`audit_events`)은 append-only**다 (DB 트리거가 수정·삭제·TRUNCATE를 막는다). 승인·거절·되돌림과 제약 추가는 그 변경과 같은 트랜잭션에서, 현장 보고는 보고가 확정되는 마지막 단계(저장 또는 재경로 작업 연결)와 같은 트랜잭션에서 남긴다. 사람 이름 대신 "관리자", "truck-1 기사"로 가린다. FR-18 "무승인 변경 0건"의 증거다.
+- **현장 보고 작업(FIELD_REPORT)은 기사의 `POST /api/reports`로만 생긴다** (`issue`가 있을 때). 작업 API로는 만들지 않는다(400 `USE_REPORTS_API`). 명령에 `reportId`와 보고 값 `report`를 싣는다 (AGENT-GRAPH G13·G2).
 
 ## 확인이 필요한 것 (담당자에게)
 

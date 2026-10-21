@@ -26,7 +26,7 @@ import com.seoulbike.backend.route.RouteChangeGrader;
 import com.seoulbike.backend.route.RouteDiff;
 import com.seoulbike.backend.route.RouteDiff.Action;
 import com.seoulbike.backend.route.RouteDiff.Stop;
-import com.seoulbike.backend.task.RouteChangeApprovals;
+import com.seoulbike.backend.task.ChangeApprovals;
 import com.seoulbike.backend.task.Topics;
 
 /**
@@ -47,9 +47,9 @@ class FakeAgent {
 	private static final List<Stop> ROUTE = List.of(new Stop("ST-101", Action.PICKUP, 5),
 			new Stop("ST-102", Action.PICKUP, 3), new Stop("ST-103", Action.DROPOFF, 6), new Stop("ST-104", Action.DROPOFF, 2));
 
-	/** 현장 보고: ST-102 진입 불가로 한 곳이 빠지고 4분 늘어난다 → 작은 변경. */
-	private static final RouteDiff FIELD_REPORT_DIFF = new RouteDiff(TRUCK, ROUTE, List.of(ROUTE.get(0),
-			new Stop("ST-103", Action.DROPOFF, 3), ROUTE.get(3)), 4);
+	/** 현장 보고: ST-102 진입 불가로 한 곳이 빠지고 4분 늘어난다 → 작은 변경. 트럭은 보고한 기사의 트럭이다. */
+	private static final List<Stop> FIELD_REPORT_AFTER = List.of(ROUTE.get(0), new Stop("ST-103", Action.DROPOFF, 3),
+			ROUTE.get(3));
 
 	/** 관리자 요청: 행사장 근처 ST-201에 4대를 더 놓는다 → 관리자 요청에서 비롯된 큰 변경. */
 	private static final RouteDiff REQUEST_DIFF = new RouteDiff(TRUCK, ROUTE, List.of(ROUTE.get(0), ROUTE.get(1),
@@ -61,17 +61,17 @@ class FakeAgent {
 	private final KafkaTemplate<String, String> kafka;
 	private final JsonMapper json;
 	private final RouteChangeGrader grader;
-	private final RouteChangeApprovals routeApprovals;
+	private final ChangeApprovals changeApprovals;
 	private final long stepMillis;
 	/** 승인을 기다리는 카드 → 승인되면 이어서 할 일. 재시작하면 잊는다 (가짜라서 괜찮다). */
 	private final Map<String, Consumer<JsonNode>> onApprove = new ConcurrentHashMap<>();
 
 	FakeAgent(KafkaTemplate<String, String> kafka, JsonMapper json, RouteChangeGrader grader,
-			RouteChangeApprovals routeApprovals, @Value("${app.fake-agent.step-millis:250}") long stepMillis) {
+			ChangeApprovals changeApprovals, @Value("${app.fake-agent.step-millis:250}") long stepMillis) {
 		this.kafka = kafka;
 		this.json = json;
 		this.grader = grader;
-		this.routeApprovals = routeApprovals;
+		this.changeApprovals = changeApprovals;
 		this.stepMillis = stepMillis;
 		log.warn("가짜 에이전트가 켜져 있다. 진짜 agent를 붙이면 FAKE_AGENT_ENABLED=false로 끈다");
 	}
@@ -101,8 +101,12 @@ class FakeAgent {
 				});
 			}
 			case "FIELD_REPORT" -> {
-				tokens(cmd, "현장 보고를 반영해 " + TRUCK + "의 남은 경로를 다시 짰다. 정류장 1곳이 빠지고 4분 늘어난다.");
-				proposeRoute(cmd, FIELD_REPORT_DIFF, RouteDiff.Origin.FIELD_REPORT);
+				// 보고한 기사의 트럭 경로를 바꾼다. 명령에 보고 값(report)이 같이 온다 (계약 v0.4).
+				String truck = cmd.path("requestedBy").path("truckId").asString(TRUCK);
+				JsonNode report = cmd.path("report");
+				tokens(cmd, "현장 보고(" + report.path("stationId").asString("?") + " " + report.path("issue").asString("")
+						+ ")를 반영해 " + truck + "의 남은 경로를 다시 짰다. 정류장 1곳이 빠지고 4분 늘어난다.");
+				proposeRoute(cmd, new RouteDiff(truck, ROUTE, FIELD_REPORT_AFTER, 4), RouteDiff.Origin.FIELD_REPORT);
 			}
 			default -> {
 				tokens(cmd, "질문에 대한 답이다: " + cmd.path("text").asString("") + " → 실제 답변은 진짜 agent가 만든다.");
@@ -158,7 +162,7 @@ class FakeAgent {
 		UUID lastApprovalId = UUID.fromString(cmd.path("resume").path("approvalId").asString());
 		String truckId = candidate.diff().truckId();
 		try {
-			routeApprovals.requireApproved(taskId, lastApprovalId, truckId, candidate.candidateId(), candidate.grade());
+			changeApprovals.requireRouteChange(taskId, lastApprovalId, truckId, candidate.candidateId(), candidate.grade());
 		}
 		catch (ApiException e) {
 			emit(cmd, "FAILED", f -> f.put("error", LABEL + "경로를 적용하지 않았다: " + e.getMessage()).put("code", e.code()));

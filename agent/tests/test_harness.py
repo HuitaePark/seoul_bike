@@ -478,8 +478,8 @@ class ContractTest(unittest.IsolatedAsyncioTestCase):
     def test_field_report_command_becomes_a_driver_task(self):
         command = {
             "eventId": "e-1", "schemaVersion": 1, "occurredAt": "2026-10-24T13:06:00+09:00", "shiftId": SHIFT_ID,
-            "traceId": "tr-9", "taskId": "t-9", "threadId": SHIFT_ID, "type": "FIELD_REPORT", "reportId": "R-1",
-            "requestedBy": {"userId": "d-1", "role": "DRIVER"},
+            "traceId": "tr-9", "taskId": "t-9", "threadId": f"{SHIFT_ID}:t-9", "type": "FIELD_REPORT", "reportId": "R-1",
+            "requestedBy": {"userId": "d-1", "role": "DRIVER", "truckId": "TR-1"},
         }
         self.assertEqual([e.message for e in _contract_validator("asyncapi.yaml#/components/schemas/TaskCommand").iter_errors(command)], [])
         rep = FieldReport.from_contract(report("R-1", "TR-1", "ST-2003", 3, "INVENTORY_MISMATCH", "실제 3대"))

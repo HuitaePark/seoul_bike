@@ -50,14 +50,23 @@ class TaskEventStore {
 		this.approvals = approvals;
 	}
 
+	/** 아직 모르는 작업의 이벤트. 작업 커밋보다 먼저 왔을 수 있어 다시 해 볼 값이 있다 (ai.events.retry → dlq). */
+	static final class UnknownTaskException extends RuntimeException {
+		UnknownTaskException(UUID taskId, UUID eventId) {
+			super("모르는 작업의 이벤트다: taskId=" + taskId + " eventId=" + eventId);
+		}
+	}
+
 	@Transactional
 	Optional<StoredEvent> store(JsonNode message) {
+		if (!message.isObject()) {
+			throw new IllegalArgumentException("ai.events 메시지는 JSON 객체여야 한다");
+		}
 		UUID eventId = UUID.fromString(message.path("eventId").asString());
 		UUID taskId = UUID.fromString(message.path("taskId").asString());
 		String type = message.path("type").asString();
-		if (tasks.find(taskId).isEmpty()) {
-			log.warn("모르는 작업의 이벤트를 버린다: taskId={} eventId={}", taskId, eventId);
-			return Optional.empty();
+		if (!tasks.lock(taskId)) {
+			throw new UnknownTaskException(taskId, eventId);
 		}
 
 		ObjectNode payload = ((ObjectNode) message).deepCopy();
