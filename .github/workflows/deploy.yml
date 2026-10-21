@@ -43,6 +43,9 @@ jobs:
       COMPOSE_FILE: infra/compose.yaml
       COMPOSE_PROJECT_NAME: seoul-bike
       GIT_SHA: ${{ github.sha }}
+      # 빌드 증명(provenance)을 붙이지 않는다. 붙이면 바뀐 게 없어도 빌드할 때마다 이미지 ID가 달라져서
+      # compose가 모든 서비스를 다시 만들고(작업자가 괜히 재시작), edge도 배포마다 다시 떠 잠깐 끊긴다 (서버에서 확인).
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
     steps:
       - uses: actions/checkout@v4
 

@@ -183,3 +183,67 @@ test('화면을 떠난 뒤 늦게 끝난 목록 읽기·묻기는 스트림을 �
   assert.deepEqual(streamed, [])
   assert.equal(feed.pending.value.length, 0)
 })
+
+test('스트림 요청이 5xx면(배포 중 교체) 다시 붙어 이어 받고, 4xx면 멈춘다', async (t) => {
+  registerHooks({
+    resolve(specifier, context, next) {
+      try {
+        return next(specifier, context)
+      } catch (e) {
+        if (specifier.startsWith('.') && !/\.\w+$/.test(specifier)) return next(`${specifier}.ts`, context)
+        throw e
+      }
+    },
+  })
+  // useTaskStream도 vite식 확장자 없는 import를 쓴다. 위 hook을 건 뒤에야 불러올 수 있어 동적 import다.
+  const { openTaskStream } = await import('../src/shared/composables/useTaskStream.ts')
+  Object.assign(globalThis, { window: globalThis })
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const done = JSON.stringify({ taskId: TASK, seq: 1, type: 'DONE', occurredAt: '2026-10-21T06:01:03Z' })
+
+  const open = (statuses: number[]) => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      const status = statuses[calls++] ?? 200
+      return status === 200
+        ? new Response(`id:1\nevent:DONE\ndata:${done}\n\n`, { status, headers: { 'Content-Type': 'text/event-stream' } })
+        : new Response('upstream', { status })
+    }) as typeof fetch
+    const states: string[] = []
+    const events: string[] = []
+    // 기다리던 상태나 끝 상태(failed·done)가 오면 그 상태로 풀린다. 기대와 달라도 바로 돌아와 테스트가 멈추지 않는다.
+    let next: ((s: string) => void) | null = null
+    const stream = openTaskStream(TASK, {
+      onEvent: (e) => events.push(e.type),
+      onState: (s) => {
+        states.push(s)
+        next?.(s)
+      },
+    })
+    const until = (...wanted: string[]) => {
+      const { promise, resolve } = Promise.withResolvers<string>()
+      next = (s) => {
+        if (wanted.includes(s) || s === 'failed' || s === 'done') resolve(s)
+      }
+      return promise
+    }
+    return { stream, states, events, until, calls: () => calls }
+  }
+
+  const gateway = open([502, 200])
+  assert.equal(await gateway.until('reconnecting'), 'reconnecting') // 502 → 다시 붙을 시각을 잡았다
+  const finished = gateway.until()
+  t.mock.timers.tick(1_000) // 첫 재시도는 1초 뒤
+  assert.equal(await finished, 'done')
+  gateway.stream.close()
+  assert.equal(gateway.calls(), 2)
+  assert.deepEqual(gateway.events, ['DONE'])
+  assert.deepEqual(gateway.states, ['connecting', 'reconnecting', 'reconnecting', 'open', 'done'])
+
+  const missing = open([404])
+  assert.equal(await missing.until(), 'failed')
+  t.mock.timers.tick(10_000) // 다시 붙는 최대 간격이 지나도 더 부르지 않는다
+  missing.stream.close()
+  assert.equal(missing.calls(), 1)
+  assert.deepEqual(missing.states, ['connecting', 'failed'])
+})

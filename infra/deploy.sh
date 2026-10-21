@@ -15,10 +15,11 @@ set -euo pipefail
 env_file=${1:?사용법: bash infra/deploy.sh <env 파일>}
 project=${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME이 필요하다}
 # 옛 컨테이너를 내릴 때 기다리는 최대 시간 (roll의 두 번째 인자).
-# backend: Spring 그레이스풀 종료(30초) + 여유. compose의 backend stop_grace_period와 같다.
+# backend: Spring 그레이스풀 종료(75초, 경로 계산이 60초까지 기다린다) + 여유. compose의 backend stop_grace_period와 같다.
+# 보통은 진행 중 요청이 없어 1~2초에 끝난다.
 # frontend: nginx는 열린 연결(SSE)이 끝날 때까지 기다리며 그동안 새 연결을 받지 않는다. 화면은 끊긴 SSE를 다시 잇고,
 # 새 요청은 edge가 새 컨테이너로 보내므로 짧게 둔다.
-backend_stop=45
+backend_stop=90
 frontend_stop=10
 # nginx(edge·frontend)가 Docker DNS 답을 캐시하는 시간(valid=2s)보다 길게 기다려 새 컨테이너가 보이게 한 뒤 옛 것을 내린다.
 dns_settle=5
@@ -28,9 +29,22 @@ dc() {
   docker compose --env-file "$env_file" "$@"
 }
 
-# 서비스의 실행 중인 컨테이너 ID
+# 서비스의 실행 중인 컨테이너 ID. `docker compose run`으로 띄운 일회용 컨테이너는 뺀다.
 containers() {
-  docker ps -q --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=$1"
+  docker ps -q --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=$1" \
+    --filter "label=com.docker.compose.oneoff=False"
+}
+
+# 지금 설정·이미지 그대로 만든 컨테이너인가 (compose가 다시 만들지 않는 기준과 같다: 설정 해시와 이미지 ID)
+unchanged() {
+  local svc=$1 c=$2 want have img
+  want=$(dc config --hash "$svc" | awk '{print $2}')
+  have=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}}' "$c")
+  if [ -z "$want" ] || [ "$want" != "$have" ]; then
+    return 1
+  fi
+  img=$(docker inspect -f '{{.Config.Image}}' "$c")
+  [ "$(docker image inspect -f '{{.Id}}' "$img" 2>/dev/null)" = "$(docker inspect -f '{{.Image}}' "$c")" ]
 }
 
 state() {
@@ -40,7 +54,7 @@ state() {
 roll() {
   local svc=$1 stop_timeout=$2 old new count status waited=0 stopped
   # 지난 실패로 멈춰 남은 컨테이너는 정리한다 (교체 대상 개수를 틀리게 세지 않게)
-  stopped=$(docker ps -aq --filter "label=com.docker.compose.project=$project" \
+  stopped=$(docker ps -aq --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.oneoff=False" \
     --filter "label=com.docker.compose.service=$svc" --filter status=exited --filter status=created --filter status=dead)
   if [ -n "$stopped" ]; then
     docker rm $stopped >/dev/null
@@ -52,6 +66,11 @@ roll() {
     return
   fi
   count=$(printf '%s\n' "$old" | wc -l | tr -d ' ')
+  # 바뀐 게 없으면 교체하지 않는다 (agent만 바뀐 배포에서 화면 SSE를 끊지 않게)
+  if [ "$count" = 1 ] && unchanged "$svc" "$old"; then
+    echo "$svc: 바뀐 게 없어 그대로 둔다"
+    return
+  fi
   echo "$svc: 새 컨테이너를 하나 더 띄운다 (지금 ${count}개)"
   # --no-recreate: 옛 컨테이너는 그대로 두고 지금 설정·이미지로 하나만 더 만든다
   dc up -d --no-deps --no-recreate --scale "$svc=$((count + 1))" "$svc"

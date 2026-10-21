@@ -73,8 +73,9 @@ services:
       start_period: 60s
       retries: 10
     restart: unless-stopped
-    # 내릴 때 Spring 그레이스풀 종료(진행 중 요청을 30초까지 마침)가 끝나도록 기본 10초보다 길게 둔다. infra/deploy.sh와 같은 값.
-    stop_grace_period: 45s
+    # 내릴 때 Spring 그레이스풀 종료(진행 중 요청을 75초까지 마침. 경로 계산은 60초까지 기다린다)가 끝나도록
+    # 기본 10초보다 길게 둔다. infra/deploy.sh의 backend_stop과 같은 값.
+    stop_grace_period: 90s
 
   agent:
     # 근무조 그래프 (docs/AGENT-GRAPH.md). ai.tasks를 소비해 ai.events를 발행한다. 공개 포트는 없다.

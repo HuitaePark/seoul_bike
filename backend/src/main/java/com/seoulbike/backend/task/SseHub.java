@@ -44,6 +44,8 @@ class SseHub implements SmartLifecycle {
 
 	Subscriber subscribe(UUID taskId, int lastSeq) {
 		Subscriber sub = new Subscriber(taskId, new SseEmitter(STREAM_TIMEOUT_MS), lastSeq, seq -> store.after(taskId, seq));
+		// 종료 중에 들어온 구독: 쌓인 이벤트만 보내고 닫아 화면이 다른 인스턴스에 다시 붙게 한다 (종료를 붙잡지 않게)
+		sub.closeAfterReplay = !running;
 		byTask.computeIfAbsent(taskId, k -> ConcurrentHashMap.newKeySet()).add(sub);
 		Runnable remove = () -> unsubscribe(sub);
 		sub.emitter.onCompletion(remove);
@@ -115,6 +117,7 @@ class SseHub implements SmartLifecycle {
 		private final IntFunction<List<TaskEventStore.StoredEvent>> after;
 		private int lastSeq;
 		private boolean closed;
+		private boolean closeAfterReplay;
 		/** null이면 다시 보내기가 끝났다. 그 전에 온 새 이벤트는 여기에 모은다. */
 		private List<TaskEventStore.StoredEvent> pendingLive = new ArrayList<>();
 
@@ -136,7 +139,7 @@ class SseHub implements SmartLifecycle {
 			List<TaskEventStore.StoredEvent> live = pendingLive;
 			pendingLive = null;
 			live.stream().sorted(Comparator.comparingInt(TaskEventStore.StoredEvent::seq)).forEach(this::write);
-			if (taskFinished) {
+			if (taskFinished || closeAfterReplay) {
 				close();
 			}
 		}
