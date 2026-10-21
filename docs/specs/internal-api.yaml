@@ -1,11 +1,13 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.5.0-draft
+  version: 0.6.0-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
-    **초안 v0.5.** MCP·에이전트 담당 확인 전이다.
+    **초안 v0.6.** MCP·에이전트 담당 확인 전이다.
 
+    - v0.6: 현재 계획 조회·계획 활성화·경로 적용 구현 범위. 승인 하나에 한 번(재시도는 처음 결과), 기준 버전이 바뀐 후보는 409,
+      SUBMIT_PLAN 카드는 `planId`로 활성화할 계획을 가리킨다. 활성화에 404 `PLAN_NOT_FOUND`.
     - v0.5: `get_audit` → `GET /internal/shifts/{shiftId}/audit`, `AuditEvent` (ISS-06).
     - v0.4: 서비스 토큰 규칙, 현장 보고 조회·제약 추가 구현 범위(재시도 시 같은 제약), 400 `INVALID_REQUEST`.
     - v0.3: `FieldReport`에 `loaded`·`unloaded`, `issue` 값 목록. 같은 모양이 `ai.tasks` FIELD_REPORT 명령의 `report`로도 간다.
@@ -118,6 +120,7 @@ paths:
     get:
       operationId: getCurrentPlan
       summary: 현재 계획
+      description: 근무조의 ACTIVE 계획. 없으면 404 `SHIFT_NOT_FOUND`("근무조 …에 활성 계획이 없다").
       parameters:
         - $ref: '#/components/parameters/ShiftId'
       responses:
@@ -172,8 +175,8 @@ paths:
       operationId: getAudit
       summary: 근무조 감사 기록
       description: |
-        승인·거절, 현장 보고, 제약 추가(계획 활성화·경로 적용은 그 API가 생기면) 순서대로. FR-08 질의의 근거, FR-18의 증거다.
-        기록은 append-only라 고치거나 지울 수 없다. 제약 추가의 행위자는 승인한 관리자다.
+        승인·거절, 현장 보고, 제약 추가, 계획 활성화, 경로 적용 순서대로. FR-08 질의의 근거, FR-18의 증거다.
+        기록은 append-only라 고치거나 지울 수 없다. 제약 추가·계획 활성화의 행위자는 승인한 관리자, 경로 적용은 수락한 그 트럭 기사다.
       parameters:
         - $ref: '#/components/parameters/ShiftId'
         - name: since
@@ -248,6 +251,13 @@ paths:
     post:
       operationId: activatePlan
       summary: 계획 활성화 (변경, 관리자 승인 필요)
+      description: |
+        이 작업(`taskId`)의 **SUBMIT_PLAN 카드를 관리자가 승인**했어야 하고, 작업의 근무조가 계획의 근무조여야 하며,
+        카드가 **이 계획을 가리켜야** 한다 (카드의 `planId` 또는 `candidateId`가 `planId`와 같다). 어느 계획인지 적히지 않은
+        카드도 403 `APPROVAL_REQUIRED`다.
+        활성화할 수 있는 것은 DRAFT·PROPOSED 계획이다. version은 그대로이고, 이전 ACTIVE는 CLOSED가 된다. 감사 기록 `PLAN_ACTIVATED`.
+        **같은 `approvalId`로 다시 부르면 처음 활성화한 계획을 그대로 돌려준다** (기록을 더하지 않는다). 이미 다른 변경에 쓴 승인이면 409 `APPROVAL_ALREADY_USED`.
+        409: 이미 다른 승인으로 ACTIVE(`PLAN_ALREADY_ACTIVE`), CLOSED·REJECTED이거나 후보를 계산한 뒤 활성 계획이 바뀜(`PLAN_SUPERSEDED`, 새 후보를 받는다).
       parameters:
         - name: planId
           in: path
@@ -260,11 +270,16 @@ paths:
             schema: { $ref: '#/components/schemas/ApprovedChange' }
       responses:
         '200':
-          description: 활성화된 계획
+          description: 활성화된 계획 (재시도면 처음 활성화한 계획)
           content:
             application/json:
               schema: { $ref: 'openapi.yaml#/components/schemas/Plan' }
         '403': { $ref: '#/components/responses/ApprovalRequired' }
+        '404':
+          description: 없는 계획 (PLAN_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ToolProblem' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /internal/routes/{truckId}/apply:
@@ -274,7 +289,13 @@ paths:
       description: |
         `approvalId`는 이 후보의 마지막 카드(기사 수락)다. backend는 같은 작업에서 이 후보(`candidateId`)의
         `requiredApprovers`가 순서대로 모두 APPROVED인지 확인하고, 하나라도 없으면 403을 돌려준다.
-        기사 승인은 이 트럭 기사의 것이어야 한다. 등급이 NONE이면 바꿀 것이 없어 호출하지 않는다.
+        기사 승인은 이 트럭 기사의 것이어야 한다. 등급이 NONE이면 바꿀 것이 없어 호출하지 않는다 (부르면 409 `NOTHING_TO_APPLY`).
+        등급은 카드 값을 믿지 않고 후보 전체를 지금 활성 계획과 비교해 다시 계산한다.
+        적용하면 활성 계획을 복사해 **이 트럭 경로만** 후보의 것으로 바꾼 새 version(가장 큰 version + 1)이 ACTIVE가 되고,
+        이전 ACTIVE는 CLOSED가 된다. 감사 기록 `ROUTE_CHANGED`(행위자는 수락한 기사).
+        **같은 `approvalId`로 같은 트럭·후보를 다시 부르면 처음 적용한 경로를 돌려준다.** 다른 트럭·후보면 409 `APPROVAL_ALREADY_USED`.
+        409: 후보가 없거나 PROPOSED가 아님·이 트럭 경로가 없음, 활성 계획이 없음(`NO_ACTIVE_PLAN`),
+        **후보를 계산한 뒤 활성 계획이 바뀜(`STALE_CANDIDATE`, `request_route_plan`으로 새 후보를 받아 다시 승인을 받는다)**.
       parameters:
         - name: truckId
           in: path
@@ -293,7 +314,7 @@ paths:
                     candidateId: { type: string }
       responses:
         '200':
-          description: 적용된 경로
+          description: 적용된 경로 (재시도면 처음 적용한 경로)
           content:
             application/json:
               schema: { $ref: 'openapi.yaml#/components/schemas/Route' }

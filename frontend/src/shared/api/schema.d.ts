@@ -258,7 +258,8 @@ export interface paths {
         };
         /**
          * 기사 본인 트럭의 오늘 경로
-         * @description DRIVER만. 다른 트럭 경로는 볼 수 없다.
+         * @description DRIVER만. 다른 트럭 경로는 볼 수 없다 (트럭은 토큰에서 꺼낸다).
+         *     이 트럭이 들어 있는 ACTIVE 계획 중 가장 늦게 활성화된 것의 경로다. 없으면 404.
          */
         get: operations["getMyRoute"];
         put?: never;
@@ -502,6 +503,7 @@ export interface components {
             /** @description 승인 카드 제목 */
             summary: string;
             reasons?: string[];
+            /** @description SUBMIT_PLAN만. 활성화할 계획. 없거나 다른 계획이면 활성화 API가 403으로 막는다 */
             planId?: string | null;
             diff?: components["schemas"]["RouteDiff"] | null;
         };
@@ -1120,7 +1122,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 가장 최근 버전의 계획 */
+            /** @description 가장 최근 버전의 계획 (상태와 상관없이. 승인을 기다리는 후보일 수 있다) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1153,6 +1155,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description 오늘 경로가 없다 (NOT_FOUND) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     createFieldReport: {

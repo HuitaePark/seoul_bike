@@ -21,8 +21,9 @@ class ApprovalRepository {
 		PENDING, APPROVED, REJECTED, SUPERSEDED
 	}
 
+	/** @param planId 카드(계약 ApprovalRequest)의 planId. SUBMIT_PLAN이 활성화할 계획이다 */
 	record Approval(UUID approvalId, UUID taskId, String kind, Role approverRole, String truckId, String candidateId,
-			Status status, Instant decidedAt, String decidedBy) {
+			String planId, Status status, Instant decidedAt, String decidedBy) {
 
 		/** 계획·제약은 관리자, 경로 변경은 그 트럭의 기사만 결정한다. */
 		boolean canBeDecidedBy(CurrentUser user) {
@@ -38,7 +39,8 @@ class ApprovalRepository {
 			String candidateId, String grade, String requestJson) {
 	}
 
-	private static final String COLUMNS = "approval_id, task_id, kind, approver_role, truck_id, candidate_id, status, decided_at, decided_by";
+	private static final String COLUMNS = "approval_id, task_id, kind, approver_role, truck_id, candidate_id, "
+			+ "request ->> 'planId' as plan_id, status, decided_at, decided_by";
 
 	private final JdbcClient jdbc;
 
@@ -120,7 +122,7 @@ class ApprovalRepository {
 		OffsetDateTime decidedAt = rs.getObject("decided_at", OffsetDateTime.class);
 		return new Approval(rs.getObject("approval_id", UUID.class), rs.getObject("task_id", UUID.class),
 				rs.getString("kind"), Role.valueOf(rs.getString("approver_role")), rs.getString("truck_id"),
-				rs.getString("candidate_id"), Status.valueOf(rs.getString("status")),
+				rs.getString("candidate_id"), rs.getString("plan_id"), Status.valueOf(rs.getString("status")),
 				decidedAt == null ? null : decidedAt.toInstant(), rs.getString("decided_by"));
 	}
 }
