@@ -20,12 +20,17 @@ BACKEND_URL=https://baki-macbookpro.tail3286a4.ts.net npm run dev   # 배포 서
 | `src/shared/composables/useTaskStream.ts` | `useTaskStream(taskIdRef)` → `answer`, `activeTool`, `pendingApproval`, `sources`, `error`, `state`. 끊기면 `Last-Event-ID`로 다시 붙는다 |
 | `src/features/task-console/` | 관제 작업 화면 (1): 작업 만들기 → 진행 이벤트 로그 → 승인 카드 → 근거 |
 | `src/features/approval/` | 승인 카드 (1). 기사 화면도 `<ApprovalCard :card :error @decide>`로 쓴다. 버튼은 늘 보이고, 승인 주체가 아니면 backend의 403 `NOT_APPROVER`를 `error`로 보여 준다 |
+| `src/features/dashboard/` | 관제 대시보드 (`/dashboard`, MANAGER 첫 화면): KPI, 위험 거점 지도(SVG 개략도), 대기 중 변경안, 거점 근거, 트럭별 경로, 포기 거점, 질의. **더미 데이터** |
+| `src/features/driver/` | 기사 앱 (`/driver`, DRIVER 첫 화면, 모바일 틀): 다음 정류장, 길안내, 수량 +/- 보고 시트, 현장 사정, 변경 제안(운행 중엔 배지만). **더미 데이터** |
+| `src/features/report/` | 성과 리포트 (`/report`, EXECUTIVE 첫 화면): 날짜별 정책 4종 지표 비교. **더미 데이터** |
+| `src/shared/dummy.ts` | 대시보드·기사 앱이 같이 쓰는 더미 근무조 (계약 타입 그대로). API를 붙이면 지운다 |
 
 ## 규칙
 
 - 화면은 backend `/api/**`만 호출한다. AI 서버 주소를 쓰지 않는다 (과제 금지 사항).
 - 권한 판단은 backend가 한다. 화면은 역할에 따라 **보여줄 것만** 고르고, 403은 메시지로 보여준다.
-- 새 화면은 `src/router.ts`에 경로를 추가한다. 로그인이 필요 없는 화면만 `meta: { public: true }`.
+- 새 화면은 `src/router.ts`에 경로를 추가한다. 로그인이 필요 없는 화면만 `meta: { public: true }`. 상단 바 없이 모바일 틀을 쓰는 화면은 `meta: { layout: 'mobile' }`.
+- `/`는 역할별 첫 화면으로 보낸다 (관리자 `/dashboard`, 기사 `/driver`, 책임자 `/report`). 작업 콘솔은 `/console`.
 
 ## 시연 계정
 
