@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import tempfile
 
+from .contract import FAILURE_CODES, UNSERVED_REASONS
+
 
 def canonical(value) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
@@ -27,6 +29,10 @@ def request_fingerprint(payload: dict) -> str:
 
 class JournalError(RuntimeError):
     pass
+
+
+class RequestConflict(JournalError):
+    """A valid saved identity was reused with different request content."""
 
 
 class FileJournal:
@@ -104,8 +110,12 @@ class FileJournal:
         event_path = self._path("event", payload["eventId"].lower())
         event = {"version": 1, "requestId": payload["requestId"], "fingerprint": digest(payload)}
         previous = self._read(event_path)
-        if previous is not None and previous != event:
-            raise JournalError("eventId was reused with different content")
+        if previous is not None:
+            if (set(previous) != set(event) or not isinstance(previous.get("requestId"), str)
+                    or not self._fingerprint(previous.get("fingerprint"))):
+                raise JournalError("invalid saved event; restore journal state")
+            if previous != event:
+                raise RequestConflict("eventId was reused with different content")
         record = self._read(self._path("request", payload["requestId"]))
         if record is not None:
             self._validate(record, payload)
@@ -114,18 +124,28 @@ class FileJournal:
         return record
 
     @staticmethod
+    def _fingerprint(value):
+        return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+    @staticmethod
     def _validate(record: dict, payload: dict) -> None:
         result = record.get("result")
-        if (record.get("fingerprint") != request_fingerprint(payload)
-                or record.get("requestId") != payload["requestId"]):
-            raise JournalError("requestId was reused with different calculation input")
-        if (record.get("state") not in ("prepared", "published") or not isinstance(result, dict)
+        if (not FileJournal._fingerprint(record.get("fingerprint"))
+                or record.get("requestId") != payload["requestId"]
+                or record.get("state") not in ("prepared", "published") or not isinstance(result, dict)
                 or record.get("resultHash") != digest(result)
                 or result.get("requestId") != payload["requestId"]
-                or result.get("shiftId") != payload["shiftId"]
+                or not isinstance(result.get("shiftId"), str)
                 or result.get("status") not in ("OK", "TIMEOUT", "FAILED")
                 or not isinstance(record.get("headers"), list)):
             raise JournalError("invalid saved result; do not recalculate after losing state")
+        if (result["status"] in ("FAILED", "TIMEOUT")
+                and (result.get("code") not in FAILURE_CODES or type(result.get("retryable")) is not bool
+                     or not isinstance(result.get("error"), str))):
+            raise JournalError("saved failure result does not match the current contract")
+        if any(not isinstance(item, dict) or item.get("reason") not in UNSERVED_REASONS
+               for item in result.get("unserved", [])):
+            raise JournalError("saved unserved reasons do not match the current contract")
         try:
             for key, value in record["headers"]:
                 if key != "traceparent":
@@ -133,6 +153,11 @@ class FileJournal:
                 base64.b64decode(value, validate=True)
         except (ValueError, TypeError) as error:
             raise JournalError("invalid saved trace headers") from error
+
+        if record["fingerprint"] != request_fingerprint(payload):
+            raise RequestConflict("requestId was reused with different calculation input")
+        if result["shiftId"] != payload["shiftId"]:
+            raise JournalError("invalid saved result shiftId")
 
     def prepare(self, payload: dict, result: dict, headers: list[tuple[str, bytes]]) -> dict:
         record = {"version": 1, "requestId": payload["requestId"],

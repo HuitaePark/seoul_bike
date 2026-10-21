@@ -3,6 +3,7 @@
 붙일 API: GET /api/regions/{regionId}/stations, GET /api/shifts/{shiftId}/plan, 작업 SSE의 APPROVAL_REQUIRED.
 -->
 <script setup lang="ts">
+import { reasonText } from '../plan-map/model'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Schemas } from '../../shared/api/client'
@@ -224,7 +225,7 @@ function ask() {
         </div>
         <div v-else-if="unservedOf" class="plan-note dropped">
           <strong>이번 계획에서 빠짐 · 우선순위 {{ unservedOf.priority.toFixed(2) }}</strong>
-          <span>{{ unservedOf.reason }}</span>
+          <span>{{ reasonText(unservedOf.reason) }}</span>
         </div>
         <p v-else class="muted">이번 계획에 들어가지 않았다</p>
       </section>
@@ -276,7 +277,7 @@ function ask() {
           <li v-for="u in plan.unserved" :key="u.stationId" tabindex="0" @click="selected = u.stationId" @keydown.enter="selected = u.stationId">
             <div>
               <strong>{{ u.stationName }}</strong>
-              <span class="hint">{{ u.reason }}</span>
+              <span class="hint">{{ reasonText(u.reason) }}</span>
             </div>
             <span class="prio">{{ u.priority.toFixed(2) }}</span>
           </li>

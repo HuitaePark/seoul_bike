@@ -577,7 +577,14 @@ export interface components {
             stationId: string;
             stationName?: string;
             priority: number;
-            reason: string;
+            /**
+             * @description 화면은 이 값을 문장으로 바꿔 보여 준다.
+             *     BLOCKED: 방문하지 않기로 한 대여소 (관리자 제외·현장 차단) / NO_TRUCKS: 쓸 수 있는 트럭이 없음 /
+             *     CAPACITY_EXCEEDED: 트럭 용량보다 큰 작업 / NOT_SELECTED: 시간·적재량 안에서 우선순위에 밀림 (원인을 하나로 단정하지 않는다) /
+             *     NO_SOLUTION: 해를 찾지 못함
+             * @enum {string}
+             */
+            reason: "BLOCKED" | "NO_TRUCKS" | "CAPACITY_EXCEEDED" | "NOT_SELECTED" | "NO_SOLUTION";
         };
         Plan: {
             planId: string;

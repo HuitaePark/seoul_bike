@@ -96,8 +96,8 @@ export const DUMMY_PLAN: Plan = {
     },
   ],
   unserved: [
-    { stationId: 'ST-563', stationName: '강변역 4번출구', priority: 0.41, reason: '트럭 적재량 부족 (truck-2 만차)' },
-    { stationId: 'ST-555', stationName: '군자역 5번출구', priority: 0.36, reason: '근무조 시간 한계 (도착 08:55 > 08:30)' },
+    { stationId: 'ST-563', stationName: '강변역 4번출구', priority: 0.41, reason: 'NOT_SELECTED' },
+    { stationId: 'ST-555', stationName: '군자역 5번출구', priority: 0.36, reason: 'NOT_SELECTED' },
   ],
 }
 

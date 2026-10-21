@@ -1,0 +1,77 @@
+--- a/or-tools/rebalancing/planner.py
++++ b/or-tools/rebalancing/planner.py
+@@ -2,0 +3,2 @@
++
++from time import perf_counter
+@@ -23,0 +26 @@
++    timings: dict[str, float] | None = None,
+@@ -32,0 +36,12 @@
++    if timings is not None:
++        timings.clear()
++        timings.update(prepare_problem=0.0, build_model=0.0, search=0.0, extract_plan=0.0)
++    last_checkpoint = perf_counter() if timings is not None else 0.0
++
++    def checkpoint(stage):
++        nonlocal last_checkpoint
++        if timings is not None:
++            now = perf_counter()
++            timings[stage] = now - last_checkpoint
++            last_checkpoint = now
++
+@@ -40,0 +56,7 @@
++    checkpoint("prepare_problem")
++
++    def finish(routes, served, *, no_solution=False):
++        plan = problem.plan(routes, served, "ortools", no_solution=no_solution)
++        checkpoint("extract_plan")
++        return plan
++
+@@ -42 +64 @@
+-        return problem.plan([], set(), "ortools")
++        return finish([], set())
+@@ -87,0 +110 @@
++    checkpoint("build_model")
+@@ -88,0 +112 @@
++    checkpoint("search")
+@@ -90 +114 @@
+-        return problem.plan([], set(), "ortools", no_solution=True)
++        return finish([], set(), no_solution=True)
+@@ -115 +139 @@
+-    return problem.plan(routes, served, "ortools")
++    return finish(routes, served)
+--- a/or-tools/rebalancing/benchmark.py
++++ b/or-tools/rebalancing/benchmark.py
+@@ -54 +54 @@
+-    def solve(self, travel):
++    def solve(self, travel, *, timings=None):
+@@ -57 +57 @@
+-                           blocked_station_ids=self.blocked)
++                           blocked_station_ids=self.blocked, timings=timings)
+@@ -111 +111 @@
+-def measure(case, provider, *, repeats, cache_mode, namespace):
++def measure(case, provider, *, repeats, cache_mode, namespace, profile_stages=False):
+@@ -119,0 +120 @@
++    stages = {name: [] for name in ("prepare_problem", "build_model", "search", "extract_plan")}
+@@ -128 +129,2 @@
+-        plan = case.solve(travel)
++        timings = {} if profile_stages else None
++        plan = case.solve(travel, timings=timings)
+@@ -129,0 +132,3 @@
++        if timings is not None:
++            for name in stages:
++                stages[name].append(timings[name])
+@@ -139 +144 @@
+-    return {"elapsed_s": elapsed, "median_s": median(elapsed), "p95_s": summarize(elapsed)["p95_s"],
++    report = {"elapsed_s": elapsed, "median_s": median(elapsed), "p95_s": summarize(elapsed)["p95_s"],
+@@ -146,0 +152,3 @@
++    if profile_stages:
++        report["stages"] = {name: summarize(samples) for name, samples in stages.items()}
++    return report
+@@ -159,0 +168 @@
++    cli.add_argument("--profile-stages", action="store_true", help="record prepare/model/search/extract samples")
+@@ -194,0 +204 @@
++              "profile_stages": args.profile_stages,
+@@ -201 +211,2 @@
+-    results = {mode: measure(case, provider, repeats=args.repeats, cache_mode=mode, namespace=namespace) for mode in modes}
++    results = {mode: measure(case, provider, repeats=args.repeats, cache_mode=mode, namespace=namespace,
++                             profile_stages=args.profile_stages) for mode in modes}

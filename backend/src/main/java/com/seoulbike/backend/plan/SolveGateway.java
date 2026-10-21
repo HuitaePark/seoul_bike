@@ -70,7 +70,7 @@ public class SolveGateway {
 	/**
 	 * 경로를 계산한다. 결과가 올 때까지(최대 app.solve.timeout) 이 스레드가 기다린다.
 	 *
-	 * @param inputs 계약 SolveRequest 중 봉투 밖의 필드 (stations, trucks, blockedStationIds, params)
+	 * @param inputs 계약 SolveRequest 중 봉투 밖의 필드 (depot, asOf, stations, trucks, blockedStationIds, params)
 	 * @param taskId 요청한 작업. 없으면 null. 현장 보고 작업이면 변경 등급을 FIELD_REPORT 기준으로 매긴다
 	 * @throws ApiException 503 QUEUE_UNAVAILABLE: 브로커가 요청을 받았다고 확인하지 않았다
 	 */
@@ -111,7 +111,7 @@ public class SolveGateway {
 		catch (TimeoutException e) {
 			// 결과 처리가 바로 앞에서 자리를 가져갔으면 곧 완료된다. 그 결과를 쓴다.
 			if (pending.remove(requestId, result)) {
-				return new SolveOutcome(SolveOutcome.Status.TIMED_OUT, requestId, null, null);
+				return new SolveOutcome(SolveOutcome.Status.TIMED_OUT, requestId, null, null, false, null);
 			}
 			answer = result.join();
 		}
@@ -126,9 +126,11 @@ public class SolveGateway {
 
 		String status = answer.path("status").asString();
 		if (!"OK".equals(status)) {
-			return new SolveOutcome(SolveOutcome.Status.valueOf(status), requestId, null, answer.path("error").asString(null));
+			return new SolveOutcome(SolveOutcome.Status.valueOf(status), requestId, null, answer.path("code").asString(null),
+					answer.path("retryable").asBoolean(false), answer.path("error").asString(null));
 		}
-		return new SolveOutcome(SolveOutcome.Status.OK, requestId, candidates.create(shiftId, requestId, taskId, answer), null);
+		return new SolveOutcome(SolveOutcome.Status.OK, requestId, candidates.create(shiftId, requestId, taskId, answer),
+				null, false, null);
 	}
 
 	/** 결과 저장이 커밋된 뒤 SolveResultConsumer가 부른다. 기다리는 요청이 없으면(시간 초과) 저장만 하고 끝난다. */

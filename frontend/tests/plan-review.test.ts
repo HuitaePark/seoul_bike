@@ -22,7 +22,7 @@ test('시각은 브라우저 시간대와 관계없이 한국 시간으로 표�
   assert.equal(timeText(null), '미제공')
 })
 test('미처리 원인은 제공된 코드의 의미만 설명한다', () => {
-  assert.match(reasonText('not_selected'), /단정할 수 없습니다/)
+  assert.match(reasonText('NOT_SELECTED'), /단정할 수 없습니다/)
   assert.equal(reasonText('future_reason'), 'future_reason')
 })
 test('동일 근무조·계획의 관리자 승인 카드만 결정할 수 있다', () => {
