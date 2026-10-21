@@ -6,6 +6,7 @@ import RegionPicker from '../../shared/region/RegionPicker.vue'
 import { makeShiftId, SHIFT_SLOTS, todayInSeoul, type ShiftSlot } from '../../shared/region/regions'
 import ApprovalCard from '../approval/ApprovalCard.vue'
 import type { ApprovalDecision } from '../approval/approval'
+import EvidencePanel from '../evidence/EvidencePanel.vue' // 유은님 추가 사항
 
 // 관제 작업 화면 (ROLES 1): 요청 입력, 작업 목록, 진행 이벤트 로그, 승인 카드.
 // agent가 붙어 있으면 근무조 그래프가, 없으면 backend의 가짜 에이전트(FAKE_AGENT_ENABLED)가 답한다.
@@ -156,12 +157,13 @@ const statusLabel: Record<Schemas['TaskStatus'], string> = {
         />
 
         <p v-if="stream.error.value" class="error">{{ stream.error.value }}</p>
-        <div v-if="stream.sources.value.length" class="sources">
+        <!-- <div v-if="stream.sources.value.length" class="sources">
           <h3>근거</h3>
           <ul>
             <li v-for="s in stream.sources.value" :key="s.title">{{ s.title }} <span class="muted">{{ s.uri }}</span></li>
           </ul>
-        </div>
+        </div> -->
+        <EvidencePanel v-if="stream.state.value === 'done'" :sources="stream.sources.value" />
 
         <details v-if="log.length" class="log" open>
           <summary>진행 이벤트 {{ log.length }}건</summary>
