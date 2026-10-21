@@ -141,13 +141,18 @@ class SecurityConfig {
 
 	/**
 	 * 토큰이 아직 살아 있어도 계정이 ACTIVE가 아니면(비활성화, 삭제) 바로 막는다. 토큰 만료(최대 12시간)를 기다리지 않는다.
+	 * 토큰 버전(tv)이 계정과 다르면 비활성화 전에 받은 토큰이라 다시 열린 계정이어도 막는다. tv가 없는 토큰은 0으로 본다.
 	 * 요청마다 기본 키 조회 한 번이다. 이미 열린 SSE 연결은 끊지 않는다 (작업이 끝나면 닫힌다).
 	 */
 	private static Converter<Jwt, AbstractAuthenticationToken> activeAccountsOnly(UserRepository users) {
 		JwtAuthenticationConverter roles = roleConverter();
 		return jwt -> {
-			if (users.statusOf(jwt.getSubject()).filter(AccountStatus.ACTIVE::equals).isEmpty()) {
-				throw new DisabledException("계정이 활성 상태가 아니다");
+			Number claimed = jwt.getClaim(CurrentUser.CLAIM_TOKEN_VERSION);
+			int version = claimed == null ? 0 : claimed.intValue();
+			if (users.tokenStateOf(jwt.getSubject())
+				.filter(s -> s.status() == AccountStatus.ACTIVE && s.tokenVersion() == version)
+				.isEmpty()) {
+				throw new DisabledException("계정이 활성 상태가 아니거나 비활성화 전에 받은 토큰이다");
 			}
 			return roles.convert(jwt);
 		};

@@ -76,8 +76,9 @@ class AccountService {
 	}
 
 	/**
-	 * 비활성 계정을 다시 연다. 역할·트럭은 그대로라 트럭 없는 기사(트럭을 정하기 전에 거절한 가입 신청)는 열지 않는다.
-	 * 승인 없이 PENDING을 ACTIVE로 바꾸는 길이 되지 않게 DISABLED일 때만 바꾼다.
+	 * 비활성 계정을 다시 연다. 역할·트럭은 비활성화 전 그대로다.
+	 * 승인된 적 있는 계정만 연다: 가입 거절도 DISABLED로 남는데, 그걸 열면 신청 때 고른 역할(관리자 포함)로
+	 * 승인 단계 없이 ACTIVE가 된다. 비활성화 전에 받은 토큰은 토큰 버전이 달라 다시 열어도 쓰지 못한다.
 	 */
 	@Transactional
 	Account enable(String userId) {
@@ -85,9 +86,9 @@ class AccountService {
 		if (user.status() != AccountStatus.DISABLED) {
 			throw ApiException.conflict("ACCOUNT_NOT_DISABLED", "비활성 상태가 아니다 (현재 " + user.status() + ")");
 		}
-		if (user.role() == Role.DRIVER && (user.truckId() == null || user.truckId().isBlank())) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "TRUCK_REQUIRED",
-					"트럭이 정해지지 않은 기사 계정이라 다시 열 수 없다 (트럭을 정하기 전에 거절한 가입 신청). 다시 가입을 받거나 새로 발급한다");
+		if (user.approvedAt() == null) {
+			throw ApiException.conflict("SIGNUP_REJECTED",
+					"승인된 적 없는 계정(거절한 가입 신청)이라 다시 열 수 없다. 다시 가입을 받거나 새로 발급한다");
 		}
 		if (!users.enable(userId)) {
 			throw ApiException.conflict("ACCOUNT_NOT_DISABLED", "비활성 상태가 아니다");
