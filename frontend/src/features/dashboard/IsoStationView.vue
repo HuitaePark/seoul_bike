@@ -7,10 +7,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import type { Schemas } from '../../shared/api/client'
-import type { TruckLive } from '../../shared/dummy'
 import { isoProjector, riskShades } from './iso'
-import type { RoutePreview } from './route-view'
-import { legOf, markText, previewMarks, splitAtTruck } from './route-view'
+import type { RoutePreview, TruckLive } from './route-view'
+import { legOf, markText, placed, previewMarks, splitAtTruck } from './route-view'
 
 const props = defineProps<{
   stations: Schemas['StationStatus'][]
@@ -102,8 +101,9 @@ const buildings = computed(() => {
   return out
 })
 
+// 위치를 아는(정류장을 하나라도 마친) 트럭만 놓는다
 const trucks = computed(() =>
-  props.trucks.map((t) => {
+  props.trucks.filter(placed).map((t) => {
     const g = grid(t.lat, t.lon)
     return {
       ...t,

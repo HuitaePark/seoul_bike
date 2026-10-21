@@ -1,17 +1,12 @@
-// 더미 데이터. backend API(/api/regions/{regionId}/stations, /api/shifts/{shiftId}/plan, /api/drivers/me/route)가
-// 붙기 전까지 화면 모양을 잡는 용도다. 타입은 계약(openapi)과 같게 둬서 나중에 api 호출로 바꾸기만 하면 된다.
-// 관제 대시보드와 기사 앱이 같은 근무조를 보도록 한 곳에 둔다.
+// 관제 대시보드·기사 앱 e2e 고정 자료. 예전 화면 더미(src/shared/dummy.ts)와 기사 앱의 변경 제안 더미를 옮겼다:
+// 화면은 이제 실제 API를 읽으므로 배치·상호작용 시험은 page.route로 이 자료를 돌려준다. 대여소 ID·이름은 가상이다 (실제 N02 대여소가 아니다).
 
-import type { Schemas } from './api/client'
-import { todayInSeoul } from './region/regions.ts'
+import type { Page } from '@playwright/test'
+import type { Schemas } from '../../../src/shared/api/client'
 
 type StationStatus = Schemas['StationStatus']
 type Plan = Schemas['Plan']
-
-// 가짜 MCP(business-mcp fake)가 아는 근무조와 같아야 업무 도구가 동작한다: N02, 오늘(서울 날짜), 오전.
-export const DUMMY_REGION = { id: 'N02', name: '강북-02 (광진·성동)' }
-const today = todayInSeoul()
-export const DUMMY_SHIFT_ID = `${DUMMY_REGION.id}:${today}:AM`
+type Task = Schemas['Task']
 
 const observedAt = new Date().toISOString()
 function st(
@@ -29,7 +24,7 @@ function st(
   return { stationId, name, lat, lon, docks, bikes, forecastBikes, risk, role, elevationM, observedAt }
 }
 
-export const DUMMY_STATIONS: StationStatus[] = [
+export const STATIONS: StationStatus[] = [
   st('ST-502', '뚝섬역 1번출구', 37.5473, 127.0473, 20, 2, 0, 'EMPTY', 'FIXED_DROPOFF', 18),
   st('ST-503', '성수역 3번출구', 37.5446, 127.0557, 25, 1, 0, 'EMPTY', 'FIXED_DROPOFF', 16),
   st('ST-511', '서울숲 정문', 37.5444, 127.0374, 30, 28, 34, 'OVERFLOW', 'FIXED_PICKUP', 12),
@@ -56,9 +51,9 @@ const at = (h: number, m: number) => {
   return d.toISOString()
 }
 
-export const DUMMY_PLAN: Plan = {
+const PLAN: Plan = {
   planId: 'plan-am-v3',
-  shiftId: DUMMY_SHIFT_ID,
+  shiftId: '',
   version: 3,
   status: 'ACTIVE',
   explanation: '출근 시간 성수·건대 역세권 빈 대여소 5곳을 먼저 채우고, 서울숲·어린이대공원 과적재분으로 충당한다.',
@@ -103,20 +98,71 @@ export const DUMMY_PLAN: Plan = {
   ],
 }
 
-/** 트럭 실시간 상태 (FR-06). 계약에 아직 없다. */
-export type TruckLive = {
-  truckId: string
-  driver: string
-  lat: number
-  lon: number
-  load: number
-  capacity: number
-  moving: boolean
-  updatedSec: number
+/** 요청한 근무조의 계획 (화면은 다른 근무조 계획을 버린다) */
+export const planFor = (shiftId: string): Plan => ({ ...structuredClone(PLAN), shiftId })
+
+const shiftOf = (url: string) => decodeURIComponent(new URL(url).pathname.split('/')[3]!)
+const DRIVER_SHIFT = 'N02:2026-10-21:AM'
+
+/** 재경로 작업이 기다리는 TR-04 기사 카드 (작은 변경, 기사 수락 한 장) */
+const DRIVER_TASK: Task = {
+  taskId: '00000000-0000-4000-8000-000000000301',
+  type: 'FIELD_REPORT',
+  status: 'WAITING_APPROVAL',
+  shiftId: DRIVER_SHIFT,
+  createdBy: 'fixture-driver2',
+  createdAt: observedAt,
+  updatedAt: observedAt,
+  pendingApproval: {
+    approvalId: '00000000-0000-4000-8000-000000000201',
+    kind: 'ROUTE_CHANGE',
+    approver: 'DRIVER',
+    grade: 'MINOR',
+    requiredApprovers: ['DRIVER'],
+    truckId: 'TR-04',
+    summary: '구의역 1번출구 보충을 2대 늘리고 자양사거리 회수는 2대 줄임',
+    reasons: ['구의역 1번출구 실제 재고 0대 보고 (앱 2대)', '소요 시간 +2분, 같은 트럭 안의 변경이라 작은 변경'],
+    diff: {
+      truckId: 'TR-04',
+      addedMinutes: 2,
+      before: [
+        { seq: 3, stationId: 'ST-570', action: 'PICKUP', bikes: 5 },
+        { seq: 4, stationId: 'ST-561', action: 'DROPOFF', bikes: 9 },
+      ],
+      after: [
+        { seq: 3, stationId: 'ST-570', action: 'PICKUP', bikes: 3 },
+        { seq: 4, stationId: 'ST-561', action: 'DROPOFF', bikes: 11 },
+      ],
+    },
+  },
 }
 
-export const DUMMY_TRUCKS: TruckLive[] = [
-  { truckId: 'TR-03', driver: '김기사', lat: 37.5458, lon: 127.0518, load: 7, capacity: 15, moving: true, updatedSec: 3 },
-  { truckId: 'TR-04', driver: '이기사', lat: 37.5440, lon: 127.0720, load: 12, capacity: 15, moving: true, updatedSec: 2 },
-  { truckId: 'TR-05', driver: '박기사', lat: 37.5612, lon: 127.0371, load: 0, capacity: 15, moving: false, updatedSec: 4 },
-]
+/**
+ * 관제 대시보드: GET /api/regions/{regionId}/stations, GET /api/shifts/{shiftId}/plan,
+ * GET /api/shifts/{shiftId}/safety(무승인 0건)를 고정 자료로 답한다.
+ */
+export async function mockBoard(page: Page) {
+  await page.route('**/api/regions/*/stations?**', (route) => route.fulfill({ json: STATIONS }))
+  await page.route('**/api/shifts/*/plan', (route) => route.fulfill({ json: planFor(shiftOf(route.request().url())) }))
+  await page.route('**/api/shifts/*/safety', (route) =>
+    route.fulfill({ json: { shiftId: shiftOf(route.request().url()), approvedChanges: 3, unapprovedChanges: 0 } }))
+}
+
+/** 기사 앱(TR-04): 오늘 경로(DriverRoute), 구역 대여소, 승인 대기 작업(기사 카드 한 장), 보고·결정을 답한다. 보낸 몸통을 돌려준다. */
+export async function mockDriver(page: Page) {
+  const sent: { path: string; body: unknown }[] = []
+  await page.route('**/api/drivers/me/route', (route) =>
+    route.fulfill({ json: { ...PLAN.routes.find((r) => r.truckId === 'TR-04'), shiftId: DRIVER_SHIFT } }))
+  await page.route('**/api/regions/*/stations?**', (route) => route.fulfill({ json: STATIONS }))
+  await page.route('**/api/ai/tasks?**', (route) =>
+    route.fulfill({ json: { items: sent.some((s) => s.path.endsWith('/approval')) ? [] : [DRIVER_TASK], page: 0, size: 50, total: 1 } }))
+  await page.route('**/api/reports', (route) => {
+    sent.push({ path: '/api/reports', body: route.request().postDataJSON() })
+    return route.fulfill({ status: 202, json: { reportId: 'r-1', taskId: null } })
+  })
+  await page.route('**/api/ai/tasks/*/approval', (route) => {
+    sent.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() })
+    return route.fulfill({ status: 202, json: {} })
+  })
+  return sent
+}
