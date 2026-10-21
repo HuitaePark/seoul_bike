@@ -43,3 +43,9 @@ export const makeShiftId = (regionId: string, date: string, slot: ShiftSlot) => 
 export function todayInSeoul(now = new Date()): string {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(now)
 }
+
+/** 지금(서울 시각) 하고 있거나 다음에 올 시간대. 오후 근무 시작(13시) 전은 오전, 저녁 근무 시작(19시) 전은 오후. */
+export function slotAt(now = new Date()): ShiftSlot {
+  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hourCycle: 'h23' }).format(now))
+  return hour < 13 ? 'AM' : hour < 19 ? 'PM' : 'EVE'
+}
