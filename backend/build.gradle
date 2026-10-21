@@ -21,7 +21,7 @@ repositories {
 // 다음 Boot 4.1.x가 이 버전 이상을 관리하면 지운다.
 ext['tomcat.version'] = '11.0.27'          // CVE-2026-65905, CVE-2026-65182, CVE-2026-68525
 ext['jackson-bom.version'] = '3.1.8'       // CVE-2026-89425, CVE-2026-89407, CVE-2026-91777 외
-ext['jackson-2-bom.version'] = '2.21.8'    // 테스트 전용(Testcontainers) 경로, 같은 CVE
+ext['jackson-2-bom.version'] = '2.21.8'    // 테스트 전용(spring-kafka-test의 임베디드 Kafka) 경로, 같은 CVE
 
 springBoot {
 	// /api/system/status가 버전과 빌드 시각을 보여주도록 META-INF/build-info.properties를 만든다.
