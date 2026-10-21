@@ -5,8 +5,8 @@
 main에는 backend의 SolveGateway·SolveResultConsumer와 운영 Compose의 optimizer 서비스가 구현됐다.
 [PR #46](https://github.com/HuitaePark/skala_seoul_bike/pull/46)의 로컬 전체 스택 기록에서 healthy·6파티션 구독,
 예시 요청→결과, 재시작 뒤 중복 결과 미발행을 확인했다. 이 문서의 명령은 별도 개발 환경용이다.
-운영 worker는 하버사인 추정치를 사용하며 실제 수요·트럭 입력을 만드는 `/internal/plans/solve`,
-실제 도로와 전체 업무 통합은 후속이다. 운영 기동·상태 볼륨은 [배포 안내](../README.md#optimizer-경로-계산-worker)를 따른다.
+운영 worker는 하버사인 추정치를 사용한다. PR #89로 실제 수요·트럭 입력을 만드는 `/internal/plans/solve`와
+backend 임시안 처리가 main에 구현됐다. 실데이터 적재·실제 도로·전체 운영 검증은 후속이다. 운영 기동·상태 볼륨은 [배포 안내](../README.md#optimizer-경로-계산-worker)를 따른다.
 
 ## 실행
 

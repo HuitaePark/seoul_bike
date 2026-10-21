@@ -1,4 +1,4 @@
-"""Translate forecast totals to quantities; operating targets are not dock limits."""
+"""Translate forecast demand to quantities; operating targets are not dock limits."""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -43,33 +43,38 @@ def healthy_band(
     return lo, max(lo, hi)
 
 
-def _forecast_totals(forecast: HourlyForecast, start: datetime, horizon_h: int) -> tuple[Decimal, Decimal]:
+def _forecast_hourly(forecast: HourlyForecast, start: datetime, horizon_h: int) -> list[tuple[Decimal, ...]]:
     if forecast_window(getattr(forecast, "start", None), horizon_h) != start:
         raise ValueError("forecast start differs from the requested window")
     version = getattr(forecast, "model_version", None)
     if not isinstance(version, str) or not version.strip():
         raise ValueError("forecast model_version must be non-empty")
-    totals = []
+    hourly = []
     for field in ("rentals_h", "returns_h"):
         values = getattr(forecast, field, None)
         if (not isinstance(values, Sequence) or isinstance(values, (str, bytes))
                 or len(values) != horizon_h):
             raise ValueError(f"{field} must contain exactly horizon_h hourly values")
         # Sum decimal representations before rounding; 0.1+0.2 must not create an extra bicycle.
-        totals.append(sum((_demand(f"{field}[{i}]", value) for i, value in enumerate(values)), Decimal(0)))
-    return totals[0], totals[1]
+        hourly.append(tuple(_demand(f"{field}[{i}]", value) for i, value in enumerate(values)))
+    return hourly
 
 
 def compute_imbalances(
     stations: list[Station], predictor: DemandPredictor, start: datetime,
-    horizon_h: int = 3, safety: int = 2,
+    horizon_h: int = 3, safety: int = 2, *, inventory_policy: str = "endpoint",
 ) -> list[Imbalance]:
     """Use hourly predictor outputs with the existing endpoint target policy.
 
     A naive start means KST; an aware start is converted before calling data
     predictors. The three-hour default follows agreement 16; explicit 1..5
-    hour windows remain supported. Intermediate trajectories are a later policy.
+    hour windows remain supported. The optional hourly policy intersects targets
+    at the start and each hour, assuming an immediate inventory correction at
+    start. It cannot guarantee safety until a truck arrives and does not replace
+    backend StationRisk or recompute neededBikes from a solve message.
     """
+    if inventory_policy not in ("endpoint", "hourly"):
+        raise ValueError("inventory_policy must be endpoint or hourly")
     start = forecast_window(start, horizon_h)
     require_int("safety", safety)
     if len({s.id for s in stations}) != len(stations):
@@ -78,8 +83,21 @@ def compute_imbalances(
     for station in stations:
         require_int("station.bikes", station.bikes)
         forecast = predictor.predict(station, start, horizon_h)
-        rentals, returns = _forecast_totals(forecast, start, horizon_h)
+        rentals_h, returns_h = _forecast_hourly(forecast, start, horizon_h)
+        rentals, returns = sum(rentals_h, Decimal(0)), sum(returns_h, Decimal(0))
         lo, hi = healthy_band(station, rentals, returns, safety)
+        if inventory_policy == "hourly":
+            # Intersect all prefix targets without rounding hourly demand.
+            # A conflict retains the minimum target, like healthy_band; this is
+            # a soft target, not a claim that one delivery can meet both bounds.
+            bands = [healthy_band(station, 0, 0, safety), (lo, hi)]
+            rentals = returns = Decimal(0)
+            for hourly_rentals, hourly_returns in zip(rentals_h, returns_h):
+                rentals += hourly_rentals
+                returns += hourly_returns
+                bands.append(healthy_band(station, rentals, returns, safety))
+            lo = max(band[0] for band in bands)
+            hi = max(lo, min(band[1] for band in bands))
         if station.bikes > hi:
             result.append(Imbalance(station.id, station.bikes - hi))
         elif station.bikes < lo:
