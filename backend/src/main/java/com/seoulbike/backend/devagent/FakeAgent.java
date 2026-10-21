@@ -43,17 +43,18 @@ class FakeAgent {
 
 	private static final Logger log = LoggerFactory.getLogger(FakeAgent.class);
 	private static final String LABEL = "[가짜 에이전트] ";
-	private static final String TRUCK = "TR-01";
-	private static final List<Stop> ROUTE = List.of(new Stop("ST-101", Action.PICKUP, 5),
-			new Stop("ST-102", Action.PICKUP, 3), new Stop("ST-103", Action.DROPOFF, 6), new Stop("ST-104", Action.DROPOFF, 2));
+	/** 시연 구역 N02(광진·성동)의 첫 트럭과 실제 대여소. 시드 기사 driver1이 이 트럭이다. */
+	private static final String TRUCK = "TR-03";
+	private static final List<Stop> ROUTE = List.of(new Stop("ST-99", Action.PICKUP, 5),
+			new Stop("ST-102", Action.PICKUP, 3), new Stop("ST-109", Action.DROPOFF, 6), new Stop("ST-108", Action.DROPOFF, 2));
 
-	/** 현장 보고: ST-102 진입 불가로 한 곳이 빠지고 4분 늘어난다 → 작은 변경. 트럭은 보고한 기사의 트럭이다. */
-	private static final List<Stop> FIELD_REPORT_AFTER = List.of(ROUTE.get(0), new Stop("ST-103", Action.DROPOFF, 3),
+	/** 현장 보고: ST-102(자양사거리) 진입 불가로 한 곳이 빠지고 4분 늘어난다 → 작은 변경. 트럭은 보고한 기사의 트럭이다. */
+	private static final List<Stop> FIELD_REPORT_AFTER = List.of(ROUTE.get(0), new Stop("ST-109", Action.DROPOFF, 3),
 			ROUTE.get(3));
 
-	/** 관리자 요청: 행사장 근처 ST-201에 4대를 더 놓는다 → 관리자 요청에서 비롯된 큰 변경. */
+	/** 관리자 요청: 행사장(어린이대공원) 근처 ST-97에 4대를 더 놓는다 → 관리자 요청에서 비롯된 큰 변경. */
 	private static final RouteDiff REQUEST_DIFF = new RouteDiff(TRUCK, ROUTE, List.of(ROUTE.get(0), ROUTE.get(1),
-			new Stop("ST-201", Action.DROPOFF, 4), new Stop("ST-103", Action.DROPOFF, 2), ROUTE.get(3)), 7);
+			new Stop("ST-97", Action.DROPOFF, 4), new Stop("ST-109", Action.DROPOFF, 2), ROUTE.get(3)), 7);
 
 	private record Candidate(String candidateId, RouteDiff diff, RouteChangeGrade grade) {
 	}

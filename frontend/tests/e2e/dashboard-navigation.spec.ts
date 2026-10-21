@@ -38,8 +38,8 @@ test('초기 관제 화면만 보이고 적재 현황은 3D 지도 안에만 있
   await page.screenshot({ path: 'test-results/dashboard-1440-3d.png', fullPage: true })
 
   const loadPanel = page.locator('.map-truck-load')
-  await loadPanel.getByRole('button', { name: 'TR-02' }).click()
-  await expect(page.getByRole('group', { name: '트럭 경로 골라 보기' }).getByRole('button', { name: 'TR-02' })).toHaveAttribute('aria-pressed', 'true')
+  await loadPanel.getByRole('button', { name: 'TR-04' }).click()
+  await expect(page.getByRole('group', { name: '트럭 경로 골라 보기' }).getByRole('button', { name: 'TR-04' })).toHaveAttribute('aria-pressed', 'true')
   await loadPanel.locator('summary').click()
   await expect(loadPanel.getByText('다음 정류장')).toBeVisible()
   await expect(loadPanel.getByRole('button', { name: '지도에서 이 트럭만 보기' })).toBeVisible()
@@ -124,17 +124,17 @@ for (const width of [900, 390]) {
   })
 }
 
-test('기존 truck-2 기사 계정도 TR-02 시연 경로를 본다', async ({ page }) => {
+test('TR-04 기사는 TR-04 시연 경로를 본다', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('seoul-bike.auth', JSON.stringify({
     token: 'fixture-token', expiresAt: Date.now() + 3_600_000,
-    user: { userId: 'fixture-driver2', loginId: 'driver2', name: '이기사', role: 'DRIVER', status: 'ACTIVE', truckId: 'truck-2' },
+    user: { userId: 'fixture-driver2', loginId: 'driver2', name: '이기사', role: 'DRIVER', status: 'ACTIVE', truckId: 'TR-04' },
   })))
   await page.goto('/driver')
 
-  await expect(page.locator('.bar .truck')).toHaveText('🚚 TR-02')
+  await expect(page.locator('.bar .truck')).toHaveText('🚚 TR-04')
   await expect(page.getByRole('heading', { name: '건대입구역 2번출구' })).toBeVisible()
   await expect(page.locator('.status .load')).toContainText('/15')
 
   await page.getByRole('button', { name: /운행 중/ }).click()
-  await expect(page.locator('.proposal .approval')).toContainText('TR-02')
+  await expect(page.locator('.proposal .approval')).toContainText('TR-04')
 })

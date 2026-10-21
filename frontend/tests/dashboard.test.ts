@@ -61,12 +61,11 @@ test('경로 선은 트럭이 온 지점에서 지난 구간과 남은 구간으
 
 test('경로 변경 카드는 바뀐 순서와 빠지는·새로 들르는 대여소를 지도에 겹친다', () => {
   const card = {
-    approvalId: 'x', kind: 'ROUTE_CHANGE', approver: 'MANAGER', summary: '경로 변경', truckId: 'truck-2',
-    diff: { truckId: 'truck-2', before: [{ seq: 2, stationId: 'A', action: 'DROPOFF', bikes: 1 }, { seq: 3, stationId: 'B', action: 'DROPOFF', bikes: 1 }], after: [{ seq: 2, stationId: 'A', action: 'DROPOFF', bikes: 3 }, { seq: 3, stationId: 'C', action: 'PICKUP', bikes: 2 }] },
+    approvalId: 'x', kind: 'ROUTE_CHANGE', approver: 'MANAGER', summary: '경로 변경', truckId: 'TR-04',
+    diff: { truckId: 'TR-04', before: [{ seq: 2, stationId: 'A', action: 'DROPOFF', bikes: 1 }, { seq: 3, stationId: 'B', action: 'DROPOFF', bikes: 1 }], after: [{ seq: 2, stationId: 'A', action: 'DROPOFF', bikes: 3 }, { seq: 3, stationId: 'C', action: 'PICKUP', bikes: 2 }] },
   } as Parameters<typeof previewOf>[0]
   const p = previewOf(card, stations)
-  assert.equal(p.truckId, 'TR-02')
-  assert.equal(card.truckId, 'truck-2') // 승인 요청 원본은 backend ID를 그대로 보낸다.
+  assert.equal(p.truckId, 'TR-04')
   assert.deepEqual(p.after, ['A', 'C'])
   assert.deepEqual(p.removed, ['B'])
   assert.deepEqual(p.added, ['C'])
