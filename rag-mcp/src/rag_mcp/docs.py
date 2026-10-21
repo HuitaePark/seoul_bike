@@ -25,8 +25,6 @@ import yaml
 
 DOC_TYPES = ("ops_standard", "seoul_notice", "reverse_analysis", "handover", "reference_paper", "general")
 DEFAULT_DOC_TYPE = "general"
-# doc_type이 없는 문서(합의 21번 기본 머리말만 쓴 문서)의 종류. 문서 쪽에 doc_type을 넣으면 이 표는 필요 없다.
-KNOWN_DOC_TYPES = {"rebal-summary": "reverse_analysis"}
 REQUIRED_KEYS = ("doc_id", "title", "version")
 MAX_SECTION_CHARS = 1200
 SUPPLEMENTARY_MARK = "[보조]"
@@ -92,7 +90,7 @@ def parse_doc(path: Path) -> Doc:
     # 예전 필드 이름(verified_at)도 받는다.
     if "updated" not in meta and "verified_at" in meta:
         meta["updated"] = meta["verified_at"]
-    meta.setdefault("doc_type", KNOWN_DOC_TYPES.get(meta["doc_id"], DEFAULT_DOC_TYPE))
+    meta.setdefault("doc_type", DEFAULT_DOC_TYPE)
     if meta["doc_type"] not in DOC_TYPES:
         raise ValueError(f"{path.name}: doc_type '{meta['doc_type']}'은 {DOC_TYPES} 중 하나여야 합니다")
     # 합의 21번 머리말은 source 한 줄이다. sources[]가 없으면 그것을 기본 근거로 쓴다.

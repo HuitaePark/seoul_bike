@@ -213,7 +213,7 @@ DB 없이 돌릴 때(`RAG_STORE=memory`)는 파일을 읽어 키워드 점수만
 | 서울시 공지 (2025 불꽃축제) | [notice-seoul-fireworks-2025](evidence/notice-seoul-fireworks-2025.md) | `seoul_notice` | 3 |
 | 근무조 인수인계 요약 양식 | [handover-shift-summary-template](evidence/handover-shift-summary-template.md) | `handover` | 3 |
 | 수요예측 논문 요약 (보조) | [ref-forecast-kim-2023](evidence/ref-forecast-kim-2023.md) | `reference_paper` | 3 |
-| 따릉이 트럭 재배치 역산 요약 | `rebal-summary` (PR #10) | `reverse_analysis` (머리말에 없으면 MCP가 채움) | 6 |
+| 따릉이 트럭 재배치 역산 요약 | `rebal-summary` (PR #10) | `reverse_analysis` | 6 |
 
 **Chunking:** `##` 절 단위, 절의 `출처:` 줄을 함께 넣는다. 1,200자를 넘는 절의 표는 행 단위로 나누고 표 머리 줄을 붙인다. `[보조]` 문단은 따로 떼어 `basis: supplementary`. `reference_paper` 문서와 제목에 `[보조]`가 있는 절은 전부 `supplementary`. 임베딩에는 `제목 + 절 이름 + 본문`을 넣는다.
 
