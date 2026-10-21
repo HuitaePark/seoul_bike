@@ -121,8 +121,9 @@ watch(() => props.visible, async (visible) => {
 .msg.me .bubble { border-radius: 12px 4px 12px 12px; background: var(--brand); color: #fff; max-width: 80%; }
 .meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; font-weight: 700; color: var(--brand-strong); }
 .meta .badge { margin: 0; }
-.proposal { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--overflow); width: 100%; }
-.proposal.major { border-left-color: var(--empty); }
+/* 큰 변경은 "큰 변경" 배지와 붉은 테두리로 가른다 */
+.proposal { background: #fff; border: 1px solid var(--line); width: 100%; }
+.proposal.major { border-color: #fca5a5; }
 .proposal.on { box-shadow: 0 0 0 2px #fdba74; }
 .proposal .meta { color: var(--ink-3); font-weight: 600; }
 .proposal strong { color: var(--ink); font-size: 13.5px; }

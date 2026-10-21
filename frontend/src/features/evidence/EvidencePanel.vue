@@ -62,7 +62,7 @@ const titleId = useId()
 .group h4 { margin: 0 0 6px; font-size: 13px; color: var(--ink-2); }
 .docs, .tools { list-style: none; margin: 0; padding: 0; }
 .docs { display: flex; flex-direction: column; gap: 8px; }
-.doc { border: 1px solid var(--line); border-left: 4px solid var(--brand); border-radius: 10px; padding: 10px 12px; }
+.doc { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .doc-title { margin: 0; font-weight: 600; font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .section { font-weight: 500; font-size: 12px; color: var(--ink-3); padding: 1px 6px; border-radius: 6px; background: #eef2f6; }
 .excerpt { margin: 6px 0 0; padding: 0 0 0 10px; border-left: 2px solid var(--line); color: var(--ink-2); font-size: 13px; line-height: 1.5; white-space: pre-wrap; }

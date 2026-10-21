@@ -47,8 +47,9 @@ const etaText = (s: Stop) =>
 .stops { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 4px 0; }
 .stop { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 12px; border: 1px solid #d1d5db; background: #fff; color: #111827; }
 button.stop { cursor: pointer; }
-.stop.PICKUP { border-left: 4px solid #0ea5e9; }
-.stop.DROPOFF { border-left: 4px solid #22c55e; }
+/* 회수·배치는 글자에도 있다. 색은 칸 전체(옅은 바탕·테두리)로 보탠다 */
+.stop.PICKUP { background: #f0f9ff; border-color: #7dd3fc; }
+.stop.DROPOFF { background: #f0fdf4; border-color: #86efac; }
 .stop.removed { text-decoration: line-through; color: #b91c1c; }
 .stop.added { background: #ecfdf5; }
 .stop.picked { background: #fee2e2; border-color: #b91c1c; text-decoration: line-through; }

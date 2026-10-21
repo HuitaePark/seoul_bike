@@ -60,7 +60,8 @@ const observedAt = computed(() => {
 })
 type DashboardTab = 'view' | 'trend' | 'agent' | 'routes' | 'dropped'
 const active = ref<DashboardTab>('view')
-const view = ref<'3d' | 'map'>('3d')
+// 들어오면 실제 지도(평면)부터 보인다. 3D 관제 뷰는 탭으로 연다
+const view = ref<'3d' | 'map'>('map')
 const mapSelected = ref<string | null>(null)
 const forecastSelected = ref<string | null>(null)
 const routeSelected = ref<string | null>(null)
@@ -685,7 +686,8 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .iso-legend .ghost { border: 1.5px solid #94a3b8; background: rgb(255 255 255 / 0.4); }
 .iso-legend .dash { border: 1.5px dashed #475569; }
 .iso-legend .north { padding-left: 10px; border-left: 1px solid var(--line); color: var(--brand-strong); font-weight: 800; }
-.preview-banner { position: absolute; top: 58px; left: 14px; max-width: min(560px, calc(100% - 280px)); z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; background: rgb(255 255 255 / 0.96); border: 1px solid #fdba74; border-left: 4px solid #ea580c; border-radius: 12px; box-shadow: 0 8px 24px rgb(15 23 42 / 0.1); font-size: 13px; }
+/* 미리보기임은 배지와 주황 테두리·옅은 주황 바탕으로 알린다 */
+.preview-banner { position: absolute; top: 58px; left: 14px; max-width: min(560px, calc(100% - 280px)); z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; background: rgb(255 247 237 / 0.97); border: 1px solid #fdba74; border-radius: 12px; box-shadow: 0 8px 24px rgb(15 23 42 / 0.1); font-size: 13px; }
 .scene.flat .preview-banner { max-width: min(560px, calc(100% - 28px)); }
 .preview-banner .badge { margin: 0; }
 .preview-banner strong { flex: 1 1 260px; }

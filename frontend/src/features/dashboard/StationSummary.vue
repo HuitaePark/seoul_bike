@@ -73,7 +73,8 @@ dt { color: var(--ink-3); font-size: 11px; font-weight: 600; }
 dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
 .stock-bar { height: 8px; background: #eef2f6; border-radius: 999px; overflow: hidden; margin-bottom: 12px; }
 .stock-bar span { display: block; height: 100%; border-radius: 999px; }
-.plan-note { border-left: 4px solid var(--c); background: #f8fafc; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+/* 트럭 색은 칸 바탕·테두리에 옅게 깐다 */
+.plan-note { border: 1px solid color-mix(in srgb, var(--c) 28%, #fff); background: color-mix(in srgb, var(--c) 6%, #fff); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .plan-note.dropped { --c: var(--ink-3); }
 .close { margin-left: auto; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; color: var(--ink-3); border-radius: 8px; font-size: 13px; }
 .close:hover { background: #f1f5f9; color: var(--ink); }
