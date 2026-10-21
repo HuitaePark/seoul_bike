@@ -86,6 +86,11 @@ services:
       # ai.tasks·ai.events(파티션 6개)는 backend가 만든다. agent가 먼저 구독하면 자동 생성된 1파티션 토픽을 보다가 명령을 놓친다.
       backend:
         condition: service_healthy
+      # 시작할 때 MCP 도구 목록을 읽는다. 먼저 뜨면 이름을 못 찾아(Name or service not known) 재시작을 되풀이한다
+      business-mcp:
+        condition: service_healthy
+      rag-mcp:
+        condition: service_healthy
     healthcheck:
       # MCP 도구를 읽고 Kafka에 붙은 뒤에만 준비 파일이 생기고 10초마다 갱신된다 (graph/worker.py). 크래시 루프면 healthy가 되지 않는다
       test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/agent-ready') > 30)"]
