@@ -32,14 +32,14 @@
 | --- | --- | --- |
 | 도구 인자 | 내부 API 필드의 snake_case (HARNESS 3.6 인자 검증과 같음) | `station_id`, `exclude_station_ids` |
 | 도구 결과 필드 | **specs 그대로 camelCase**, enum은 대문자 | `truckId`, `forecastBikes`, `candidateId`, `PICKUP` |
-| 권역 ID | 영문·숫자·하이픈 (대문자 허용) | `S05`, `gwangjin-seongdong` |
-| 근무조 ID | `{regionId}:{yyyy-MM-dd}:{AM\|PM\|EVE}` | `S05:2026-10-21:AM` |
-| 대여소 ID | `ST-숫자` | `ST-1023` |
+| 구역 ID | `^[NS]\d{2}$` (강북 `N01`~`N08`, 강남 `S01`~`S09`) | `N02` |
+| 근무조 ID | `{regionId}:{yyyy-MM-dd}:{AM\|PM\|EVE}` | `N02:2026-10-21:AM` |
+| 대여소 ID | `^ST-\d+$` (실시간 API ID) | `ST-102` |
 | 시각 | ISO 8601, KST 오프셋 필수 | `2026-10-21T07:00:00+09:00` |
 | 자전거 수 | 정수, 단위 대 | |
 
 결과를 camelCase 그대로 두는 이유: Harness의 기사 범위 제한(다른 트럭의 `truckId` 항목 제거, NFR-06)과 인자 검증(`candidateId`, `stationId`, `docks`, `actualBikes`)이 계약 필드 이름을 읽는다.
-권역 ID는 6번 데이터 담당이 `N01`~`S09` 형식을 제안했다 (합의 전). MCP는 두 형식을 모두 받는다.
+식별자 형식은 [agreements.md](data/agreements.md) 결정 1·2(2026-10-21, ADR 0001)를 따른다. 대여소번호(예 `102`)는 실시간 API ID와 숫자가 달라(번호 102 = `ST-4`, `ST-102` = 번호 505) 받지 않고 스키마에서 거부한다. 가짜 `/internal`은 실제 구역 `N02`(광진·성동)의 실제 대여소 8곳을 쓰고, 재고·순유입만 시연 값이다.
 
 ### 2.2 결과 공통
 
@@ -56,8 +56,8 @@
 백엔드는 RFC 9457 `ToolProblem`(`code`, `detail`, `suggestions`)을 준다. MCP는 이를 모델용 JSON으로 바꾼다.
 
 ```json
-{"code": "STATION_NOT_FOUND", "message": "'ST-9999' 대여소가 없습니다. 권역 안의 비슷한 대여소: ST-1023, ST-1031",
- "retryable": true, "hint": {"candidates": ["ST-1023", "ST-1031"]}}
+{"code": "STATION_NOT_FOUND", "message": "'ST-9999' 대여소가 없습니다. 구역 안의 비슷한 대여소: ST-3390, ST-3121",
+ "retryable": true, "hint": {"candidates": ["ST-3390", "ST-3121"]}}
 ```
 
 | 백엔드 응답 | MCP `code` | `retryable` | `hint` |
@@ -250,8 +250,6 @@ DB 없이 돌릴 때(`RAG_STORE=memory`)는 파일을 읽어 키워드 점수만
 | --- | --- | --- |
 | 가짜 `/internal` 기본값 | 4 백엔드 | `/internal`이 다 열리면 기본값을 `http`로 바꾸고 `fake_internal.py`를 `tests/`로 옮김 (PR #12 리뷰). 그전에는 `hybrid`로 열린 API만 실제로 부를 수 있음 |
 | `Source`의 `citation`·`basis` | 4 백엔드, 화면 담당 | 근거 패널에 출처·등급을 보이려면 openapi `Source`에 필요 (PR #5 제안, 닫힘) |
-| 대여소 ID 형식 | 전원 | 6번 합의 1번 제안 `"108"`. MCP는 `ST-1023`과 `108` 둘 다 받는다. Harness `id_pattern`, 승인 카드 화면도 함께 바꿔야 함 |
-| 권역 ID 형식 | 6 데이터, 4 백엔드 | `N01`~`S09` 제안 (합의 2번). MCP는 대문자도 받음 |
 | `Forecast` 시간별 값 | 6 데이터, 4 백엔드 | `rentalsH`·`returnsH` 제안 (합의 15번). 백엔드가 주면 MCP는 그대로 전달 |
 | `horizonH` 최대값 | 4 백엔드 | specs 6, MCP 5. 6번도 5시간 제안 (합의 29번) |
 | CI `mcp` 잡 | 4·5 인프라 | 배포 `paths`는 PR #14로 반영됨. 테스트 잡(`mcp`, pgvector 서비스)은 `.github/workflows` 권한이 필요해 PR #12 설명 7절 그대로 추가 부탁 |
