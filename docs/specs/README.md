@@ -46,7 +46,7 @@
 | 현재 계획(`get_current_plan`) · 계획 활성화(`submit_plan`) · 경로 적용(`propose_route_change`) | 구현 (internal-api v0.6). 승인 하나에 한 번 실행하고 재시도는 처음 결과(`plans.activated_by_approval`). 활성 계획이 후보의 기준 버전에서 바뀌었으면 409. 경로 적용은 활성 계획에서 그 트럭 경로만 바꾼 새 버전을 ACTIVE로 만든다 |
 | `solve.requests` 발행 · `solve.results` 소비 · 계획 후보 저장 | 구현 (backend 안쪽). `requestId`(`{shiftId}:{planVersion}:{seq}`)와 요청·결과를 `solve_requests`에, OK 결과는 `plans`에 후보(`PROPOSED`)로 남기고 활성 계획과 비교한 `diffs`·`grade`·`requiredApprovers`를 붙인다. 같은 결과가 두 번 와도 후보는 하나. `app.solve.timeout`(60초)을 넘기면 기다림을 그만두고, 늦은 결과는 요청 기록에만 남는다. `solve.results` 소비는 **재시도(`solve.results.retry`) → `solve.results.dlq`** (형식 오류는 바로 dlq) |
 | 경로 계산 `request_route_plan` (`POST /internal/plans/solve`) | 구현 (internal-api v0.8.2). 근무조의 위험 대여소(관측 재고 + 예측, 제약 반영), 트럭(PLAN은 `ref.trucks`가 차고지에서 빈 채로, REPLAN은 활성 계획의 트럭이 마지막으로 끝낸 정류장에서 그 적재로, 남은 정류장 고정), 차고지·근무조 끝으로 입력을 만든다. optimizer가 60초 안에 답하지 않거나 실패하면 가까운 순 탐욕 임시안(`TIMEOUT_PROVISIONAL`, `provisional: true`)을 같은 승인 흐름의 후보로 남긴다 |
-| 나머지 `/internal/**`(트럭 상태) | 계약만 |
+| 트럭 상태 `get_truck_status` (`GET /internal/shifts/{shiftId}/trucks`) | 구현 (internal-api v0.8.3). 활성 계획이 있으면 마지막으로 끝낸 정류장의 위치·적재와 남은 정류장, 없으면 구역 트럭이 차고지에 빈 채로. 재경로 입력과 같은 계산(`TruckStates`). 선택 쿼리 `truckId` |
 | 변경 등급 규칙 · 경로 변경 승인 순서 확인 | 구현 (등급 기준은 `application.properties`의 `app.route-change.*`). 적용 API `/internal/routes/{truckId}/apply`가 등급을 다시 계산해 이 규칙을 부른다. 가짜 에이전트도 같은 규칙을 부른다 |
 
 ## 이 초안이 정한 것
