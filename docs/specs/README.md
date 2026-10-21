@@ -38,7 +38,7 @@
 | `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. `ai.events` 소비는 **재시도(`ai.events.retry`) → `ai.events.dlq`** (형식 오류는 바로 dlq) |
 | `/api/system/status` | 구현 |
 | 현장 보고 `POST /api/reports` (기사만, `issue`가 있으면 재경로 작업) | 구현 (v0.5). 정류장이 기사 경로에 있는지는 경로가 생기면(M3) 확인 |
-| 계획 조회 `GET /api/shifts/{shiftId}/plan`(가장 최근 버전) · 기사 경로 `GET /api/drivers/me/route`(기사만, 없으면 404) | 구현 (v0.9) |
+| 계획 조회 `GET /api/shifts/{shiftId}/plan`(가장 최근 버전, 관리자·책임자만) · 기사 경로 `GET /api/drivers/me/route`(기사만, 오늘 근무조, 없으면 404) | 구현 (v0.10) |
 | 대여소 · 성과 API | 계약만 |
 | `/internal/**` 서비스 토큰(`X-Internal-Token`) · 현장 보고 조회(`get_field_reports`) · 제약 추가(`add_constraint`) · 감사 기록(`get_audit`) | 구현 (internal-api v0.5) |
 | 현재 계획(`get_current_plan`) · 계획 활성화(`submit_plan`) · 경로 적용(`propose_route_change`) | 구현 (internal-api v0.6). 승인 하나에 한 번 실행하고 재시도는 처음 결과(`plans.activated_by_approval`). 활성 계획이 후보의 기준 버전에서 바뀌었으면 409. 경로 적용은 활성 계획에서 그 트럭 경로만 바꾼 새 버전을 ACTIVE로 만든다 |

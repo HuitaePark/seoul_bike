@@ -2,6 +2,7 @@ package com.seoulbike.backend.plan;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -81,27 +82,37 @@ class PlanRepository {
 	}
 
 	/**
-	 * 이 트럭이 들어 있는 ACTIVE 계획 중 가장 늦게 활성화된 것의 그 트럭 경로(계약 Route JSON).
-	 * 기사 계정에는 근무조가 없어 트럭으로만 찾는다. 근무조마다 ACTIVE가 하나이므로 최근 근무조의 경로가 나온다.
+	 * 그날(shiftId `{regionId}:{yyyy-MM-dd}:{slot}`의 날짜) 근무조의 ACTIVE 계획 중 이 트럭이 있고 가장 늦게 활성화된 것의 그 트럭
+	 * 경로(계약 Route JSON). 기사 계정에는 근무조가 없어 트럭과 날짜로 찾는다. 지난 근무조의 ACTIVE는 닫히지 않고 남으므로
+	 * 날짜로 거르지 않으면 어제 경로가 나온다.
 	 */
-	Optional<String> activeRouteOf(String truckId) {
+	Optional<String> activeRouteOf(String truckId, LocalDate day) {
 		return jdbc.sql("""
 				select r.route::text
 				from plans p cross join lateral jsonb_array_elements(p.routes) as r(route)
-				where p.status = 'ACTIVE' and r.route ->> 'truckId' = :truckId
+				where p.status = 'ACTIVE' and split_part(p.shift_id, ':', 2) = :day and r.route ->> 'truckId' = :truckId
 				order by p.activated_at desc nulls last, p.created_at desc
 				limit 1
 				""")
+			.param("day", day.toString())
 			.param("truckId", truckId)
 			.query(String.class)
 			.optional();
 	}
 
-	/** 후보를 만든 계산 요청이 기준으로 삼은 활성 version (요청 당시 활성 계획이 없었으면 0). */
-	Optional<Integer> basedOnVersion(String requestId) {
-		return jdbc.sql("select plan_version from solve_requests where request_id = :requestId")
+	/**
+	 * 후보를 만든 계산 요청.
+	 *
+	 * @param planVersion 요청이 기준으로 삼은 활성 version (요청 당시 활성 계획이 없었으면 0)
+	 * @param taskId 요청한 작업. 없으면 null
+	 */
+	record SolveBasis(int planVersion, UUID taskId) {
+	}
+
+	Optional<SolveBasis> solveBasis(String requestId) {
+		return jdbc.sql("select plan_version, task_id from solve_requests where request_id = :requestId")
 			.param("requestId", requestId)
-			.query(Integer.class)
+			.query((rs, i) -> new SolveBasis(rs.getInt("plan_version"), rs.getObject("task_id", UUID.class)))
 			.optional();
 	}
 

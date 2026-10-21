@@ -290,7 +290,9 @@ paths:
         `approvalId`는 이 후보의 마지막 카드(기사 수락)다. backend는 같은 작업에서 이 후보(`candidateId`)의
         `requiredApprovers`가 순서대로 모두 APPROVED인지 확인하고, 하나라도 없으면 403을 돌려준다.
         기사 승인은 이 트럭 기사의 것이어야 한다. 등급이 NONE이면 바꿀 것이 없어 호출하지 않는다 (부르면 409 `NOTHING_TO_APPLY`).
-        등급은 카드 값을 믿지 않고 후보 전체를 지금 활성 계획과 비교해 다시 계산한다.
+        **`taskId`는 후보를 만든 작업(`request_route_plan`의 `requestedBy.taskId`)이어야 한다** (다르면 403 `APPROVAL_REQUIRED`).
+        등급은 카드 값을 믿지 않고 후보 전체를 지금 활성 계획과 비교해 다시 계산한다. 출발점(현장 보고·관리자 요청)도 후보를 만든
+        작업으로 정하고, 작업이 없는 후보는 관리자 요청(가장 엄격)으로 본다.
         적용하면 활성 계획을 복사해 **이 트럭 경로만** 후보의 것으로 바꾼 새 version(가장 큰 version + 1)이 ACTIVE가 되고,
         이전 ACTIVE는 CLOSED가 된다. 감사 기록 `ROUTE_CHANGED`(행위자는 수락한 기사).
         **같은 `approvalId`로 같은 트럭·후보를 다시 부르면 처음 적용한 경로를 돌려준다.** 다른 트럭·후보면 409 `APPROVAL_ALREADY_USED`.

@@ -1,5 +1,7 @@
 package com.seoulbike.backend.plan;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -30,6 +32,9 @@ import com.seoulbike.backend.task.ChangeApprovals;
  */
 @Service
 class PlanService {
+
+	/** 근무조 날짜(shiftId의 yyyy-MM-dd)의 기준 시간대. */
+	private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
 	private final PlanRepository plans;
 	private final PlanCandidates candidates;
@@ -63,8 +68,9 @@ class PlanService {
 			.orElseThrow(() -> ApiException.notFound("NOT_FOUND", "근무조 " + shiftId + "에 계획이 없다"));
 	}
 
+	/** 오늘(서울 시각) 근무조의 경로만. 지난 근무조의 ACTIVE 계획은 닫히지 않고 남는다. */
 	JsonNode driverRoute(String truckId) {
-		return plans.activeRouteOf(truckId)
+		return plans.activeRouteOf(truckId, LocalDate.now(SEOUL))
 			.map(json::readTree)
 			.orElseThrow(() -> ApiException.notFound("NOT_FOUND", "오늘 경로가 없다"));
 	}
@@ -96,7 +102,7 @@ class PlanService {
 			}
 			int activeVersion = plans.active(shiftId).map(PlanRepository.Active::version).orElse(0);
 			if (plan.requestId() != null) {
-				int basedOn = plans.basedOnVersion(plan.requestId()).orElseThrow();
+				int basedOn = plans.solveBasis(plan.requestId()).orElseThrow().planVersion();
 				if (basedOn != activeVersion) {
 					throw ApiException.conflict("PLAN_SUPERSEDED", "계획 " + planId + "는 활성 v" + basedOn
 							+ " 기준으로 계산됐는데 지금 활성 계획은 v" + activeVersion
@@ -144,14 +150,23 @@ class PlanService {
 			Plan active = plans.activePlan(shiftId)
 				.orElseThrow(() -> ApiException.conflict("NO_ACTIVE_PLAN", "근무조 " + shiftId
 						+ "에 활성 계획이 없다. 경로 변경은 활성 계획에 적용한다. 먼저 submit_plan으로 계획을 활성화한다."));
-			Integer basedOn = candidate.requestId() == null ? null
-					: plans.basedOnVersion(candidate.requestId()).orElse(null);
+			Optional<PlanRepository.SolveBasis> basis = Optional.ofNullable(candidate.requestId())
+				.flatMap(plans::solveBasis);
+			// 후보를 만든 작업의 승인으로만 적용한다. 호출자의 taskId를 믿으면 다른 작업(예 현장 보고)의 기사 카드로
+			// 관리자 요청 후보를 MINOR처럼 적용할 수 있다.
+			UUID candidateTask = basis.map(PlanRepository.SolveBasis::taskId).orElse(null);
+			if (candidateTask != null && !candidateTask.equals(taskId)) {
+				throw ApiException.forbidden("APPROVAL_REQUIRED", "후보 " + candidateId + "는 작업 " + candidateTask
+						+ "에서 만든 후보다. 그 작업의 승인으로 적용한다.");
+			}
+			Integer basedOn = basis.map(PlanRepository.SolveBasis::planVersion).orElse(null);
 			if (basedOn == null || basedOn != active.version()) {
 				throw ApiException.conflict("STALE_CANDIDATE", "후보 " + candidateId + "는 활성 v" + basedOn
 						+ " 기준으로 계산됐는데 지금 활성 계획은 v" + active.version()
 						+ "다. request_route_plan(kind=REPLAN)으로 새 후보를 받아 다시 승인을 받는다.");
 			}
-			RouteChangeGrade grade = candidates.compare(active.routesJson(), candidateRoutes, taskId).grade();
+			// 등급의 출발점도 후보를 만든 작업에서 정한다. 작업이 없으면 가장 엄격한 관리자 요청이다.
+			RouteChangeGrade grade = candidates.compare(active.routesJson(), candidateRoutes, candidateTask).grade();
 			String driver = approvals.requireRouteChange(taskId, approvalId, truckId, candidateId, grade);
 
 			int version = plans.nextVersion(shiftId);

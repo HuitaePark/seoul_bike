@@ -239,7 +239,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 근무조의 현재 계획 (계획 검토·모니터링) */
+        /**
+         * 근무조의 현재 계획 (계획 검토·모니터링)
+         * @description 관리자·책임자만. 모든 트럭 경로가 들어 있어 기사는 403이다 (기사는 `/api/drivers/me/route`).
+         */
         get: operations["getShiftPlan"];
         put?: never;
         post?: never;
@@ -259,7 +262,8 @@ export interface paths {
         /**
          * 기사 본인 트럭의 오늘 경로
          * @description DRIVER만. 다른 트럭 경로는 볼 수 없다 (트럭은 토큰에서 꺼낸다).
-         *     이 트럭이 들어 있는 ACTIVE 계획 중 가장 늦게 활성화된 것의 경로다. 없으면 404.
+         *     오늘(Asia/Seoul) 날짜 근무조(`shiftId`의 `yyyy-MM-dd`)의 ACTIVE 계획 중 이 트럭이 있고 가장 늦게 활성화된 것의 경로다.
+         *     지난 근무조의 경로는 나오지 않는다. 없으면 404.
          */
         get: operations["getMyRoute"];
         put?: never;
@@ -1132,6 +1136,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };

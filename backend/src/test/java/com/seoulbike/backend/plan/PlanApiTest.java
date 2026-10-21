@@ -7,6 +7,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -108,9 +110,9 @@ class PlanApiTest {
 		String v1 = plan(shift, 1, "ACTIVE",
 				routes(route("truck-1", stop("ST-1", "PICKUP", 5), stop("ST-2", "DROPOFF", 5)), truck2), null);
 		JsonNode changed = route("truck-1", stop("ST-1", "PICKUP", 7), stop("ST-2", "DROPOFF", 7));
-		String candidate = plan(shift, 2, "PROPOSED", routes(changed, truck2), 1);
 		// 현장 보고 작업에서 한 트럭만 조금 바뀐 후보라 MINOR: 그 트럭 기사의 수락만 있으면 된다.
 		UUID task = task(shift, "FIELD_REPORT");
+		String candidate = plan(shift, 2, "PROPOSED", routes(changed, truck2), 1, task);
 
 		var noDriver = apply("truck-1", UUID.randomUUID(), task, candidate);
 		assertThat(noDriver.statusCode()).isEqualTo(403);
@@ -155,6 +157,34 @@ class PlanApiTest {
 		assertThat(detail(stale)).contains("request_route_plan");
 	}
 
+	/** 적용은 후보를 만든 작업의 승인으로만 한다. 등급의 출발점도 그 작업이다 (호출자가 보낸 taskId가 아니다). */
+	@Test
+	void routeApplyUsesTheTaskThatMadeTheCandidate() throws Exception {
+		String shift = newShift();
+		JsonNode truck2 = route("truck-2", stop("ST-3", "PICKUP", 4));
+		plan(shift, 1, "ACTIVE", routes(route("truck-1", stop("ST-1", "PICKUP", 5)), truck2), null);
+		JsonNode changed = route("truck-1", stop("ST-1", "PICKUP", 6));
+		UUID request = task(shift, "REQUEST");
+		String candidate = plan(shift, 2, "PROPOSED", routes(changed, truck2), 1, request);
+
+		// 현장 보고 작업의 기사 카드로는 관리자 요청 후보(MAJOR)를 MINOR처럼 적용할 수 없다.
+		UUID fieldReport = task(shift, "FIELD_REPORT");
+		UUID otherTaskCard = approval(fieldReport, "ROUTE_CHANGE", "DRIVER", "truck-1", candidate, null, "u-driver-1");
+		var otherTask = apply("truck-1", otherTaskCard, fieldReport, candidate);
+		assertThat(otherTask.statusCode()).isEqualTo(403);
+		assertThat(code(otherTask)).isEqualTo("APPROVAL_REQUIRED");
+		assertThat(detail(otherTask)).contains("작업 " + request + "에서 만든 후보다");
+
+		// 만든 작업에서도 관리자 요청이라 MAJOR: 기사 수락만으로는 안 되고 관리자 → 기사 순서가 필요하다.
+		UUID driverOnly = approval(request, "ROUTE_CHANGE", "DRIVER", "truck-1", candidate, null, "u-driver-1");
+		assertThat(detail(apply("truck-1", driverOnly, request, candidate))).contains("관리자 승인이 없다");
+		approval(request, "ROUTE_CHANGE", "MANAGER", null, candidate, null, "u-manager");
+		UUID accepted = approval(request, "ROUTE_CHANGE", "DRIVER", "truck-1", candidate, null, "u-driver-1");
+		var applied = apply("truck-1", accepted, request, candidate);
+		assertThat(applied.statusCode()).isEqualTo(200);
+		assertThat(json.readTree(applied.body())).isEqualTo(changed);
+	}
+
 	@Test
 	void agentReadsTheActivePlanAndScreensReadTheLatestVersion() throws Exception {
 		String shift = newShift();
@@ -171,11 +201,13 @@ class PlanApiTest {
 		assertThat(current.path("planId").asString()).isEqualTo(active);
 		assertThat(current.path("routes").get(0).path("stops").get(0).path("stationId").asString()).isEqualTo("ST-1");
 		assertThat(current.path("unserved").isArray()).isTrue();
-		for (String token : new String[] { manager, login("driver1") }) {
+		for (String token : new String[] { manager, login("executive") }) {
 			JsonNode latest = json.readTree(call("GET", "/api/shifts/" + shift + "/plan", token, null, null).body());
 			assertThat(latest.path("planId").asString()).isEqualTo(proposed);
 			assertThat(latest.path("status").asString()).isEqualTo("PROPOSED");
 		}
+		// 근무조 계획에는 모든 트럭 경로가 있다. 기사는 자기 경로만 본다 (NFR-06).
+		assertThat(call("GET", "/api/shifts/" + shift + "/plan", login("driver1"), null, null).statusCode()).isEqualTo(403);
 	}
 
 	@Test
@@ -186,8 +218,14 @@ class PlanApiTest {
 		assertThat(none.statusCode()).isEqualTo(404);
 		assertThat(detail(none)).isEqualTo("오늘 경로가 없다");
 
+		// 지난 근무조의 ACTIVE 계획은 닫히지 않고 남지만 오늘 경로가 아니다.
+		String yesterday = LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1).toString();
+		plan(newShift(yesterday), 1, "ACTIVE", routes(route(truck, stop("ST-6", "PICKUP", 2))), null);
+		assertThat(call("GET", "/api/drivers/me/route", driver, null, null).statusCode()).isEqualTo(404);
+
 		JsonNode own = route(truck, stop("ST-7", "DROPOFF", 3));
-		plan(newShift(), 1, "ACTIVE", routes(route("truck-1", stop("ST-1", "PICKUP", 5)), own), null);
+		String today = LocalDate.now(ZoneId.of("Asia/Seoul")).toString();
+		plan(newShift(today), 1, "ACTIVE", routes(route("truck-1", stop("ST-1", "PICKUP", 5)), own), null);
 		var res = call("GET", "/api/drivers/me/route", driver, null, null);
 		assertThat(res.statusCode()).isEqualTo(200);
 		assertThat(json.readTree(res.body())).isEqualTo(own);
@@ -198,23 +236,32 @@ class PlanApiTest {
 	// ── 행 넣기 ────────────────────────────
 
 	private static String newShift() {
-		return "S9" + UUID.randomUUID().toString().substring(0, 6) + ":2026-12-01:AM";
+		return newShift("2026-12-01");
 	}
 
-	/** 계획 한 행. basedOn이 있으면 그 활성 version을 기준으로 한 계산 요청(solve_requests)도 넣는다. */
+	private static String newShift(String day) {
+		return "S9" + UUID.randomUUID().toString().substring(0, 6) + ":" + day + ":AM";
+	}
+
 	private String plan(String shiftId, int version, String status, ArrayNode routes, Integer basedOn) {
+		return plan(shiftId, version, status, routes, basedOn, null);
+	}
+
+	/** 계획 한 행. basedOn이 있으면 그 활성 version을 기준으로 taskId가 요청한 계산 요청(solve_requests)도 넣는다. */
+	private String plan(String shiftId, int version, String status, ArrayNode routes, Integer basedOn, UUID taskId) {
 		String planId = "PL-" + UUID.randomUUID();
 		String requestId = null;
 		if (basedOn != null) {
 			requestId = shiftId + ":" + basedOn + ":" + version;
 			jdbc.sql("""
-					insert into solve_requests (request_id, shift_id, plan_version, seq, kind, request, status)
-					values (:id, :shiftId, :basedOn, :seq, 'REPLAN', '{}', 'OK')
+					insert into solve_requests (request_id, shift_id, plan_version, seq, kind, task_id, request, status)
+					values (:id, :shiftId, :basedOn, :seq, 'REPLAN', :taskId, '{}', 'OK')
 					""")
 				.param("id", requestId)
 				.param("shiftId", shiftId)
 				.param("basedOn", basedOn)
 				.param("seq", version)
+				.param("taskId", taskId)
 				.update();
 		}
 		jdbc.sql("""
