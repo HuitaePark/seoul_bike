@@ -13,6 +13,9 @@ on:
       - "agent/**"
       - "business-mcp/**"
       - "rag-mcp/**"
+      # optimizer 이미지 (루트 context: requirements.txt + or-tools/)
+      - "or-tools/**"
+      - "requirements.txt"
       - "docs/specs/**"
       - "docs/evidence/**"
       - ".github/workflows/deploy.yml"
