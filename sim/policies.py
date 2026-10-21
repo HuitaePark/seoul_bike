@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from datetime import datetime
 from itertools import accumulate
 
@@ -150,6 +151,8 @@ class Agent(Policy):
                     prio = delta * self.fail_priority if delta > 0 else fails_avoided(traj, var, -delta)
                 (todo if delta < 0 or s.id in self.sources else extra).append(Imbalance(s.id, delta, prio))
         fleet = trucks if isinstance(trucks, list) else depot_trucks(trucks, truck_capacity)  # carry_trucks면 엔진이 Truck 목록을 준다
+        # 예측이 보는 horizon시간보다 긴 시간을 주면 트럭 고정비 때문에 일을 트럭 한 대에 몰고, 엔진은 그 첫 1시간만 돌려 나머지 트럭이 논다(07–21시 근무)
+        fleet = [replace(t, available_time_s=min(t.available_time_s, horizon * 3600)) for t in fleet]
         supply = sum(t.load for t in fleet) + sum(i.delta for i in todo if i.delta > 0)
         if self.pick_starve is None or supply < self.pick_starve * -sum(i.delta for i in todo if i.delta < 0):
             todo += extra

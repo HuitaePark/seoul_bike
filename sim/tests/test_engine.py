@@ -4,6 +4,7 @@
 
 import random
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -236,6 +237,18 @@ class ReplayTest(unittest.TestCase):
         stops = {s.station_id for r in plan.routes for s in r.stops}
         self.assertNotIn(1, stops)
         self.assertIn(1, {u.station_id for u in plan.unserved})
+
+    def test_agent_gives_optimizer_no_more_time_than_it_forecasts(self):
+        # 07–21시 근무: 남은 14시간을 다 주면 트럭 고정비 때문에 일을 한 대에 몬다(엔진은 첫 1시간만 돌린다). 예측 범위 3시간까지만 준다
+        class Fake:
+            def predict(self, st, start, horizon_h):
+                return Forecast(start, (4.0,) * horizon_h, (0.0,) * horizon_h, "fake")
+
+        agent = Agent(Fake(), frozenset(), horizon=3, shifts=((7, 21),))
+        trucks = [Truck(0, 15, load=7, available_time_s=14 * 3600), Truck(1, 15, load=7, available_time_s=1800)]
+        with mock.patch("sim.policies.plan_routes") as routes:
+            agent.plan(at(7), [Station(1, "A", 37.5, 127.0, 10, 1)], (37.5, 127.0), trucks, 15)
+        self.assertEqual([t.available_time_s for t in routes.call_args.args[3]], [3 * 3600, 1800])
 
     def test_fail_priority_skips_empty_station_where_no_rentals_come(self):
         # A: 비었지만 3시간 동안 대여 예측이 0(LOW만큼 2대 모자람). B: 재고 1, 시간당 4대씩 빠진다(13대 모자람).
