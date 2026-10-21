@@ -88,6 +88,9 @@ class Agent(Policy):
       회수  공급처(sources)에서, 궤적의 최고가 거치대 수를 넘을 때만, 빼도 궤적이 'LOW + 여유' 아래로 내려가지 않는 만큼 뺀다
     공급처를 정해 두는 이유: 대여소 하나의 예측은 우연에 의한 오차가 커서, 아무 곳에서나 예측만 믿고 빼면 그 오차만큼 실패가 생긴다
     (2025-06-04·11 강남-05에서 회수한 대여소의 실패가 재배치 없음보다 124~223건 늘었다). 공급처는 전해 역산의 회수 대여소다.
+    pick_margin을 주면 공급처가 아닌 곳도 넘침이 크고 확실하면(궤적 − z_pick × √(예상 대여)의 최고 > 거치대 + pick_margin) 확실한 만큼 뺀다.
+    pick_starve를 주면 이 회수는 공급(트럭 적재 + 공급처 회수)이 배치 요청의 그 비율보다 적은 계획에서만 넣는다.
+    공급이 넉넉한 구역에서까지 빼면 뺀 곳의 실패가 더 늘었다(기준 묶음 강남-05 +118건).
     replan_h를 주면 엔진이 근무조 안에서 그 간격마다 다시 부른다(그 시각의 실제 재고와 새 예측으로).
     경로는 5의 plan_routes(OR-Tools)를 그대로 쓴다.
     경로 탐색은 5의 기본값을 따른다(해 50개에서 멈춤, 실행마다 같은 답). time_limit_s는 주지 않는다(주면 CPU 부하에 따라 답이 바뀐다).
@@ -100,11 +103,13 @@ class Agent(Policy):
     def __init__(self, predictor, sources: frozenset[int], z: float = 1.0, replan_h: int | None = None,
                  horizon: int | None = None, time_limit_s: int | None = None, z_pick: float | None = None, bridge: bool = False,
                  shifts: tuple = SHIFTS, carry_trucks: bool = False, sim_travel: bool = False,
-                 fail_priority: float | None = None):
+                 fail_priority: float | None = None, pick_margin: float | None = None, pick_starve: float | None = None):
         self.predictor = predictor
         self.sources = sources
         self.z = z  # 배치 여유
         self.z_pick = z if z_pick is None else z_pick  # 회수 여유. 크게 두면 공급처를 덜 비운다
+        self.pick_margin = pick_margin
+        self.pick_starve = pick_starve
         self.replan_h = replan_h
         self.horizon = horizon
         self.bridge = bridge  # 근무조 마지막 계획은 다음 근무조 시작까지(최대 MAX_LEAD시간) 버티게 본다
@@ -121,17 +126,20 @@ class Agent(Policy):
         if self.bridge and now.hour + (self.replan_h or h1 - h0) >= h1:  # 이 근무조의 마지막 계획
             nxt = next((a for a, _ in self.shifts if a > now.hour), self.shifts[0][0] + 24)
             horizon = max(horizon, min(MAX_LEAD, nxt - now.hour))
-        todo = []
+        todo, extra = [], []  # extra: 공급처가 아닌 곳의 회수
         for s in stations:
             f = self.predictor.predict(s, now, horizon)
             traj = list(accumulate((r - n for r, n in zip(f.returns_h, f.rentals_h)), initial=s.bikes))
             sd = [0.0] + [math.sqrt(x) for x in accumulate(f.rentals_h)]
             need = max(LOW + self.z * d - t for t, d in zip(traj, sd))  # 이만큼 더 있어야 버틴다
             spare = -max(LOW + self.z_pick * d - t for t, d in zip(traj, sd))  # 빼도 버티는 양
+            sure = max(t - self.z_pick * d for t, d in zip(traj, sd))  # 궤적 최고의 아래쪽 추정
             if need > 0:
                 delta = -math.ceil(need)
             elif s.id in self.sources and s.capacity and max(traj) > s.capacity and spare > 0:
                 delta = math.floor(min(spare, max(traj) - s.capacity))
+            elif self.pick_margin is not None and s.capacity and sure > s.capacity + self.pick_margin and spare > 0:
+                delta = math.floor(min(spare, sure - s.capacity))
             else:
                 continue
             if delta:  # 회수량을 내림하면 0이 될 수 있다
@@ -140,8 +148,11 @@ class Agent(Policy):
                 if self.fail_priority is not None:
                     var = list(accumulate((r + n for r, n in zip(f.rentals_h, f.returns_h)), initial=0.0))  # 포아송 분산: 대여 + 반납
                     prio = delta * self.fail_priority if delta > 0 else fails_avoided(traj, var, -delta)
-                todo.append(Imbalance(s.id, delta, prio))
+                (todo if delta < 0 or s.id in self.sources else extra).append(Imbalance(s.id, delta, prio))
         fleet = trucks if isinstance(trucks, list) else depot_trucks(trucks, truck_capacity)  # carry_trucks면 엔진이 Truck 목록을 준다
+        supply = sum(t.load for t in fleet) + sum(i.delta for i in todo if i.delta > 0)
+        if self.pick_starve is None or supply < self.pick_starve * -sum(i.delta for i in todo if i.delta < 0):
+            todo += extra
         return plan_routes(depot, stations, todo, fleet, time_limit_s=self.time_limit_s, travel_time=self.travel_time,
                            blocked_station_ids=blocked)
 

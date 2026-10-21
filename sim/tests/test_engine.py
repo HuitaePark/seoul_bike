@@ -11,7 +11,7 @@ from sim.engine import Day, replay, resample_demand
 from sim.latent import poisson_arrivals
 from sim.policies import Agent, CurrentOps, CurrentOpsLastWeek, NoRebalancing, Policy, SimpleRule
 from forecast import Forecast
-from rebalancing.models import Plan, Route, Station, Stop
+from rebalancing.models import Plan, Route, Station, Stop, Truck
 
 T0 = datetime(2025, 6, 11)
 
@@ -76,6 +76,23 @@ class ReplayTest(unittest.TestCase):
         self.assertEqual(stops.get(2, ("pickup",))[0], "pickup")
         self.assertNotIn(3, stops)
         self.assertNotIn(4, stops)
+
+    def test_agent_picks_sure_overflow_outside_sources_only_when_supply_is_short(self):
+        # A는 비어 가고(배치 14대), B는 공급처가 아니지만 반납만 들어와 확실히 넘친다(30 → 39, 거치대 10).
+        # 빈 트럭이면 공급(0)이 배치 요청의 30%보다 적어 B에서 뺀다. 15대를 실은 트럭이면 B에 가지 않는다
+        class Fake:
+            demand = {1: (4.0, 0.0), 2: (0.0, 3.0)}
+
+            def predict(self, st, start, horizon_h):
+                rent, ret = self.demand[st.id]
+                return Forecast(start, (rent,) * horizon_h, (ret,) * horizon_h, "fake")
+
+        stations = [Station(1, "A", 37.500, 127.000, 10, 0), Station(2, "B", 37.501, 127.001, 10, 30)]
+        agent = Agent(Fake(), frozenset(), z=0, pick_margin=5, pick_starve=0.3)
+        stops = lambda load: {s.station_id: (s.action, s.bikes) for r in agent.plan(  # noqa: E731
+            at(7), stations, (37.5005, 127.0005), [Truck(0, 30, load=load)], 30).routes for s in r.stops}
+        self.assertEqual(stops(0), {1: ("dropoff", 14), 2: ("pickup", 28)})  # B: min(빼도 버티는 28, 확실한 넘침 39 − 10)
+        self.assertEqual(stops(15), {1: ("dropoff", 14)})
 
     def test_hourly_replan_does_not_mix_loads_when_old_route_returns_on_the_hour(self):
         # 07시 경로: B 배치 → A 회수 → 멀리 있는 C에서 끊겨 08시 정각에 거점으로 돌아온다(귀환 처리).
