@@ -27,8 +27,11 @@ from .guardrails import destructive_tools
 from .task import HarnessContext
 
 
+TASK_HEADER = "X-Task-Id"
+
+
 class TraceHeaderInterceptor:
-    """Adds the task's trace_id to every MCP HTTP call so business-mcp and backend logs share it."""
+    """Adds the task's trace_id (and task_id as X-Task-Id) to every MCP HTTP call so business-mcp and backend logs share it."""
 
     def __init__(self, header: str) -> None:
         self.header = header
@@ -40,7 +43,9 @@ class TraceHeaderInterceptor:
     ) -> MCPToolCallResult:
         ctx = getattr(request.runtime, "context", None)
         if isinstance(ctx, HarnessContext):
-            request = request.override(headers={**(request.headers or {}), self.header: ctx.task.trace_id})
+            # X-Task-Id: 승인 인자를 받지 않는 계산 도구(request_route_plan)도 backend에 작업을 알리게 (docs/MCP.md 2.4)
+            headers = {**(request.headers or {}), self.header: ctx.task.trace_id, TASK_HEADER: ctx.task.task_id}
+            request = request.override(headers=headers)
         return await handler(request)
 
 

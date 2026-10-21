@@ -187,6 +187,16 @@ def sources(history: Iterable[BaseMessage], labels: Mapping[str, str]) -> list[d
                 if uri and uri not in seen:
                     seen.add(uri)
                     found.append({"kind": "DOC", "title": hit.get("source", uri), "uri": uri, "excerpt": hit.get("text", "")[:120]})
+            # rag-mcp search_docs는 {chunks: [...]}를 준다 (docs/MCP.md 4.1, ISSUES ISS-23). 그래프 doc_sources와 같은 모양으로 옮긴다.
+            for chunk in (hits.get("chunks") or []) if isinstance(hits, dict) else []:
+                uri = chunk.get("uri") or (f"doc://{chunk['doc_id']}" if chunk.get("doc_id") else None)
+                if not uri or uri in seen:
+                    continue
+                seen.add(uri)
+                title = chunk.get("title") or uri
+                if chunk.get("section"):  # 같은 문서의 다른 절이 근거 패널에서 구별되게
+                    title = f"{title} · {chunk['section']}"
+                found.append({"kind": "DOC", "title": title, "uri": uri, "excerpt": (chunk.get("text") or "")[:120] or None})
         elif m.name not in seen:
             seen.add(m.name)
             found.append({"kind": "TOOL", "title": labels.get(m.name, m.name).removesuffix(" 중"), "uri": None, "excerpt": None})
