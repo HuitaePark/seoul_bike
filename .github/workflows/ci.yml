@@ -70,6 +70,23 @@ jobs:
         env:
           RAG_TEST_DSN: ${{ matrix.rag-dsn }}
 
+  # 6번 데이터·시뮬레이터 테스트(sim, forecast, 대여소 수집기). 실데이터·네트워크 없이 가짜 입력으로만 돈다.
+  # lightgbm이 쓰는 libgomp는 ubuntu 러너에 이미 깔려 있다.
+  data:
+    name: python (data)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-data.txt
+      - run: pip install -r requirements-data.txt pytest
+      - run: python -m pytest -q sim/tests forecast/tests analysis/collect
+
   backend:
     runs-on: ubuntu-latest
     steps:
