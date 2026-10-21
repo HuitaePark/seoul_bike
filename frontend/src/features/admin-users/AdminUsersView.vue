@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, problemMessage, type Schemas } from '../../shared/api/client'
+import { useAuth } from '../../shared/auth/store'
 import { roleLabel } from '../../shared/labels'
 
 // 계정 관리 (관리자). 권한은 backend가 /api/admin/** 에서 MANAGER만 허용한다.
@@ -9,6 +10,7 @@ type Account = Schemas['Account']
 type Role = Schemas['Role']
 const statusLabel: Record<Schemas['AccountStatus'], string> = { PENDING: '승인 대기', ACTIVE: '사용 중', DISABLED: '비활성' }
 
+const auth = useAuth()
 const accounts = ref<Account[]>([])
 const error = ref('')
 // 승인할 때 고를 역할·트럭. 신청한 역할을 기본값으로 둔다.
@@ -41,7 +43,10 @@ async function approve(a: Account) {
   await load()
 }
 
+// 비활성화(가입 거절 포함)는 되돌리는 API가 없다. 잘못 누르지 않게 한 번 묻는다.
 async function disable(a: Account) {
+  const what = a.status === 'PENDING' ? '가입 신청을 거절' : '계정을 비활성화'
+  if (!window.confirm(`${a.name} (${a.loginId}) ${what}할까요? 되돌릴 수 없다.`)) return
   error.value = ''
   const { error: e } = await api.POST('/api/admin/users/{userId}/disable', { params: { path: { userId: a.id } } })
   if (e) error.value = `${a.loginId}: ${problemMessage(e)}`
@@ -109,7 +114,10 @@ onMounted(load)
           <td>{{ a.name }}<br /><span class="muted">{{ a.loginId }}</span></td>
           <td>{{ roleLabel[a.role] }}<template v-if="a.truckId"> · {{ a.truckId }}</template></td>
           <td><span :class="['badge', a.status]">{{ statusLabel[a.status] }}</span></td>
-          <td><button v-if="a.status === 'ACTIVE'" class="ghost" @click="disable(a)">비활성화</button></td>
+          <td>
+            <!-- 자기 계정은 backend가 막는다 (CANNOT_DISABLE_SELF). 누를 수 없는 버튼은 보이지 않는다. -->
+            <button v-if="a.status === 'ACTIVE' && a.id !== auth.user?.id" class="ghost" @click="disable(a)">비활성화</button>
+          </td>
         </tr>
       </table>
     </section>
