@@ -316,6 +316,26 @@ class DriverScopeTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([e["args"]["truck_ids"] for e in world.log if e["tool"] == "request_route_plan"], [["TR-1"]])
             self.assertEqual(out.approval["truckId"], "TR-1")
 
+    async def test_driver_memo_about_the_area_becomes_a_manager_constraint_card(self):
+        # Issue #35: the driver's own reroute first, then the area-wide situation goes to the manager as a constraint.
+        festival = report("R-2", "TR-1", "ST-2005", 2, "OTHER", "옆 공원 축제로 반납이 몰림")
+        boost = call("business_add_constraint", shift_id=SHIFT_ID, type="PRIORITY_BOOST", station_ids=["ST-2005"],
+                     valid_from="2026-10-24T13:05:00+09:00", valid_to=T22, reason="R-2 축제로 반납 몰림")
+        steps = [plan("REPLAN", ["TR-1"]), apply_last("TR-1"), call("business_get_field_reports", shift_id=SHIFT_ID),
+                 boost, say("경로를 바꿨고 축제 반영은 관리자 승인을 기다린다")]
+        async with harness(steps, world=World(force_grade="MINOR", reports=[festival])) as (agent, _, _, world, _, _):
+            t = Task("task-1", "trace-1", "field_report", SHIFT_ID, festival["memo"], requester=DRIVER,
+                     report=FieldReport.from_contract(festival))
+            route_card = await agent.start(t)
+            self.assertEqual((route_card.approval["kind"], route_card.approval["approver"]), ("ROUTE_CHANGE", "DRIVER"))
+            constraint_card = await answer(agent, world, t, route_card)
+            self.assertEqual((constraint_card.approval["kind"], constraint_card.approval["approver"]), ("ADD_CONSTRAINT", "MANAGER"))
+            self.assertEqual([c["tool"] for c in world.executed_changes], ["propose_route_change"])
+            with self.assertRaises(ApprovalMismatch):
+                await answer(agent, world, t, constraint_card, role="DRIVER")
+            self.assertEqual((await answer(agent, world, t, constraint_card)).status, "DONE")
+            self.assertEqual([c["tool"] for c in world.executed_changes], ["propose_route_change", "add_constraint"])
+
     async def test_driver_question_never_reads_the_shift_audit(self):
         # Audit events carry no truckId, so the result filter cannot narrow them: drivers do not get the tool at all.
         # The manager runs first so a graph cached per task type alone would hand the driver the manager's tools.

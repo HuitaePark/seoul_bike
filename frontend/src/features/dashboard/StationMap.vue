@@ -58,7 +58,7 @@ const lines = computed(() =>
 
 const trucks = computed(() => props.trucks.map((t) => ({ ...t, ...xy(t.lat, t.lon) })))
 
-const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', OVERFLOW: 'var(--overflow)', NONE: '#94a3b8' }
+const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', OVERFLOW: 'var(--overflow)', NONE: 'var(--ok)' }
 </script>
 
 <template>
@@ -71,11 +71,11 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
         <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.18" />
       </filter>
     </defs>
-    <rect :width="W" :height="H" fill="#f8fafc" />
+    <rect :width="W" :height="H" fill="#f7fafc" />
     <rect :width="W" :height="H" fill="url(#grid)" />
     <!-- 한강·중랑천 (장식) -->
-    <path :d="`M0 ${H - 30} C 250 ${H - 70}, 520 ${H - 10}, 760 ${H - 40} S ${W} ${H - 70}, ${W} ${H - 80} V ${H} H 0 Z`" fill="#dbeafe" />
-    <path d="M70 0 C 90 120, 40 260, 120 420 S 180 520, 160 560" fill="none" stroke="#dbeafe" stroke-width="18" stroke-linecap="round" />
+    <path :d="`M0 ${H - 30} C 250 ${H - 70}, 520 ${H - 10}, 760 ${H - 40} S ${W} ${H - 70}, ${W} ${H - 80} V ${H} H 0 Z`" fill="#d4ebf8" />
+    <path d="M70 0 C 90 120, 40 260, 120 420 S 180 520, 160 560" fill="none" stroke="#d4ebf8" stroke-width="18" stroke-linecap="round" />
     <text :x="W - 140" :y="H - 22" class="river">한강</text>
 
     <g v-for="l in lines" :key="l.truckId" :opacity="l.dim ? 0.15 : 1">
@@ -109,8 +109,8 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
 </template>
 
 <style scoped>
-.map { width: 100%; height: auto; display: block; border-radius: 10px; }
-.river { font-size: 13px; fill: #60a5fa; font-weight: 600; }
+.map { width: 100%; height: auto; display: block; border-radius: 12px; }
+.river { font-size: 13px; fill: #4a9fd6; font-weight: 600; }
 .station { cursor: pointer; outline: none; }
 .station .name { font-size: 11px; fill: #334155; text-anchor: middle; font-weight: 600; paint-order: stroke; stroke: #f8fafc; stroke-width: 4px; opacity: 0; transition: opacity 0.15s; }
 .station:hover .name, .station:focus .name, .station.selected .name { opacity: 1; }

@@ -406,6 +406,7 @@ except ApprovalMismatch:
 | 2026-10-20 | Recovery | `models`: `openai:gpt-4.1-mini`·`nano` → Ollama Cloud `gemma4:31b`(주)·`gpt-oss:120b`(대체), `langchain-ollama` 추가 | D25 Ollama 결정. 무료 요금제에서 도구 호출이 되는 후보를 같은 평가셋으로 비교. `gpt-oss:120b`는 변경 도구를 부르지 않고 "추가했다"고 답하는 경우와 ID에 U+2011 하이픈을 쓰는 경우가 있었다 | [ollama-gemma4](eval/2026-10-20-ollama-gemma4.md) 12/14 · 평균 2.09초, [ollama-gpt-oss-120b](eval/2026-10-20-ollama-gpt-oss-120b.md) 7/14 · 4.58초. 두 모델 모두 무승인 변경 0 |
 | 2026-10-21 | Tools, Instructions, Observability | 계약 asyncapi v0.4·internal-api v0.5: `qa`에 `get_audit`, FIELD_REPORT 명령의 `report` 사용, `requestedBy.truckId`, `FAILED.code` 계약 필드로, `request_route_plan`에 `task_id` 주입, 프롬프트 `qa@4` (v0.6) | 계약 반영 (ISS-03~06 해결) | [scripted-baseline](eval/2026-10-21-scripted-baseline.md) 15/15, 무승인 변경 0 |
 | 2026-10-21 | Tools, Instructions | `tools.driver_deny: [business_get_audit]`: 기사 질문(`qa`)에는 감사 기록 도구를 주지 않고, 그래프 캐시 키에 요청자 역할 추가. 프롬프트 `qa@5` (v0.7) | PR 리뷰: 기사 질문으로 다른 트럭의 현장 보고·관리자 승인 기록이 보임 (NFR-06, ISS-R15) | `test_driver_question_never_reads_the_shift_audit`, scripted 15/15, 무승인 변경 0 |
+| 2026-10-21 | Tools, Instructions | `field_report`에 `business_add_constraint` 허용, 프롬프트 `field_report@4`: 기사 메모가 트럭 밖에도 영향을 주는 현장 상황(행사·사고·대여소 고장)이면 기사 트럭 재경로 뒤 제약(`PRIORITY_BOOST`·`STATION_BLOCKED`·`STATION_SUSPENDED`)을 관리자 승인 카드로 올린다 (v0.8) | 이슈 #35: 기사가 '기타'로 적은 현장 변수를 계획에 반영. 기사 혼자 본 내용이라 제약은 관리자만 승인 | `test_driver_memo_about_the_area_becomes_a_manager_constraint_card`, scripted 15/15, 무승인 변경 0 |
 
 ---
 
