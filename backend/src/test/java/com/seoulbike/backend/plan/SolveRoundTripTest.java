@@ -45,6 +45,9 @@ class SolveRoundTripTest {
 	FakeOptimizer optimizer;
 
 	@Autowired
+	SolveResultStore resultStore;
+
+	@Autowired
 	KafkaTemplate<String, String> kafka;
 
 	@Autowired
@@ -181,6 +184,27 @@ class SolveRoundTripTest {
 			.query(Integer.class).single()).isEqualTo(1);
 		assertThat(jdbc.sql("select count(*) from plans where shift_id = :shift").param("shift", shift)
 			.query(Integer.class).single()).isEqualTo(2);
+	}
+
+	/**
+	 * 순차 교체 중(infra/deploy.sh)에는 결과를 다른 backend 인스턴스가 받아 요청 행에만 저장할 수 있다.
+	 * 이 인스턴스의 소비자를 거치지 않아도 기다리는 호출이 요청 행에서 찾아 후보를 만든다.
+	 */
+	@Test
+	void resultStoredByAnotherInstanceIsFoundInTheRequestRow() throws Exception {
+		String shift = shift();
+		ArrayNode routes = routes(route("TR-01", stop(1, "ST-1", "PICKUP", 5, 10)));
+		optimizer.answers.put(shift, r -> {
+			resultStore.store(json.readTree(result(r, "OK", routes, null, false, null)));
+			return List.of();
+		});
+
+		SolveOutcome outcome = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null, null);
+
+		assertThat(outcome.status()).isEqualTo(SolveOutcome.Status.OK);
+		assertThat(outcome.candidate().path("plan").path("routes")).isEqualTo(inSeoul(routes));
+		assertThat(jdbc.sql("select count(*) from plans where request_id = :id").param("id", outcome.requestId())
+			.query(Integer.class).single()).isEqualTo(1);
 	}
 
 	@Test

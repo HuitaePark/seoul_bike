@@ -51,6 +51,9 @@ class TaskFlowTest {
 	@Autowired
 	ChangeApprovals changeApprovals;
 
+	@Autowired
+	TaskEventStore eventStore;
+
 	private final HttpClient http = HttpClient.newHttpClient();
 
 	@Test
@@ -261,6 +264,43 @@ class TaskFlowTest {
 			JsonNode data = json.readTree(stream.readUntil(e -> e.data().contains(marker)).getLast().data());
 			assertThat(data.path("occurredAt").asString()).isEqualTo("2026-11-09T19:00:00+09:00");
 		}
+	}
+
+	/**
+	 * 순차 교체 중(infra/deploy.sh)에는 다른 backend 인스턴스가 이 작업의 이벤트를 받아 저장할 수 있다.
+	 * 이 인스턴스가 직접 받지 않은 이벤트도 DB에서 찾아 seq 순서로 보낸다: 새 이벤트가 없어도, 뒤 이벤트가 먼저 와도 빠짐없이.
+	 */
+	@Test
+	void eventsStoredByAnotherInstanceReachTheStreamInOrder() throws Exception {
+		String manager = login("manager");
+		String shiftId = "N02:2026-11-10:AM";
+		var created = call("POST", "/api/ai/tasks", manager,
+				"{\"type\":\"REQUEST\",\"shiftId\":\"" + shiftId + "\",\"text\":\"다른 인스턴스 저장 확인\"}");
+		String taskId = json.readTree(created.body()).path("taskId").asString();
+
+		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), manager, null)) {
+			// 가짜 에이전트는 승인 카드를 보낸 뒤 결정을 기다리며 조용하다.
+			int cardSeq = stream.readUntil(e -> e.type().equals("APPROVAL_REQUIRED")).getLast().id();
+
+			// 다른 인스턴스가 저장만 한 이벤트: 이 인스턴스에 새 이벤트가 오지 않아도 보낸다.
+			String alone = "alone-" + UUID.randomUUID();
+			eventStore.store(token(shiftId, taskId, alone));
+			assertThat(stream.readUntil(e -> e.data().contains(alone)).getLast().id()).isEqualTo(cardSeq + 1);
+
+			// 다른 인스턴스가 저장한 이벤트 바로 뒤에 이 인스턴스가 받은 이벤트: 앞의 것을 건너뛰지 않는다.
+			String other = "other-" + UUID.randomUUID(), mine = "mine-" + UUID.randomUUID();
+			eventStore.store(token(shiftId, taskId, other));
+			kafka.send(Topics.AI_EVENTS, shiftId, json.writeValueAsString(token(shiftId, taskId, mine)))
+				.get(10, TimeUnit.SECONDS);
+			List<SseEvent> rest = stream.readUntil(e -> e.data().contains(mine));
+			assertThat(rest).extracting(SseEvent::id).containsExactly(cardSeq + 2, cardSeq + 3);
+			assertThat(rest.get(0).data()).contains(other);
+		}
+	}
+
+	private ObjectNode token(String shiftId, String taskId, String text) {
+		return json.createObjectNode().put("eventId", UUID.randomUUID().toString()).put("schemaVersion", 1)
+			.put("shiftId", shiftId).put("taskId", taskId).put("type", "TOKEN").put("token", text);
 	}
 
 	@Test
