@@ -202,6 +202,50 @@ services:
       retries: 10
     restart: unless-stopped
 
+  optimizer:
+    # 경로 최적화 실행기 (역할 5, or-tools/, docs/specs/optimizer.md). solve.requests·solve.requests.retry를 소비해
+    # solve.results를 발행하고, 처리 못 한 요청은 solve.requests.dlq로 보낸다. 공개 포트는 없다.
+    build:
+      context: ..
+      dockerfile: or-tools/Dockerfile
+    # 이동 시간은 우선 하버사인 추정치다. 도로 기준 OSRM은 서울 도로 데이터 전처리·서버 메모리가 정해지면
+    # --travel-source osrm --osrm-url --osrm-data-version --matrix-cache-dir 로 바꾼다 (infra/optimizer/README.md).
+    # group-id와 브로커 주소는 상태 볼륨의 identity에 들어간다. 바꾸면 기존 상태로 시작하지 못하므로 고정한다.
+    command:
+      - python
+      - -m
+      - rebalancing.worker
+      - --bootstrap-servers
+      - redpanda:9092
+      - --group-id
+      - optimizer-v1
+      - --state-dir
+      - /state
+      - --travel-source
+      - haversine
+    volumes:
+      # 결과 중복 방지 기록 (requestId별 저장 결과·발행 여부). 한 worker·유지되는 한 볼륨이 전제다. down -v로 지우지 않는다.
+      - optimizer-state:/state
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      # solve 토픽 4개(파티션 6개)는 backend가 만든다. worker는 토픽을 자동 생성하지 않으므로 backend 다음에 뜬다.
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # worker는 준비 신호를 따로 내지 않는다. 대신 브로커에서 이 소비자 그룹이 STABLE이고 멤버가 있는지 본다.
+      # 크래시 루프거나 poll이 멈춰 그룹에서 빠지면(max.poll.interval.ms) healthy가 되지 않는다.
+      # AdminClient를 변수에 잡아 둔다. 바로 버리면 응답 전에 정리돼 future가 끝나지 않는다.
+      test: ["CMD", "python", "-c", "import sys; from confluent_kafka.admin import AdminClient; a = AdminClient({'bootstrap.servers': 'redpanda:9092'}); g = a.describe_consumer_groups(['optimizer-v1'], request_timeout=5)['optimizer-v1'].result(timeout=8); sys.exit(not (g.state.name == 'STABLE' and g.members))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      start_interval: 5s
+      retries: 3
+    # SIGTERM을 받으면 진행 중인 요청을 마치고 멈춘다. 기본 10초보다 여유를 둔다.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
   redpanda:
     image: redpandadata/redpanda:v26.2.5
     command:
@@ -228,3 +272,4 @@ volumes:
   pgdata:
   vectordata:
   rpdata:
+  optimizer-state:
