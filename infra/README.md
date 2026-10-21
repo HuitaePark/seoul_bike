@@ -49,7 +49,7 @@ flowchart LR
 | --- | --- | --- |
 | `https://baki-macbookpro.tail3286a4.ts.net` | **인터넷 공개** (Tailscale Funnel 443 → frontend :3000) | 팀원·발표 데모용 기본 주소. 화면과 `/api`, `/swagger`, `/status`가 모두 여기로 열린다 |
 | `https://baki-macbookpro.tail3286a4.ts.net:8443` | 인터넷 공개 (같은 frontend) | 예전 링크 호환용. 학교·회사 유선망은 8443을 막을 수 있으니 443 주소를 쓴다 |
-| `http://baki-macbookpro.tail3286a4.ts.net:8080` | Tailscale 네트워크, 서버가 연결된 공유기 내부망 | Colima가 모든 인터페이스에 포트를 연다 |
+| `http://localhost:8080` (서버 안에서만) | 서버 자신 | backend 직접 호출. 2026-10-21부터 tailnet·공유기 내부망에는 열지 않는다 (`/internal/**` 보호). 밖에서는 공개 주소의 `/api`, `/swagger`를 쓴다 |
 | `https://baki-macbookpro.tail3286a4.ts.net:10443` | Tailscale 네트워크만 | Ollama(11434) |
 
 Funnel 관리 (서버에서, CLI는 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`):

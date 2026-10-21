@@ -11,7 +11,8 @@ info:
     - v0.3: `FieldReport`에 `loaded`·`unloaded`, `issue` 값 목록. 같은 모양이 `ai.tasks` FIELD_REPORT 명령의 `report`로도 간다.
     - v0.2: 경로 변경 승인 순서. 후보(`PlanCandidate`)에 `requiredApprovers`, 적용 API의 확인 규칙.
 
-    - 공개 주소(화면 nginx)로는 열리지 않는다. 서버 안의 backend 포트(tailnet)에서는 **서비스 토큰이 유일한 보호**다.
+    - 공개 주소(화면 nginx)로는 열리지 않는다. backend 포트는 서버 자신(127.0.0.1)에만 열려 있어 docker network 안의 서비스만
+      부를 수 있고, 그 안에서는 **서비스 토큰이 유일한 보호**다.
     - **모든 요청에 `X-Internal-Token`이 있어야 한다.** 없거나 틀리면 401 `UNAUTHORIZED`. 사용자 JWT로는 열리지 않는다.
       backend에 토큰이 설정돼 있지 않으면 모두 401이다.
     - 업무 규칙(변경 등급, 승인 주체)은 backend에만 있다. business-mcp는 규칙을 복제하지 않고 이 API를 부른다.
