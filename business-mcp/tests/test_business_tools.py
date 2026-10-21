@@ -254,6 +254,9 @@ async def test_replan_major_requires_manager_then_driver(client):
     assert (cand["grade"], cand["requiredApprovers"]) == ("MAJOR", ["MANAGER", "DRIVER"])
 
 
+STOP_REQUIRED = {"seq", "stationId", "action", "bikes"}  # openapi Stop 필수 필드 (승인 카드 화면이 읽음)
+
+
 async def test_major_replan_result_fits_harness_limit(client):
     """Harness는 4,000자에서 글자 단위로 자른다. MAJOR 후보도 3,800자 안에서 온전한 JSON이어야 한다."""
     async with client:
@@ -261,18 +264,43 @@ async def test_major_replan_result_fits_harness_limit(client):
                                                          "exclude_station_ids": ["ST-2240", "ST-1050"]})
     assert len(json.dumps(cand, ensure_ascii=False)) <= 3800
     assert cand["candidateId"] and cand["plan"]["planId"] and cand["requiredApprovers"] == ["MANAGER", "DRIVER"]
-    diff = next(d for d in cand["diffs"] if d["truckId"] == "TR-01")
-    assert diff["before"] and all(isinstance(x, str) for x in diff["before"] + diff["after"])
-    assert diff["removed"] == ["ST-2240"]
+    assert cand["plan"]["omitted"] == ["stationName,eta"] and "truncated" not in cand["plan"]  # 정류장은 자르지 않음
+
+
+async def test_route_diff_keeps_stop_objects_for_approval_card(client):
+    """계약 RouteDiff: before/after는 Stop[]. 승인 카드 화면이 stationId·action·bikes를 읽는다 (PR #23 리뷰)."""
+    async with client:
+        cand = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN", "truck_ids": ["TR-01"],
+                                                         "exclude_station_ids": ["ST-2240"]})
+    diff = cand["diffs"][0]
+    assert all(isinstance(s, dict) and STOP_REQUIRED <= s.keys() for s in diff["before"] + diff["after"])
+    assert diff["removed"] == ["ST-2240"] and diff["added"] == []
+    assert "stationName" in diff["before"][0]  # 길이가 넉넉하면 아무것도 빼지 않는다
+    assert "omitted" not in cand["plan"]
 
 
 async def test_plan_is_compacted_then_truncated_under_tight_budget(fake):
-    async with Client(build_server(fake, max_chars=1500)) as c:
+    async with Client(build_server(fake, max_chars=2500)) as c:
         cand = await call(c, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN",
                                                     "exclude_station_ids": ["ST-2240", "ST-1050"]})
-    assert len(json.dumps(cand, ensure_ascii=False)) <= 1500
+    assert len(json.dumps(cand, ensure_ascii=False)) <= 2500
     assert cand["candidateId"] and cand["plan"]["planId"]  # 검증에 필요한 ID는 끝까지 남는다
-    assert cand["plan"]["omitted"][:2] == ["stationName", "eta"] and cand["plan"]["totalStops"] > 0
+    assert cand["plan"]["omitted"][0] == "stationName,eta" and cand["plan"]["totalStops"] > 0
+    assert all(STOP_REQUIRED <= s.keys() for d in cand["diffs"] for s in d["before"] + d["after"])
+
+
+def test_unserved_and_explanation_are_trimmed_before_stops():
+    """포기 대여소가 많으면 정류장을 자르기 전에 unserved 뒤쪽과 긴 설명부터 줄인다 (PR #23 리뷰 추정 항목)."""
+    from business_mcp.server import _fit_plan
+
+    stop = {"seq": 1, "stationId": "ST-1", "action": "PICKUP", "bikes": 3, "status": "PENDING"}
+    plan = {"planId": "P-1", "routes": [{"truckId": "TR-1", "stops": [dict(stop, seq=i) for i in range(1, 6)]}],
+            "unserved": [{"stationId": f"ST-{i}", "priority": 1.0, "reason": "TIME"} for i in range(300)],
+            "explanation": "설명" * 400}
+    out = _fit_plan(plan, 2000)
+    assert len(json.dumps(out, ensure_ascii=False)) <= 2000
+    assert out["unservedTotal"] == 300 and len(out["unserved"]) < 300
+    assert len(out["routes"][0]["stops"]) == 5 and "truncated" not in out  # 정류장은 그대로
 
 
 async def test_plan_kind_has_no_grade(client):

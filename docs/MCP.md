@@ -47,7 +47,7 @@
 - specs가 배열로 주는 응답은 `{source, <목록 이름>: [...], truncated, total}`로 감싼다.
 - **결과 길이는 3,800자 안**(`DEFAULT_MAX_CHARS`). Harness는 `tools.result_max_chars`(4,000자)에서 글자 단위로 자르는데, JSON 중간이 잘리면 Harness가 결과를 파싱하지 못해 `candidateId`·`planId` 검증이 거부된다. 그래서 MCP가 먼저 온전한 JSON으로 줄인다.
   - 목록: `limit`(기본 20, 최대 50)으로 자르고, 그래도 길면 뒤쪽부터 잘라 `truncated: true`, `total`.
-  - 계획·후보: `diffs`의 before/after를 정류장 ID 목록(+`removed`, `added`)으로 줄인다. 그래도 길면 정류장의 `stationName`, `eta`, 끝난 정류장, `reason` 순으로 빼고(`plan.omitted`), 마지막으로 가장 긴 경로의 뒤쪽 정류장을 자른다(`plan.truncated`, `plan.totalStops`). 가짜 MAJOR 후보: 4,301자 -> 2,177자.
+  - 계획·후보: `diffs`의 before/after는 계약 `RouteDiff`대로 **`Stop` 객체로 둔다** (Harness가 ROUTE_CHANGE 승인 카드에 그대로 싣고 화면이 `stationId`·`action`·`bikes`를 읽음). 빠지는·더해지는 정류장 ID(`removed`, `added`)만 덧붙인다. 넘칠 때만 ① 정류장의 `stationName`·`eta` ② 끝난 정류장 ③ `reason`·`loadAfter` ④ `unserved` 뒤쪽(`unservedTotal`)·200자 넘는 `explanation` 순으로 줄이고(`plan.omitted`), 그래도 길면 계획 경로의 뒤쪽 정류장을 자른다(`plan.truncated`, `plan.totalStops`). 계약 필수 필드(`seq`, `stationId`, `action`, `bikes`)와 diffs의 정류장은 자르지 않는다. 가짜 MAJOR 후보: 4,301자 -> 3,328자 (정류장 이름·도착 시각만 뺌).
 - 감사 기록·현장 보고는 backend가 시간 순서대로 주므로 MCP가 뒤집어 최신순으로 준다. `since`는 그 시각을 뺀다 (계약 0.5.0).
 - 기사 이름은 백엔드가 마스킹해서 준다 (`driver: "기사 A"`). Harness도 한 번 더 마스킹한다.
 
@@ -81,7 +81,7 @@
    - `propose_route_change`: `request_route_plan` 결과의 `requiredApprovers` 순서. MINOR는 `[DRIVER]` 한 장, MAJOR는 `[MANAGER, DRIVER]` 두 장. **기사 카드 승인이 곧 기사 수락**이라 따로 수락 단계가 없다 (specs openapi v0.3, HARNESS 10절 (나)). 앞 카드가 거절되면 뒤 카드는 보내지 않고 기존 경로를 유지한다.
 3. 사람이 승인하면 backend가 기록하고 `ai.tasks` `RESUME`(approvalId)을 보낸다.
 4. Harness가 마지막 카드의 approvalId와 taskId를 채워 도구를 실행한다. business-mcp는 값을 요청 본문의 `approvalId`, `taskId`로 옮긴다. 값이 없으면 `APPROVAL_REQUIRED`.
-   승인 규칙이 없는 `request_route_plan`은 Harness가 `task_id`를 채우지 않는다. business-mcp는 `X-Task-Id` 헤더가 오면 그 값으로 `requestedBy.taskId`를 채운다 (Harness 헤더 주입기에 `X-Task-Id` 추가를 2번에게 제안).
+   `request_route_plan`의 `task_id`도 Harness가 채운다 (PR #27). 인자가 없을 때는 `X-Task-Id` 헤더가 오면 그 값으로 `requestedBy.taskId`를 채운다.
 5. backend가 필요한 승인이 순서대로 모두 `APPROVED`인지 한 번 더 확인한다 (아니면 403). 경로 변경의 기사 승인은 그 트럭 기사의 것이어야 한다.
 
 grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부르지 않는다.
