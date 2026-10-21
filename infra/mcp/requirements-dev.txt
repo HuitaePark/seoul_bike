@@ -1,4 +1,0 @@
-# Runtime versions shared by the two development containers and HTTP client tests.
--r requirements.lock
-pytest>=8,<10
-pytest-asyncio>=0.24,<2

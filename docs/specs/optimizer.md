@@ -1,7 +1,7 @@
 # 최적화 · 인프라 명세
 
-상태: **명세 검토용, 계산·Kafka 실행기는 개인 브랜치에 있으며 운영 backend 미연결**. 담당: 역할 5.
-기준 main: `6290ec5`.
+상태: **계산·Kafka 실행기·지도 검토 구현, 운영 backend 연결 대기**. 담당: 역할 5.
+공통 기준은 아래 문서 버전을 따른다.
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
@@ -10,8 +10,7 @@
 | Kafka (AsyncAPI) | 0.4.0-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
-아래 구현 설명은 [feat/optimizer-core의 계산 코드](https://github.com/HuitaePark/skala_seoul_bike/tree/feat/optimizer-core/or-tools/rebalancing)를 기준으로 한다.
-명세·예시와 계산·실행기·독립 인프라·지도 구현은 [PR #29](https://github.com/HuitaePark/skala_seoul_bike/pull/29)에서 함께 검토한다.
+아래 구현 설명은 [계산 코드](../../or-tools/rebalancing/)와 같은 저장소의 실행기·화면을 기준으로 한다.
 
 외부 형식은 [asyncapi.yaml](asyncapi.yaml)의 SolveRequest·SolveResult와
 [openapi.yaml](openapi.yaml)의 Route·Stop·Unserved가 원본이다.
@@ -114,13 +113,13 @@ OSRM 도로 거리·시간을 조회하며 중복 제거·요청 분할·순서 
 만료·손상은 재조회하고 디스크 기록 실패는 경고 후 유효한 결과를 유지한다. 도로 변경 시 버전을 갱신한다.
 정적 car 프로필은 실시간 교통·트럭 높이/중량을 보장하지 않는다.
 
-[개인 브랜치의 독립 개발 환경](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
+[독립 개발 환경](../../infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
 운영 Compose·backend 연결·retry/DLQ·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
-구현 브랜치의 CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
+CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
 
 ## Kafka 실행기
 
-[개인 브랜치 실행 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/optimizer/KAFKA.md)를 따른다.
+[Kafka 실행 안내](../../infra/optimizer/KAFKA.md)를 따른다.
 키 shiftId 검증, traceId·traceparent 전달, 발행 ACK 후 해당 입력 offset의 동기 commit을 수행한다.
 eventId와 requestId의 저장 기록을 확인하며, 같은 requestId의 완료 결과를 새로 생성하지 않는다.
 계산 입력이 달라진 ID 재사용은 중단한다. 결과 파일은 업무 DB와 별개인 실행기 전용 상태다.
@@ -137,23 +136,20 @@ durationMs는 저장·발행·offset commit까지이며 Kafka 대기는 제외�
 과거 계산 시간, computeMs는 이번 처리에서 계산 함수를 호출한 시간이다. 요청 본문·좌표·예외 본문은 기록하지 않는다.
 이 로그 필드는 Kafka payload 확장이 아니다. 계산 결과가 FAILED/TIMEOUT이어도 전송을 완료하면 solve.completed다.
 
-개인 브랜치의 benchmark는 초기 계획·재경로와 메모리 캐시 없음/빈 상태/준비 상태를 비교하고,
+benchmark는 초기 계획·재경로와 메모리 캐시 없음/빈 상태/준비 상태를 비교하고,
 nearest-rank p95·행렬/공급자/나머지 엔진 시간·표본·입력/계획 해시를 남긴다.
 재경로는 초기 계획의 차량별 첫 작업을 마친 뒤 대기하는 가상 스냅샷이며, 위치·적재량·남은 근무시간과
 완료·진입 불가 거점을 반영한다. 기본 측정은 하버사인 추정치이며 실제 운영 10초 완료 기준을 대체하지 않는다.
 
-## MCP 개발 환경·S05 참조 시드
+## S05 참조 시드
 
-역할 3의 MCP 소스를 최신 main 6290ec5에 맞춰 독립 컨테이너에서 조회·가짜 계산·승인 차단과
-docs/evidence/의 RAG 검색·원문 Resource를 검증한다. 기본 메모리 모드와 테스트용 pgvector overlay를
-제공하며, overlay는 일회용 DB·hash 임베딩으로 색인·검색 연결을 검사한다. 실제 의미 검색 품질과
-운영 backend·Kafka 계산 연결 검증은 별도다.
-[개인 브랜치 실행 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/mcp/README.md)를 따른다.
+MCP 소스·실행 환경·검증은 역할 3이 담당하며 [MCP 명세](../MCP.md)를 따른다.
+별도 MCP 이미지·고정 의존성·HTTP 검증 환경은 이 최적화 구현에 포함하지 않는다.
 
 역할 6의 ad17528에서 S05 대여소 196곳과 차고지 후보를 추출했다. seeds 모듈은 좌표·중복·거점 수와
 대여소 번호/API ID 대응을 검사하며, 재고·필요량·우선순위·기준 시각을 만들지 않는다.
 ID와 정책의 팀 확정을 대체하지 않으며, wire 형식도 변경하지 않는다.
-[참조 시드 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/optimizer/seeds/README.md)에 원본 커밋·해시·제한을 기록한다.
+[참조 시드 안내](../../infra/optimizer/seeds/README.md)에 원본 커밋·해시·제한을 기록한다.
 
 ## 지도·계획 검토 화면
 
@@ -169,10 +165,7 @@ ID와 정책의 팀 확정을 대체하지 않으며, wire 형식도 변경하�
 - [result.json](examples/optimizer/result.json): 해당 요청의 SolveResult 예시. solveMs는 성능 보장값이 아님.
 - [context.json](examples/optimizer/context.json): **함수 호출 설정 예시**, Kafka 메시지 스키마가 아님.
 
-단독 호출에는 구현 브랜치의 소스와 개발 의존성이 필요하다.
-명세·예시만 반영된 main에서는 아래 Python 모듈·테스트가 아직 제공되지 않는다.
-[구현 브랜치 실행 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/docs/optimizer/README.md)에 따라
-Python 3.12 환경을 준비하고, 그 브랜치의 or-tools/에서 실행한다.
+[실행 안내](../optimizer/README.md)에 따라 Python 3.12 환경을 준비하고 저장소의 `or-tools/`에서 실행한다.
 
 ```bash
 ../.venv/bin/python -m pip install -r ../requirements.txt -r requirements-dev.txt

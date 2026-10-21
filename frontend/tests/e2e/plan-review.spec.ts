@@ -59,17 +59,17 @@ for (const { role, home } of [
       await expect(page.locator('.topbar')).toHaveCount(0)
       await expect(page.locator('.app')).toBeVisible()
       await page.goto('/plans/review')
-      await expect(page.getByRole('heading', { name: '관제·책임자용 계획 검토 화면입니다' })).toBeVisible()
-      await expect(page.getByRole('link', { name: '기사 화면으로 이동' })).toHaveAttribute('href', '/driver')
+      await expect(page).toHaveURL('http://127.0.0.1:5185/driver')
+      await expect(page.locator('.plan-review')).toHaveCount(0)
+      expect(calls).toEqual([])
+      await page.goto('/plans/review/demo')
+      await expect(page.getByText('시연 데이터 · 실제 계획에 반영되지 않습니다')).toBeVisible()
       expect(calls).toEqual([])
     } else {
       await page.locator('.topbar').getByRole('link', { name: '계획 검토', exact: true }).click()
       await expect(page).toHaveURL('http://127.0.0.1:5185/plans/review')
       await expect(page.getByRole('link', { name: '작업 콘솔로 이동 →' })).toHaveAttribute('href', '/console')
-      if (role === 'MANAGER') {
-        await page.setViewportSize({ width: 390, height: 844 })
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-      }
+      await expect(page.locator('.topbar')).toHaveCSS('height', '56px')
     }
   })
 }
@@ -138,7 +138,8 @@ test('책임자는 조회 전용, 기사는 전체 계획을 요청하지 않는
   const driver = await page.context().newPage()
   const calls = await mockApi(driver, { role: 'DRIVER' })
   await driver.goto(liveUrl)
-  await expect(driver.getByRole('heading', { name: '관제·책임자용 계획 검토 화면입니다' })).toBeVisible()
+  await expect(driver).toHaveURL('http://127.0.0.1:5185/driver')
+  await expect(driver.locator('.plan-review')).toHaveCount(0)
   expect(calls).toEqual([])
 })
 test('401은 로그인으로 이동하고 404는 계획 없음으로 표시한다', async ({ page }) => {

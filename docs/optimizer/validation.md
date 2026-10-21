@@ -1,5 +1,7 @@
 # 최적화 코어 검증 기록
 
+아래는 단계별 과거 검증 기록이다. 백엔드 리뷰에 따라 별도 MCP 이미지·고정 의존성·HTTP/pgvector 환경과 중복 CI 잡은 PR 범위에서 제외했다. 현재 MCP 검증은 역할 3 소스와 main의 python-services 잡을 따른다.
+
 - 기준: `5c362d4`에서 시작한 `feat/optimizer-core` 작업
 - 일자: 2026-10-20
 - 환경: 로컬 macOS ARM64, Python 3.12.13, OR-Tools 9.14.6206
@@ -314,6 +316,32 @@ backend/·frontend/ 폴더와 CI 변경은 main에서 가져왔다. 이번 후�
 
 GitHub 호스팅 러너의 최신 실행 결과는 [PR #29 Checks](https://github.com/HuitaePark/skala_seoul_bike/pull/29/checks)에서 확인한다.
 이 검증은 실제 OSRM 도로 경로나 운영 backend의 solve 연결·배포 완료를 의미하지 않는다.
+
+## 백엔드 리뷰 반영
+
+- 기준 main 45dcc4a까지의 MCP 담당자 수정·대시보드 보완·공통 스크롤 스타일을 병합했다.
+  backend·agent·MCP 업무 소스·근거 문서·공유 모듈·공통 YAML·운영 Compose는 main과 같다.
+- 실제 계획 검토는 공통 라우터의 MANAGER·EXECUTIVE 역할 제한을 사용한다. 기사는 /driver로 이동하며
+  계획 API를 호출하지 않는다. canRead와 기사 안내 패널을 제거했고, 공개 시연은 역할과 관계없이 유지했다.
+- App.vue는 main의 상단 바와 고정 높이를 사용하며 관리자·책임자 메뉴 링크 2개만 추가한다.
+  화면의 작업 콘솔 링크는 /console을 유지한다.
+- PlanMap·usePlanReview 타이머는 number | undefined와 window.setTimeout을 사용한다.
+  MapLibre 타입을 위쪽 import type으로 옮기고 함수 표기를 정리했다. 대여소 이름 래퍼는 직접 호출로 바꿨다.
+  같은 스타일의 전체 재로딩과 승인·조회 취소·SSE 갱신 동작은 유지했다.
+- 중복 mcp CI 잡·infra/mcp 파일 9개와 관련 구성 검사·현재 실행 안내를 제외했다.
+  main의 python-services와 pgvector 서비스 설정은 그대로다. CI는 6개 잡·매트릭스 포함 8개 검사다.
+- 명세의 개인 브랜치 전제·고정 커밋·브랜치 고정 URL을 제거하고 상대 링크로 바꿨다.
+  내부 호출·Kafka 연결·운영 배포의 남은 범위는 완료로 표시하지 않는다.
+- 프론트 단위 **15개·Chromium 24개 통과**, 타입 검사·배포 빌드 통과.
+  main 상단 바 높이·역할별 첫 화면·기사 자동 이동·기사 공개 시연과 기존 지도·승인·모바일 회귀를 확인했다.
+- 최신 MCP 소스의 기본 검사 **54개 통과·4개 제외**. 로컬 실행은 pgvector 3개·fastembed 1개를 제외한다.
+  기존 공통 CI의 rag-mcp 잡이 실제 pgvector 검사를 맡는다. 외부 임베딩 모델 다운로드 검사는 실행하지 않았다.
+- CI YAML 중복 키·main MCP 잡 동일성·삭제 경로 미참조·현재 안내의 상대 링크 검사,
+  운영/최적화 Compose 구성·OSRM 준비 스크립트 구문·PR 기준 diff 검사를 통과했다.
+
+depot·asOf·오류/미처리 사유 계약 추가는 역할 4의 계약 PR에 맞춰 이어서 반영한다.
+역할 5의 retry/DLQ·runtime 대응과 데이터 PR #10의 datetime 인터페이스 통합은 후속 작업이다.
+이 기록은 그 운영 연결을 완료했다는 뜻이 아니다.
 
 ## 아직 검증하지 않은 범위
 

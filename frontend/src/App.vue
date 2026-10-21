@@ -47,10 +47,3 @@ const initial = computed(() => auth.user?.name.slice(0, 1) ?? '')
     <main><RouterView /></main>
   </template>
 </template>
-
-<style scoped>
-.topbar { flex-wrap: wrap; gap: 12px; height: auto; min-height: 56px; padding-top: 10px; padding-bottom: 10px; }
-.topbar nav { flex-wrap: wrap; }
-.topbar .who { flex-wrap: wrap; }
-@media (max-width: 600px) { .topbar { padding: 16px 20px; } .topbar nav { gap: 10px 14px; } .topbar .who { margin-left: 0; padding-left: 0; border-left: 0; } }
-</style>

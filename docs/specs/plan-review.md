@@ -1,20 +1,20 @@
 # 지도·계획 검토 화면 명세
 
-담당: 역할 5. 기준: main `6290ec5`, [공개 API v0.8.0-draft](openapi.yaml).
-구현은 개인 브랜치 `feat/optimizer-core`에 있다. 공개 API 스키마를 확장하지 않는다.
+담당: 역할 5. 기준: [공개 API v0.8.0-draft](openapi.yaml).
+구현: [계획 검토 화면](../../frontend/src/features/plan-map/). 공개 API 스키마를 확장하지 않는다.
 MapLibre·OpenFreeMap 배경지도·마커·방문 순서를 구현했다. 실제 도로 경로선과 업무 서버 통합은 후속이다.
 
 ## 경로와 권한 표시
 
 | 경로 | 동작 |
 | --- | --- |
-| `/plans/review` | 로그인 필요. MANAGER는 조회·계획 결정, EXECUTIVE는 조회만, DRIVER는 전체 계획 요청 없이 안내 |
+| `/plans/review` | 로그인 필요. MANAGER는 조회·계획 결정, EXECUTIVE는 조회만, DRIVER는 전체 계획 요청 없이 `/driver`로 이동 |
 | `/plans/review/demo` | 공개 시연. 별도 가상 자료·승인 상태만 변경하며 실제 API 호출 없음 |
 
 권역 ID·근무조 ID·예측 구간 1~6시간을 입력한다. URL의 `regionId`, `shiftId`로 초기 조회할 수 있다.
 권한의 최종 판정은 backend가 담당한다. 401은 공통 인증 처리로 로그인 화면에 이동한다.
 main의 역할별 첫 화면은 유지한다. 관리자·책임자 메뉴에서 계획 검토를 열고, 작업 콘솔은 `/console`,
-기사 안내에서 돌아가는 화면은 `/driver`로 연결한다.
+기사의 실제 계획 검토 진입은 공통 라우터가 `/driver`로 보낸다. 화면 안에서 별도 기사 안내를 만들지 않는다.
 
 ## 표시 항목
 

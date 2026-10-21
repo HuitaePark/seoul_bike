@@ -10,7 +10,6 @@ import { approvalBlockReason, editableStop, isTaskId, ReviewError, validateQuery
 export function usePlanReview(isDemo: () => boolean) {
   const auth = useAuth()
   const route = useRoute()
-  const canRead = computed(() => isDemo() || ['MANAGER', 'EXECUTIVE'].includes(auth.user?.role ?? ''))
   const manager = computed(() => isDemo() || auth.user?.role === 'MANAGER')
   const query = reactive<Query>({ regionId: DEMO_REGION, shiftId: '', horizonH: 3 })
   const loadedQuery = ref<Query | null>(null)
@@ -47,21 +46,23 @@ export function usePlanReview(isDemo: () => boolean) {
   let decisionController: AbortController | undefined
   let generation = 0
   let contextEpoch = 0
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const streamId = computed(() => !isDemo() && canRead.value && task.value && !['DONE', 'FAILED'].includes(task.value.status) ? task.value.taskId : null)
+  let timer: number | undefined
+  const streamId = computed(() => !isDemo() && task.value && !['DONE', 'FAILED'].includes(task.value.status) ? task.value.taskId : null)
   const stream = useTaskStream(streamId)
-  const message = (error: unknown) => error instanceof Error ? error.message : '요청을 처리하지 못했습니다.'
+  function message(error: unknown): string {
+    return error instanceof Error ? error.message : '요청을 처리하지 못했습니다.'
+  }
 
   watch(signature, () => { excluded.value = []; reviewed.value = false; comment.value = '' }, { flush: 'sync' })
   watch(() => stream.events.value.at(-1), event => {
     if (event && ['APPROVAL_REQUIRED', 'TOOL_END', 'DONE', 'FAILED'].includes(event.type)) {
       clearTimeout(timer)
-      timer = setTimeout(() => { void reload() }, 150)
+      timer = window.setTimeout(() => { void reload() }, 150)
     }
   })
 
   async function reload() {
-    if (!canRead.value || !loadedQuery.value) return
+    if (!loadedQuery.value) return
     controller?.abort()
     controller = new AbortController()
     const current = ++generation
@@ -94,7 +95,7 @@ export function usePlanReview(isDemo: () => boolean) {
   async function search() {
     if (sending.value) return
     errors.query = validateQuery(query)
-    if (errors.query || !canRead.value) return
+    if (errors.query) return
     controller?.abort(); generation++; contextEpoch++
     plan.value = null; stations.value = []; task.value = null
     linkedId.value = isDemo() ? DEMO_TASK_ID : ''
@@ -150,11 +151,11 @@ export function usePlanReview(isDemo: () => boolean) {
     query.regionId = isDemo() ? DEMO_REGION : typeof route.query.regionId === 'string' ? route.query.regionId : DEMO_REGION
     query.shiftId = isDemo() ? DEMO_SHIFT : typeof route.query.shiftId === 'string' ? route.query.shiftId : ''
     query.horizonH = 3; taskInput.value = ''
-    if (canRead.value && query.shiftId) void search()
+    if (query.shiftId) void search()
   }
-  watch([isDemo, canRead], reset, { immediate: true })
+  watch(isDemo, reset, { immediate: true })
   onScopeDispose(() => { generation++; contextEpoch++; controller?.abort(); decisionController?.abort(); clearTimeout(timer) })
-  return { canRead, manager, query, loadedQuery, plan, stations, stationMap, task, taskInput, loading, sending, loaded, errors, notice,
+  return { manager, query, loadedQuery, plan, stations, stationMap, task, taskInput, loading, sending, loaded, errors, notice,
     selectedTruck, selectedStation, selectedRoute, sortedStops, eligible, excluded, reviewed, comment, blockReason, changedQuery,
     streamState: stream.state, search, reload, linkTask, toggleExclude, decide, reset }
 }

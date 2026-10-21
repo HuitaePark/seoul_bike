@@ -40,8 +40,12 @@ const reasons: Record<string, string> = {
   not_selected: '이번 계산에서 선택되지 않았습니다. 시간·적재량 중 한 가지 원인으로 단정할 수 없습니다.',
   no_solution: '설정된 탐색 범위에서 경로를 얻지 못했습니다.',
 }
-export const reasonText = (value: string) => reasons[value] ?? value
-export const label = (labels: Record<string, string>, value?: string) => value ? labels[value] ?? value : '미제공'
+export function reasonText(value: string): string {
+  return reasons[value] ?? value
+}
+export function label(labels: Record<string, string>, value?: string): string {
+  return value ? labels[value] ?? value : '미제공'
+}
 export function numberText(value: number | null | undefined): string {
   return value != null && Number.isFinite(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : '미제공'
 }
@@ -69,7 +73,9 @@ export function loadPercent(load?: number, capacity?: number): number | null {
 export function isLoadInvalid(load?: number, capacity?: number): boolean {
   return load != null && (load < 0 || (capacity != null && load > capacity))
 }
-export function editableStop(stop: Stop): boolean { return !stop.status || stop.status === 'PENDING' }
+export function editableStop(stop: Stop): boolean {
+  return !stop.status || stop.status === 'PENDING'
+}
 export function approvalBlockReason(plan: Plan | null, task: Task | null, shiftId: string, manager: boolean): string {
   if (!manager) return '계획 결정은 관리자만 할 수 있습니다.'
   if (!plan) return '먼저 계획을 조회하세요.'

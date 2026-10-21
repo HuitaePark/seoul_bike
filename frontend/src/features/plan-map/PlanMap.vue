@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { GeoJSONSource, Map as MapLibreMap, Marker, StyleSpecification } from 'maplibre-gl'
+import type * as MapLibreModule from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { mapData, position, truckColor, type MapPoint, type Position } from './map-model.ts'
@@ -28,10 +29,10 @@ const selectedMissing = computed(() => props.selectedStation && !position(select
 const emptyStyle: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'plain', type: 'background', paint: { 'background-color': '#edf2f7' } }] }
 const styleUrl = import.meta.env.VITE_PLAN_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/liberty'
 let map: MapLibreMap | undefined
-let library: typeof import('maplibre-gl') | undefined
+let library: typeof MapLibreModule | undefined
 let observer: ResizeObserver | undefined
 let styleController: AbortController | undefined
-let styleTimer: ReturnType<typeof setTimeout> | undefined
+let styleTimer: number | undefined
 let epoch = 0
 let mounted = false
 let styleChanging = false
@@ -43,8 +44,12 @@ function fit(points: Position[]) {
   const xs = points.map(p => p[0]), ys = points.map(p => p[1])
   map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 60, maxZoom: 15.5, duration: 0 })
 }
-function fitTruck() { fit(data.value.selectedPositions.length ? data.value.selectedPositions : data.value.points.map(p => p.position)) }
-function fitAll() { fit(data.value.points.map(p => p.position)) }
+function fitTruck() {
+  fit(data.value.selectedPositions.length ? data.value.selectedPositions : data.value.points.map(p => p.position))
+}
+function fitAll() {
+  fit(data.value.points.map(p => p.position))
+}
 function focusStation() {
   const p = position(selected.value)
   if (map && p && !fatal.value) map.easeTo({ center: p, zoom: Math.max(14, map.getZoom()), duration: 0 })
@@ -101,14 +106,16 @@ function teardown() {
   for (const entry of markers.values()) entry.marker.remove()
   markers.clear(); map?.remove(); map = undefined; ready.value = false; styleChanging = false
 }
-const assetUrl = (value: string, base: URL) => new URL(value, base).href.replace(/%7B/gi, '{').replace(/%7D/gi, '}')
+function assetUrl(value: string, base: URL): string {
+  return new URL(value, base).href.replace(/%7B/gi, '{').replace(/%7D/gi, '}')
+}
 async function loadBasemap() {
   if (!map || fatal.value) return
   styleController?.abort(); clearTimeout(styleTimer)
   const controller = new AbortController(); styleController = controller
   const currentMap = map
   baseState.value = 'loading'
-  styleTimer = setTimeout(() => {
+  styleTimer = window.setTimeout(() => {
     controller.abort()
     if (styleController === controller && map === currentMap) {
       baseState.value = 'failed'
