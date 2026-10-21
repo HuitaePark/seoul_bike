@@ -206,7 +206,7 @@ export interface paths {
         /**
          * 계정 비활성화 (관리자)
          * @description 로그인을 막는다. 가입 신청 거절에도 쓴다. 자기 계정은 비활성화할 수 없다 (CANNOT_DISABLE_SELF).
-         *     이미 발급된 토큰도 다음 요청부터 401이다. 열려 있는 SSE 연결은 그 작업이 끝날 때까지 남는다.
+         *     이미 발급된 토큰도 다음 요청부터 401이다. 이미 열린 SSE 연결은 바로 끊지 않고, 다시 연결할 때 401이다.
          */
         post: operations["disableAccount"];
         delete?: never;
@@ -659,7 +659,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description 토큰 없음 또는 만료 */
+        /** @description 토큰 없음, 만료, 또는 계정이 활성 상태가 아님(비활성화 등) */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;

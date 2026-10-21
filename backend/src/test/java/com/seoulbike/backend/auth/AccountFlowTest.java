@@ -83,6 +83,10 @@ class AccountFlowTest {
 		assertThat(code(login(loginId, "password-123"))).isEqualTo("ACCOUNT_DISABLED");
 		// 이미 받은 토큰도 만료를 기다리지 않고 바로 막힌다.
 		assertThat(code(call("GET", "/api/me", issued, null))).isEqualTo("UNAUTHORIZED");
+		// 그 옛 토큰이 브라우저에 남아 로그인 요청에 붙어 와도 다른 계정으로 로그인할 수 있다.
+		assertThat(call("POST", "/api/auth/login", issued,
+				json.writeValueAsString(json.createObjectNode().put("loginId", "driver1").put("password", "test-password")))
+			.statusCode()).isEqualTo(200);
 
 		assertThat(code(call("POST", "/api/admin/users/u-manager/disable", manager, null))).isEqualTo("CANNOT_DISABLE_SELF");
 		assertThat(code(call("POST", "/api/admin/users", manager,

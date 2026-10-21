@@ -32,6 +32,8 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -90,11 +92,19 @@ class SecurityConfig {
 				.permitAll()
 				.anyRequest().authenticated())
 			// 토큰이 틀린 경우(리소스 서버)와 토큰이 아예 없는 경우(exceptionHandling) 모두 같은 본문을 쓴다.
-			.oauth2ResourceServer(o -> o.jwt(jwt -> jwt.jwtAuthenticationConverter(activeAccountsOnly(users)))
+			// 로그인·가입은 토큰을 보지 않는다. 브라우저에 남은 옛 토큰(비활성 계정 등)이 붙어 오면 그 토큰 때문에
+			// 401이 나서 다시 로그인할 수 없게 된다.
+			.oauth2ResourceServer(o -> o.bearerTokenResolver(ignoringAuthEndpoints())
+				.jwt(jwt -> jwt.jwtAuthenticationConverter(activeAccountsOnly(users)))
 				.authenticationEntryPoint(unauthorized)
 				.accessDeniedHandler(forbidden))
 			.exceptionHandling(e -> e.authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden))
 			.build();
+	}
+
+	private static BearerTokenResolver ignoringAuthEndpoints() {
+		DefaultBearerTokenResolver header = new DefaultBearerTokenResolver();
+		return req -> req.getRequestURI().startsWith("/api/auth/") ? null : header.resolve(req);
 	}
 
 	@Bean
