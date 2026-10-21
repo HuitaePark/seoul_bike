@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, problemMessage, type Schemas } from '../../shared/api/client'
-import { useAuth } from '../../shared/auth/store'
 import { useTaskStream } from '../../shared/composables/useTaskStream'
 import ApprovalCard from '../approval/ApprovalCard.vue'
 import type { ApprovalDecision } from '../approval/approval'
@@ -11,10 +10,10 @@ import type { ApprovalDecision } from '../approval/approval'
 
 type TaskType = Schemas['TaskType']
 
+// 현장 보고 재경로(FIELD_REPORT)는 기사가 POST /api/reports로 보고할 때만 생긴다. 작업 API로 만들면 400 USE_REPORTS_API
 const types: { value: TaskType; label: string }[] = [
   { value: 'PLAN_DRAFT', label: '계획 초안' },
   { value: 'REQUEST', label: '상황 반영 요청' },
-  { value: 'FIELD_REPORT', label: '현장 보고 재경로' },
   { value: 'QUESTION', label: '질의' },
 ]
 const today = new Date().toISOString().slice(0, 10)
@@ -25,7 +24,6 @@ const selected = ref<string | null>(null)
 const decisionError = ref('')
 const deciding = ref(false)
 
-const auth = useAuth()
 const stream = useTaskStream(selected)
 
 // 진행 이벤트 로그. TOKEN은 답변으로 모이므로 로그에서 뺀다.
@@ -136,7 +134,6 @@ const statusLabel: Record<Schemas['TaskStatus'], string> = {
         <ApprovalCard
           v-if="stream.pendingApproval.value"
           :card="stream.pendingApproval.value"
-          :user="auth.user"
           :busy="deciding"
           :error="decisionError"
           @decide="decide"

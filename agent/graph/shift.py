@@ -7,7 +7,10 @@
     START → receive ─┬─ harness → run_harness ─┐
                      ├─ code    → run_code ────┼→ settle ─┬─ end  → END
                      ├─ settle ────────────────┘          └─ code → run_code (모델 장애 → LLM 없는 경로)
-                     └─ skip    → END (중복 명령, 대기 중이 아닌 승인, 승인 주체가 아닌 결정)
+                     └─ skip    → END (이미 받은 작업, 이미 처리한 결정)
+
+받은 작업은 어느 길로 가든 DONE·APPROVAL_REQUIRED·FAILED 중 하나로 끝낸다. 실행하지 않기로 한 결정도 backend는
+이미 작업을 RUNNING으로 바꿨으므로 settle이 FAILED로 닫는다. skip은 backend가 작업의 지금 상태를 이미 받았을 때만 간다.
 
 맡는 일 (HARNESS v0.5 1.5): 카드·승인 순서·계약 이벤트는 Harness가 만든다. 그래프는 작업 접수와 보고 읽기,
 `task_from_command`·`resume_command` 호출, 대기 카드 표(작업 사이 대체, 재시작 뒤 카드 단계 ISS-19),
@@ -57,6 +60,7 @@ log = logging.getLogger(__name__)
 
 MODEL_FAILURES = {"MODEL_UNAVAILABLE", "MODEL_ERROR"}  # 이 실패면 LLM 없는 경로로 다시 해 본다
 DEFAULT_INPUT = {"PLAN_DRAFT": "이번 근무조의 재배치 계획 초안을 만들어 주세요."}
+RECEIVED = {"DONE", "WAITING_APPROVAL"}  # 같은 작업이 다시 오면 버리는 상태. RUNNING은 앞선 처리가 끊긴 것이라 다시 한다
 
 
 def merge(left: dict | None, right: dict | None) -> dict:
@@ -83,6 +87,26 @@ def _requester_problem(cmd: TaskCommand, report: dict | None) -> str | None:
     if cmd.requested_by["role"] == "DRIVER" and not (cmd.requested_by.get("truckId") or (report or {}).get("truckId")):
         return "기사 작업인데 트럭을 알 수 없다 (requestedBy.truckId 또는 보고의 truckId 필요)"
     return None
+
+
+def _record(cmd: TaskCommand, command: dict, **values: Any) -> dict:
+    """작업 기록 (`ShiftState.tasks` 한 칸, docs/AGENT-GRAPH.md 2.3)."""
+    return {
+        "taskId": cmd.task_id,
+        "type": cmd.type,
+        "shiftId": cmd.shift_id,
+        "traceId": cmd.trace_id,
+        "command": command,
+        "report": None,
+        "attempt": 1,
+        "status": "RUNNING",
+        "path": "code",
+        "resume": None,
+        "excluded": [],
+        "pending": None,
+        "pendingApproval": None,
+        **values,
+    }
 
 
 class ShiftAgent:
@@ -155,18 +179,26 @@ class ShiftAgent:
         if cmd.type == "RESUME":
             r = cmd.resume
             pending = approvals.get(r.approval_id)
+            record = tasks.get(cmd.task_id)
             if not pending or pending["status"] != "PENDING":
                 # backend가 409로 먼저 막지만, 늦게 온 결정이 다른 계획을 실행하지 않도록 한 번 더 막는다
                 log.info("대기 중이 아닌 승인 %s (%s)", r.approval_id, pending and pending["status"])
-                return {"route": "skip", "outcome": {"status": "IGNORED", "taskId": cmd.task_id,
-                                                     "reason": "대기 중인 승인이 아니다"}}
+                if pending and record and record["status"] != "RUNNING":
+                    # 이미 처리한 결정이 다시 왔거나 대체된 카드다. 작업의 지금 상태(다음 카드·완료·실패)는 backend가 이미 받았다
+                    return {"route": "skip", "outcome": {"status": "IGNORED", "taskId": cmd.task_id,
+                                                         "reason": "대기 중인 승인이 아니다"}}
+                if record and record["status"] == "RUNNING":
+                    # 승인 처리 도중 끊긴 작업이 다시 왔다. 승인된 변경이 이미 실행됐을 수 있어 다시 하지 않는다
+                    return self._refuse(cmd, record, "승인 처리 도중 끊긴 작업이라 다시 실행하지 않았다 (변경이 이미 실행됐을 수 있다)")
+                return self._refuse(cmd, record, f"대기 중인 승인 {r.approval_id}을 찾지 못해 실행하지 않았다")
             card = pending["card"]
             if r.decided_by.get("role") != card["approver"]:
-                # backend가 403(NOT_APPROVER)으로 먼저 막는다. 그래도 다른 주체의 결정으로 변경을 실행하지 않는다
+                # backend가 403(NOT_APPROVER)으로 먼저 막는다. 그래도 다른 주체의 결정으로 변경을 실행하지 않는다.
+                # backend는 이 결정으로 승인을 끝냈으므로 카드를 다시 기다리지 않는다
                 log.warning("승인 주체가 아닌 결정 %s: 카드 %s, 결정 %s", r.approval_id, card["approver"],
                             r.decided_by.get("role"))
-                return {"route": "skip", "outcome": {"status": "IGNORED", "taskId": cmd.task_id,
-                                                     "reason": "승인 주체가 아니다"}}
+                return self._refuse(cmd, record, "승인 주체가 아닌 결정이라 실행하지 않았다",
+                                    approvals={r.approval_id: {**pending, "status": "DECIDED", "decision": r.decision}})
             record = tasks[pending["taskId"]]
             # 모델 없이 다시 뜬 서버라면 LLM 경로로 시작한 작업도 기다리던 도구 호출을 코드가 이어서 실행할 수 없다.
             # Harness의 멈춘 호출은 Harness만 재개할 수 있으므로 그대로 Harness 경로로 보낸다.
@@ -185,8 +217,12 @@ class ShiftAgent:
             }
 
         old = tasks.get(cmd.task_id)
-        if old and old["status"] != "FAILED":
+        if old and old["status"] in RECEIVED:
             return {"route": "skip", "outcome": {"status": "IGNORED", "taskId": cmd.task_id, "reason": "이미 받은 작업"}}
+        if old and old["status"] == "RUNNING":
+            # 앞선 처리가 끝나지 못했다 (처리 중 예외 → ai.tasks.retry, 재시작 뒤 재전달). 그때 잡아 둔 이벤트는 버리고 다시 한다
+            log.warning("끝나지 않은 작업 %s를 다시 처리한다 (시도 %d)", cmd.task_id, old.get("attempt", 1) + 1)
+            self.sink.drop(cmd.task_id)
 
         report = None
         if cmd.type == "FIELD_REPORT":
@@ -196,21 +232,8 @@ class ShiftAgent:
         problem = _requester_problem(cmd, report)
         if cmd.type == "FIELD_REPORT" and not report:
             problem = f"보고 {cmd.report_id}를 찾지 못했다"
-        record = {
-            "taskId": cmd.task_id,
-            "type": cmd.type,
-            "shiftId": cmd.shift_id,
-            "traceId": cmd.trace_id,
-            "command": state["command"],
-            "report": report,
-            "attempt": (old or {}).get("attempt", 0) + 1,
-            "status": "RUNNING",
-            "path": self._path(cmd, report),
-            "resume": None,
-            "excluded": [],
-            "pending": None,
-            "pendingApproval": None,
-        }
+        record = _record(cmd, state["command"], report=report, attempt=(old or {}).get("attempt", 0) + 1,
+                         path=self._path(cmd, report))
         update: dict[str, Any] = {"current": cmd.task_id, "route": record["path"], "tasks": {cmd.task_id: record}}
         if report:
             update["reports"] = [*(state.get("reports") or []), report][-10:]
@@ -218,6 +241,15 @@ class ShiftAgent:
             update["route"] = "settle"
             update["outcome"] = failed("OUTPUT_INVALID", problem)
         return update
+
+    @staticmethod
+    def _refuse(cmd: TaskCommand, record: dict | None, why: str, **update: Any) -> dict:
+        """결정을 실행하지 않고 작업을 FAILED(INTERNAL_ERROR)로 닫는다. 이벤트는 settle이 낸다.
+
+        backend는 결정을 받으며 작업을 RUNNING으로 바꾼다. 이벤트 없이 끝내면 작업이 그 상태에 멈춘다."""
+        record = record or _record(cmd, {})
+        return {"current": cmd.task_id, "route": "settle", "tasks": {cmd.task_id: {**record, "resume": None}},
+                "outcome": failed("INTERNAL_ERROR", why), **update}
 
     def _path(self, cmd: TaskCommand, report: dict | None) -> str:
         """LLM 경로(harness)인가, LLM 없는 경로(code)인가."""
@@ -248,7 +280,7 @@ class ShiftAgent:
                 outcome = await self._outside_graph(self.agent.start(task))
         except ApprovalMismatch as exc:
             self.sink.release(task.task_id)
-            return {"outcome": {"status": "IGNORED", "reason": str(exc), "via": "harness"}}
+            return {"outcome": {**failed("INTERNAL_ERROR", f"대기 중인 승인과 맞지 않아 실행하지 않았다: {exc}"), "via": "graph"}}
         history = await self._outside_graph(self.agent.history(task))
         results, excluded = tool_results(history), record.get("excluded") or []
         cards: dict[str, dict] = {}
@@ -274,7 +306,7 @@ class ShiftAgent:
             task = self._task(state, record)
             outcome = await self._outside_graph(self.code.run(record, task, self.sink, record.get("resume")))
         except ApprovalMismatch as exc:
-            outcome = {"status": "IGNORED", "reason": str(exc)}
+            outcome = failed("INTERNAL_ERROR", f"대기 중인 승인과 맞지 않아 실행하지 않았다: {exc}")
         except ToolMissing as exc:
             outcome = failed("TOOL_UNAVAILABLE", f"도구 없음: {exc}")
         except ToolFailed as exc:  # 승인된 변경이 backend에서 거부됨(403·409) 등. 실행했다고 답하지 않는다
@@ -298,14 +330,7 @@ class ShiftAgent:
         if "pending" in out:
             record["pending"] = out["pending"]
 
-        if out["status"] == "IGNORED":
-            # 결정이 대기 카드와 맞지 않아 아무것도 실행하지 않았다. 카드는 계속 기다린다
-            log.warning("작업 %s: 결정 무시 (%s)", record["taskId"], out.get("reason"))
-            if resume:
-                changed_approvals[resume["approvalId"]] = {**approvals[resume["approvalId"]], "status": "PENDING"}
-            record.update(status="WAITING_APPROVAL", resume=None)
-
-        elif out["status"] == "APPROVAL_REQUIRED":
+        if out["status"] == "APPROVAL_REQUIRED":
             card = out["approval"]
             for old_id, old in approvals.items():
                 if old["status"] == "PENDING" and old["taskId"] != record["taskId"] and same_target(old["card"], card):
@@ -338,6 +363,9 @@ class ShiftAgent:
                 return {"route": "code", "tasks": {record["taskId"]: record}}
             if out.get("via") != "harness":  # Harness는 FAILED를 이미 냈다 (잡아 둔 것을 아래에서 내보낸다)
                 self.sink.send(record, "FAILED", error=f"{out.get('code')}: {out.get('message')}", code=out.get("code"))
+            waiting = approvals.get(record.get("pendingApproval") or "")
+            if waiting and waiting["card"]["kind"] == "SUBMIT_PLAN" and plan.get("proposed") == waiting["card"]["planId"]:
+                plan["proposed"] = None  # 실패로 닫힌 작업의 계획은 더 이상 승인을 기다리지 않는다
             record.update(status="FAILED", pendingApproval=None, resume=None)
 
         self.sink.release(record["taskId"])  # 잡아 둔 이벤트가 남았으면 내보낸다

@@ -33,7 +33,7 @@ uv pip install -e ".[dev]"   # dev: 계약 스키마 검사(jsonschema)
 반드시 `agent/` 폴더에서, 이 폴더의 `.venv` Python으로 실행한다. `python`이 다른 버전(예: Homebrew 3.11)이나 다른 프로젝트 가상환경을 가리키면 테스트를 못 찾거나(`Ran 0 tests`) 다른 프로젝트 테스트가 실행된다.
 
 ```bash
-.venv/bin/python -m unittest discover tests -v      # 동작 테스트 (Harness 38 + 그래프 30), 키 불필요, 약 4초
+.venv/bin/python -m unittest discover tests -v      # 동작 테스트 (Harness 38 + 그래프 35), 키 불필요, 약 4초
 .venv/bin/python -m unittest tests.test_harness.RecoveryTest.test_fallback_model_after_retries   # 한 줄로 입력
 .venv/bin/python -m evaluation --out /tmp/eval.md   # 시나리오 15개, 키 불필요, 약 3초
 ```
@@ -105,7 +105,7 @@ LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 �
 명세와 설계 근거는 [AGENT-GRAPH](../docs/AGENT-GRAPH.md). 모델 없이도 계획 초안·메모 없는 현장 보고·승인이 돈다 (`AGENT_LLM=none`).
 
 ```bash
-.venv/bin/python -m unittest tests.test_graph        # 그래프 30개, 키·브로커 불필요
+.venv/bin/python -m unittest tests.test_graph        # 그래프 35개, 키·브로커 불필요
 .venv/bin/python -m graph                            # agent 서버: Kafka ai.tasks 소비 → ai.events 발행
 ```
 
@@ -113,11 +113,11 @@ LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 �
 | --- | --- | --- |
 | `KAFKA_BOOTSTRAP` | `localhost:9092` | 브로커 |
 | `AGENT_PG_URL` | (없으면 메모리) | 체크포인터·처리 기록 PostgreSQL |
-| `AGENT_LLM` | harness.yaml 모델 | `none`이면 LLM 없는 경로만, `ollama:<모델>`이면 그 모델 |
+| `AGENT_LLM` | harness.yaml 모델 | `none`이면 LLM 없는 경로만, `ollama:<모델>`·`openai:<모델>`이면 그 모델 (서버는 `openai:gpt-4.1-mini`, `OPENAI_API_KEY` 필요) |
 | `MCP_BUSINESS_URL` · `MCP_RAG_URL` | `http://business-mcp:9101/mcp` · `http://rag-mcp:9102/mcp` | MCP 서버 |
-| `MCP_FAKE` | | `1`이면 평가용 가짜 MCP (실서버가 오기 전 통합 확인용) |
+| `MCP_FAKE` | `0` | `1`이면 평가용 가짜 MCP (예시 데이터, backend는 바뀌지 않는다. 시연에는 쓰지 않는다) |
 
-팀 compose에서는 `agent` 서비스로 뜬다 (`Dockerfile`, [infra/compose.yaml](../infra/compose.yaml)). `docker compose up`이 backend·redpanda·PostgreSQL과 함께 띄우고, 위 변수는 compose가 넣는다: 브로커 `redpanda:9092`, PostgreSQL은 `agent` 데이터베이스(`agent-db-init`이 만든다), `MCP_FAKE`는 기본 `1`, `AGENT_LLM`·`OLLAMA_*`·`MCP_*`는 `infra/.env`에서 읽는다. 이때 backend의 `FAKE_AGENT_ENABLED`는 `false`로 둔다 (켜 두면 둘 다 답한다).
+팀 compose에서는 `agent` 서비스로 뜬다 (`Dockerfile`, [infra/compose.yaml](../infra/compose.yaml)). `docker compose up`이 backend·redpanda·PostgreSQL과 함께 띄우고, 위 변수는 compose가 넣는다: 브로커 `redpanda:9092`, PostgreSQL은 `agent` 데이터베이스(`agent-db-init`이 만든다), `MCP_FAKE`는 기본 `0`(실제 business-mcp·rag-mcp), `AGENT_LLM`·`OPENAI_API_KEY`·`OLLAMA_*`·`MCP_*`는 `infra/.env`에서 읽는다. healthcheck는 agent가 MCP·Kafka에 붙은 뒤 갱신하는 `/tmp/agent-ready`를 본다. 이때 backend의 `FAKE_AGENT_ENABLED`는 `false`로 둔다 (켜 두면 둘 다 답한다).
 
 ```bash
 docker compose -f ../infra/compose.yaml --env-file ../infra/.env up -d --build agent   # agent와 그 의존 서비스

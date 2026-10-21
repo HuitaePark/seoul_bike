@@ -2,29 +2,17 @@
 Author: Jung Minkyu
 Date: 20OCT2026
 Purpose: 승인 카드 (openapi ApprovalRequest 하나). 승인·거절·일부 제외를 ApprovalDecision으로 보낸다. 관리자 화면과 기사 화면이 같이 쓴다.
+누가 결정할 수 있는지는 backend가 판단한다. 버튼은 늘 보이고, 승인 주체가 아니면 403 NOT_APPROVER가 error로 온다.
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { Schemas } from '../../shared/api/client'
+import type { ApprovalCard, ApprovalDecision } from './approval'
 import StopList from './StopList.vue'
-import {
-  approvalSteps,
-  approverLabel,
-  canDecide,
-  canExclude,
-  decisionBody,
-  diffMarks,
-  gradeLabel,
-  kindLabel,
-  stationChoices,
-  type ApprovalCard,
-  type ApprovalDecision,
-} from './approval'
+import { approvalSteps, approverLabel, decisionBody, diffMarks, gradeLabel, kindLabel, stationChoices } from './approval'
 
 const props = withDefaults(
   defineProps<{
     card: ApprovalCard
-    user: Schemas['User'] | null
     busy?: boolean // 보낸 뒤 응답 전이면 버튼을 막는다
     error?: string // 보내기 실패 사유 (409: 이미 처리·대체됨, 403: 승인 주체 아님)
   }>(),
@@ -47,7 +35,6 @@ watch(
   },
 )
 
-const allowed = computed(() => canDecide(props.card, props.user))
 const choices = computed(() => stationChoices(props.card))
 const marks = computed(() => diffMarks(props.card))
 const steps = computed(() => approvalSteps(props.card))
@@ -100,16 +87,12 @@ function send(decision: ApprovalDecision['decision'], exclude: string[] = []) {
       </div>
     </template>
 
-    <p v-if="!allowed" class="muted" role="note">
-      {{ approverLabel[card.approver] }}<template v-if="card.approver === 'DRIVER'"> ({{ card.truckId }} 기사)</template>이
-      필요한 카드다.
-    </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
-    <footer v-if="allowed" class="actions">
+    <footer class="actions">
       <template v-if="mode === ''">
         <button :disabled="busy" @click="send('APPROVE')">{{ card.approver === 'DRIVER' ? '수락' : '승인' }}</button>
-        <button v-if="canExclude(card)" class="ghost" :disabled="busy" @click="mode = 'exclude'">일부 제외</button>
+        <button v-if="card.kind === 'SUBMIT_PLAN'" class="ghost" :disabled="busy" @click="mode = 'exclude'">일부 제외</button>
         <button class="ghost danger" :disabled="busy" @click="mode = 'reject'">거절</button>
       </template>
 

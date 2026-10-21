@@ -4,7 +4,8 @@ Date: 20OCT2026
 Purpose: 트럭 한 대의 정류장 순서 (openapi Stop 목록). 승인 카드에서 '일부 제외'할 대여소를 고르는 데도 쓴다.
 -->
 <script setup lang="ts">
-import { actionLabel, type Stop } from './approval'
+import type { Stop } from './approval'
+import { actionLabel } from './approval'
 
 withDefaults(
   defineProps<{

@@ -9,7 +9,7 @@ Purpose: 1 에이전트 그래프(근무조 그래프) 명세. 무엇을 어떻�
 | 항목 | 내용 |
 | --- | --- |
 | 담당 | 1 에이전트 그래프 |
-| 문서 상태 | 초안 v0.7 (2026-10-20, 팀 main `1ecdb7a`와 3의 `유은/mcp` `4dd5305` 기준: specs openapi 0.4 · asyncapi 0.3 · internal-api 0.2, Harness 명세 v0.5) |
+| 문서 상태 | 초안 v0.8 (2026-10-21, PR #11 리뷰 반영. 기준은 v0.7과 같다: 팀 main `1ecdb7a`와 3의 `유은/mcp` `4dd5305`, specs openapi 0.4 · asyncapi 0.3 · internal-api 0.2, Harness 명세 v0.5) |
 | 코드 | [`agent/graph/`](../agent/graph/), 화면 [`frontend/src/features/approval/`](../frontend/src/features/approval/), [`frontend/src/features/task-console/`](../frontend/src/features/task-console/) |
 | 함께 읽을 문서 | [specs](specs/README.md) (기준), [HARNESS](HARNESS.md) 1.4·1.5·7.3, [ISSUES](ISSUES.md), [ROLES](ROLES.md), [PRD](PRD.md) 6장. 팀 결정은 [ARCHITECTURE](ARCHITECTURE.md) 13절 D 번호로 적는다 |
 
@@ -30,7 +30,7 @@ Purpose: 1 에이전트 그래프(근무조 그래프) 명세. 무엇을 어떻�
 | `ai.tasks`(TaskCommand) 소비, 계약 검사, 중복 거르기, 근무조별 순서 | HARNESS 1.5 "`ai.tasks` 소비", asyncapi `eventId`·키 규칙 |
 | 현장 보고 읽기(명령의 `report` 또는 `get_field_reports`) → `FieldReport.from_contract`, `brief` 작성, `task_from_command`·`resume_command` 호출 | HARNESS 1.4 표, 7.3 |
 | Harness 이벤트를 `ai.events`로 발행 (`EventSink`) | HARNESS 1.5, asyncapi `TaskEventMessage` |
-| 대기 카드 표: 작업 사이 대체(G10), 재시작 뒤 카드 단계(ISS-19), 늦은·다른 주체 결정 무시 | openapi 409·403, ISSUES ISS-19 |
+| 대기 카드 표: 작업 사이 대체(G10), 재시작 뒤 카드 단계(ISS-19), 늦은·다른 주체 결정은 실행하지 않고 FAILED로 닫기 | openapi 409·403, ISSUES ISS-19 |
 | RESUME 정리: 승인자 의견 마스킹·감싸기(ISS-20), 거점 제외는 계획 카드에서만 | HARNESS 3.6, openapi `ApprovalDecision` |
 | 계획 카드 보강: 트럭별 경로(`routes`, 확장 G9)와 포기·제외 사유 | 화면 '일부 제외' (UR-04) |
 | LLM 없이 도는 대체 경로 (계획 초안, 메모 없는 현장 보고) — 카드·결정은 Harness와 같은 함수 | HARNESS 1.5 "LLM 없는 대체 경로(NFR-03)" |
@@ -76,7 +76,8 @@ flowchart TD
   R -->|새 작업, LLM 경로| H[run_harness<br/>start]
   R -->|RESUME, LLM 경로| HR[run_harness<br/>resume_command]
   R -->|LLM 없는 경로| C[run_code<br/>대체 경로]
-  R -->|대기 카드 아님 · 승인 주체 아님 · 중복| X([END: 무시])
+  R -->|대기 카드 아님 · 승인 주체 아님 · 끊긴 재개| T
+  R -->|이미 받은 작업 · 이미 처리한 결정| X([END: 무시])
   H & HR --> T[settle<br/>대기 카드 표·대체·실패]
   C --> T
   T -->|모델 장애 + 대체 가능| C
@@ -85,7 +86,7 @@ flowchart TD
 
 | 노드 | 하는 일 | 근거 |
 | --- | --- | --- |
-| `receive` | 명령 검증, 작업 등록(`tasks`), 보고 읽기, RESUME이면 `approvalId`가 대기 중인지·결정자가 카드 승인자인지 확인, 경로 선택 | asyncapi TaskCommand, openapi 409·403 |
+| `receive` | 명령 검증, 작업 등록(`tasks`), 보고 읽기, RESUME이면 `approvalId`가 대기 중인지·결정자가 카드 승인자인지 확인, 경로 선택. 실행하지 않을 결정은 settle로 보내 FAILED로 닫는다. 같은 작업이 다시 오면 기록이 `DONE`·`WAITING_APPROVAL`일 때만 버리고 `RUNNING`(앞선 처리가 끊김)·`FAILED`면 다시 한다 | asyncapi TaskCommand, openapi 409·403 |
 | `run_harness` | `task_from_command`로 `Task`를 만들어 `start` 또는 `resume_command`. 실패와 카드 이벤트는 잠시 잡아 두고(3.3), 카드는 보강해 내보낸다 | HARNESS 7.3 |
 | `run_code` | LLM 없이 도구를 코드로 불러 같은 결과를 만든다 (4절) | HARNESS 1.5, PRD NFR-03 |
 | `settle` | `APPROVAL_REQUIRED`면 대기 카드 표에 적고 다른 작업의 같은 대상 카드를 대체, `DONE`이면 계획 상태 정리, `FAILED`면 대체 경로 판단 후 잡아 둔 실패를 내보내거나 버린다 | HARNESS 3.7, G10 |
@@ -124,12 +125,12 @@ flowchart TD
 
 | 경우 | 그래프가 하는 일 | 근거 |
 | --- | --- | --- |
-| `approvalId`가 대기 중이 아님 | Harness를 부르지 않는다 (무시) | openapi 409. backend가 먼저 막지만 그래프도 한 번 더 막는다 |
-| `decidedBy.role`이 카드 `approver`와 다름 | Harness를 부르지 않는다 (무시) | backend `canBeDecidedBy`(403 NOT_APPROVER)와 같은 규칙 |
+| `approvalId`가 대기 중이 아님 | Harness를 부르지 않는다. 작업이 이미 다음 카드·완료·실패로 갔으면(재전달, 대체된 카드) 이벤트 없이 버리고, 아니면 `FAILED`(`INTERNAL_ERROR`)로 닫는다. 승인 처리 도중 끊긴 작업이 다시 와도 변경이 이미 실행됐을 수 있어 다시 하지 않고 `FAILED` | openapi 409. backend가 먼저 막지만 그래프도 한 번 더 막는다. backend는 결정을 받으며 작업을 RUNNING으로 바꾸므로 이벤트가 없으면 멈춘다 (PR #11 리뷰) |
+| `decidedBy.role`이 카드 `approver`와 다름 | Harness를 부르지 않고 `FAILED`(`INTERNAL_ERROR`)로 닫는다. backend는 그 결정으로 승인을 끝냈으므로 카드를 다시 기다리지 않는다 | backend `canBeDecidedBy`(403 NOT_APPROVER)와 같은 규칙 |
 | `comment` | 기사 이름·연락처를 가리고 `<user_input>`으로 감싸서 넘긴다 | Harness `decision_from_resume`은 의견을 그대로 모델에게 넘긴다 (ISS-20) |
 | `excludeStationIds` | 계획 카드에서만, ID 모양(`[A-Za-z0-9_-]`)만 넘긴다. Harness가 "빼고 다시 계산"으로 바꾼다 | openapi "계획 승인에서 일부 대여소를 빼고", UR-04 |
 | 경로 변경 카드 | 카드의 단계(`requiredApprovers`에서 `approver`의 위치)를 Harness `_steps`에 되돌린 뒤 넘긴다. 같은 프로세스면 그대로 둔다 | ISS-19: Harness는 단계를 메모리에만 둔다. 재시작하면 기사 카드에 대한 결정이 관리자 카드로 비교돼 무시된다 |
-| Harness가 `ApprovalMismatch` | 아무것도 실행하지 않고 카드는 계속 대기 | HARNESS 7.3 |
+| Harness가 `ApprovalMismatch` | 아무것도 실행하지 않고 `FAILED`(`INTERNAL_ERROR`)로 닫는다 | HARNESS 5절: 불일치는 호출한 쪽이 처리한다 |
 
 큰 변경의 관리자 승인 → 기사 카드, 앞 카드 거절 → 뒤 카드 없음, 마지막 카드 ID로 변경 실행은 Harness `resume_command`가 한다 (asyncapi v0.2, internal-api v0.2).
 
@@ -178,16 +179,18 @@ Harness(`harness.contract.sources`)가 작업 대화의 도구 결과에서 만�
 
 | 항목 | 정한 것 | 근거 |
 | --- | --- | --- |
-| 모델 | Harness 설정(`harness.yaml`, D25: Ollama Cloud `gemma4:31b`·`gpt-oss:120b`)을 그대로 쓴다. 덮어쓰기: `AGENT_LLM=none`(대체 경로만), `AGENT_LLM=ollama:<모델>` | 모델 선택은 Harness 설정(2). 키는 `agent/.env`의 `OLLAMA_HOST`·`OLLAMA_API_KEY` |
+| 모델 | Harness 설정(`harness.yaml`, D25: Ollama Cloud `gemma4:31b`·`gpt-oss:120b`)을 그대로 쓴다. 덮어쓰기: `AGENT_LLM=none`(대체 경로만), `AGENT_LLM=ollama:<모델>`, `AGENT_LLM=openai:<모델>`(서버는 `openai:gpt-4.1-mini`, `OPENAI_API_KEY`). 덮어쓰면 대체 모델은 끈다 | 모델 선택은 Harness 설정(2). 키는 `agent/.env`의 `OLLAMA_HOST`·`OLLAMA_API_KEY` |
 | 기사 이름 | `AGENT_DRIVER_NAMES`(쉼표 구분)로 받아 자유 글(질문·메모·승인자 의견)에서 가린다 | 계약에 이름 목록이 없다. 구조 필드는 Harness `mask_keys`가 가린다 |
-| 도구 | `MCP_BUSINESS_URL`·`MCP_RAG_URL`(Streamable HTTP, Harness `mcp_client`). `MCP_FAKE=1`이면 평가용 가짜 MCP(메모리 전송), `MCP_FAKE_GRADE`로 변경 등급 고정. 가짜 MCP는 backend `/internal`도 흉내 내므로 RESUME 승인을 가짜 MCP에도 기록한다 (`wiring.record_approvals_in`) | 3 MCP 서버가 오기 전 통합 확인용. 결과는 예시 데이터다 |
+| 도구 | `MCP_BUSINESS_URL`·`MCP_RAG_URL`(Streamable HTTP, Harness `mcp_client`). `MCP_FAKE=1`이면 평가용 가짜 MCP(메모리 전송, compose 기본은 `0`), `MCP_FAKE_GRADE`로 변경 등급 고정. 가짜 MCP는 backend `/internal`도 흉내 내므로 RESUME 승인을 가짜 MCP에도 기록한다 (`wiring.record_approvals_in`) | 통합 확인용. 결과는 예시 데이터이고 backend는 바뀌지 않으므로 시연에는 쓰지 않는다 |
 | 체크포인터 | PostgreSQL(`AGENT_PG_URL`). 근무조·작업 스레드를 같이 저장. **DB 인코딩은 UTF8**이어야 하고, 아니면 열 때 멈춘다 | ROLES 1. SQL_ASCII(예: `LC_ALL=C` initdb)면 psycopg가 문자열을 bytes로 돌려주고 LangGraph가 그 값을 thread_id로 다시 써서, 재개한 실행이 엉뚱한 스레드에 저장된다(오류 없음). 실제로 겪었다 |
-| 중복 | TaskCommand `eventId`를 처리 기록(`agent_processed_events`)에 남기고 다시 오면 버린다. `FAILED`로 끝난 명령은 남기지 않는다 (G11) | asyncapi 공통 규칙 |
+| 중복 | TaskCommand `eventId`를 처리 기록(`agent_processed_events`)에 남기고 다시 오면 버린다. `FAILED`로 끝난 명령은 남기지 않는다 (G11). 같은 `taskId`가 다른 `eventId`로 오면 작업 기록을 본다: `DONE`·`WAITING_APPROVAL`이면 버리고, `RUNNING`(앞선 처리가 끊김)이면 처음부터 다시 한다 | asyncapi 공통 규칙. 처리 도중 끊긴 작업을 버리면 FAILED 없이 멈춘다 (PR #11 리뷰) |
 | 계약 위반 명령 | 바로 `ai.tasks.dlq`. 어느 작업인지(`taskId`·`shiftId`) 알면 `FAILED`(`INTERNAL_ERROR: 계약에 맞지 않는 명령…`)도 보낸다 | 안 보내면 backend 작업이 QUEUED에 멈춘다. 실제로 `reportId` 없는 FIELD_REPORT에서 확인했다 (G13) |
 | 승인 확인 | 변경 도구 인자 `approval_id`(마지막 카드)·`task_id`를 Harness가 채운다(모델에게는 숨김). LLM 없는 경로도 같은 값을 넣는다 | internal-api `ApprovedChange`, harness.yaml `injected_args`, ISS-17 (G8 해결) |
 | 순서 | 키 = `shiftId`. 한 근무조의 명령은 한 번에 하나씩, 이벤트는 한 줄 대기열로 발행 | asyncapi "같은 파티션에서 순서대로" |
 | Kafka 압축 | `aiokafka[snappy,lz4,zstd]`(cramjam)로 압축된 메시지도 읽는다 | 없으면 압축된 메시지 하나를 꺼내다 죽고, 재시작해도 같은 메시지에서 또 죽는다. `rpk topic produce`(기본 snappy)로 실제로 겪었다 (G15) |
-| 재시도 | 처리 중 예외(브로커·DB 장애)는 `ai.tasks.retry`로 다시 넣고 3회 넘으면 `ai.tasks.dlq`. 작업 실패는 `FAILED` 이벤트로 끝내고 backend가 재시도 여부를 정한다 | asyncapi "`<토픽>.retry` → `.dlq`", HARNESS 3.7 |
+| 재시도 | 처리 중 예외(브로커·DB 장애)는 `ai.tasks.retry`로 다시 넣고 3회 넘으면 `ai.tasks.dlq`와 `FAILED`(`INTERNAL_ERROR`). 작업 실패는 `FAILED` 이벤트로 끝내고 backend가 재시도 여부를 정한다 | asyncapi "`<토픽>.retry` → `.dlq`", HARNESS 3.7 |
+| 이벤트 발행 | 발행이 실패하면 그 이벤트를 될 때까지 다시 보낸다 (0.5초에서 시작해 최대 10초 간격). 다 보낸 뒤에만 오프셋을 커밋한다 | 버리면 마지막 이벤트(DONE·FAILED)가 사라져 작업이 멈춘다. 뒤 이벤트를 먼저 보내면 화면 순서가 바뀐다 |
+| 준비 확인 | MCP 도구를 읽고 Kafka에 붙은 뒤 `/tmp/agent-ready`(`AGENT_READY_FILE`)를 10초마다 갱신한다. compose healthcheck가 30초 안에 바뀌었는지 본다 | 크래시 루프를 `docker compose up --wait`가 잡게 (PR #11 리뷰) |
 
 ---
 
@@ -197,9 +200,9 @@ Harness(`harness.contract.sources`)가 작업 대화의 도구 결과에서 만�
 
 | 컴포넌트 | 폴더 | 하는 일 |
 | --- | --- | --- |
-| 관제 작업 화면 | `frontend/src/features/task-console/TaskConsoleView.vue` | 요청 입력(4종), 작업 목록, 답변, 근거, **진행 이벤트 로그**(TOOL·APPROVAL_REQUIRED·DONE·FAILED, TOKEN은 답변으로 모음), 승인 카드 자리 |
+| 관제 작업 화면 | `frontend/src/features/task-console/TaskConsoleView.vue` | 요청 입력(계획 초안·상황 반영 요청·질의. 현장 보고 재경로는 기사의 `POST /api/reports`로만 생긴다, G13), 작업 목록, 답변, 근거, **진행 이벤트 로그**(TOOL·APPROVAL_REQUIRED·DONE·FAILED, TOKEN은 답변으로 모음), 승인 카드 자리 |
 | 승인 카드 | `frontend/src/features/approval/ApprovalCard.vue` | `ApprovalRequest` 하나. 승인(기사 카드는 '수락')·거절(사유)·일부 제외(계획 카드만). 트럭별 경로(G9)와 경로 차이(`diff`)를 보여 준다. 기사 화면(2)도 그대로 쓴다 |
-| 승인 규칙 | `frontend/src/features/approval/approval.ts` | 결정 권한(backend `canBeDecidedBy`와 같음: 관리자 카드는 관리자만, 기사 카드는 그 트럭 기사만), 뺄 수 있는 대여소, `ApprovalDecision` 몸통 |
+| 승인 표시 규칙 | `frontend/src/features/approval/approval.ts` | 승인 단계, 뺄 수 있는 대여소, `ApprovalDecision` 몸통. **결정 권한은 판단하지 않는다**: 버튼은 늘 보이고 승인 주체가 아니면 backend 403 `NOT_APPROVER`를 카드에 보여 준다 (과제 금지 사항 "Vue의 권한 판단", PR #11 리뷰) |
 
 ROLES 4절 "승인 카드는 M2에서 `task-console` 안에 임시로 있다. 1이 `approval`로 옮긴다"를 이렇게 끝냈다. 이전에 만든 미리보기(`agent/ui`)와 backend 대역(`graph/devserver.py`)은 실제 backend·frontend가 생겨서 버렸다.
 
@@ -239,7 +242,7 @@ ROLES 4절 "승인 카드는 M2에서 `task-console` 안에 임시로 있다. 1�
 
 ```bash
 cd agent
-../.venv/bin/python -m unittest discover tests        # Harness 38 + 그래프 30 (+ PostgreSQL 1, 주소 없으면 건너뜀)
+../.venv/bin/python -m unittest discover tests        # Harness 38 + 그래프 35 (+ PostgreSQL 1, 주소 없으면 건너뜀)
 AGENT_TEST_PG_URL='postgresql://user:pw@127.0.0.1:5432/agent_test' ../.venv/bin/python -m unittest tests.test_graph_postgres
 ../.venv/bin/python -m evaluation --out /tmp/eval.md  # Harness 평가셋 14개
 cd ../frontend && npm ci && npm run build             # 화면 타입 검사(vue-tsc)와 빌드
@@ -249,7 +252,7 @@ cd ../frontend && npm ci && npm run build             # 화면 타입 검사(vue
 
 | 파일 | 확인하는 것 |
 | --- | --- |
-| `tests/test_graph.py` | 03a(승인 전 실행 없음, 승인 뒤 `approval_id`와 함께 활성화, 일부 제외 → 새 카드, 늦은 결정 무시, 작업 사이 대체, 승인 주체 확인, 의견 마스킹·감싸기, 제외 ID 검사), 03b(메모 없는 MINOR → 기사 한 장, MAJOR → 관리자 → 기사, 앞 카드 거절 → 뒤 카드 없음, NONE → 그대로, 기사 범위, **재시작 뒤 기사 카드로 재개(ISS-19)**, **backend가 거부한 변경을 실행했다고 답하지 않음(ISS-21)**), 승인 대기 중 보고 처리(PRD 6.1-4), 모델 장애 → 대체 경로(FAILED 안 나감), 모델 없는 운영, 모든 이벤트가 asyncapi `TaskEventMessage` 스키마에 맞음, 하이픈, 명령 검사, 기사 이름 마스킹, brief, 일꾼(중복, DLQ, 재시도, FAILED 미기록, 계약 위반 → FAILED) |
+| `tests/test_graph.py` | 03a(승인 전 실행 없음, 승인 뒤 `approval_id`와 함께 활성화, 일부 제외 → 새 카드, 늦은 결정 무시, 작업 사이 대체, 승인 주체 확인, 의견 마스킹·감싸기, 제외 ID 검사), 03b(메모 없는 MINOR → 기사 한 장, MAJOR → 관리자 → 기사, 앞 카드 거절 → 뒤 카드 없음, NONE → 그대로, 기사 범위, **재시작 뒤 기사 카드로 재개(ISS-19)**, **backend가 거부한 변경을 실행했다고 답하지 않음(ISS-21)**), 승인 대기 중 보고 처리(PRD 6.1-4), 모델 장애 → 대체 경로(FAILED 안 나감), 모델 없는 운영, 모든 이벤트가 asyncapi `TaskEventMessage` 스키마에 맞음, 하이픈, 명령 검사, 기사 이름 마스킹, brief, 일꾼(중복, DLQ → FAILED, 재시도, FAILED 미기록, 계약 위반 → FAILED, **처리 도중 끊긴 작업의 재시도는 다시 실행**, **승인 처리 도중 끊긴 재개는 두 번 실행하지 않고 FAILED**, 발행 실패는 될 때까지 다시), 대기 카드가 아닌 결정 → FAILED |
 | `tests/test_graph_postgres.py` | 1번 프로세스에서 승인 대기 → 2번 프로세스에서 승인 → 같은 도구 호출이 실행되고 같은 작업으로 이벤트가 이어진다. UTF8 DB 필요 (SQL_ASCII면 체크포인터가 열 때 멈춘다) |
 
 ### 8.2 통합 확인 (실제 backend · Kafka · 화면)
@@ -263,7 +266,7 @@ env 파일은 `infra/.env.example`을 복사해 채운다 (저장소에 넣지 �
 | `FAKE_AGENT_ENABLED` | `false` | 켜 두면 backend 대역과 agent가 둘 다 답해 이벤트가 두 번 나간다 |
 | `JWT_SECRET`, `SEED_USER_PASSWORD`, `POSTGRES_PASSWORD`, `VECTOR_PASSWORD` | `openssl rand -hex 32` 등 | 예시 값을 그대로 쓰지 않는다 |
 | `AGENT_LLM` | `none` | `check_03a.py`는 모델 없는 경로 기준이다. 비우면 harness.yaml 모델(`OLLAMA_API_KEY` 필요) |
-| `MCP_FAKE` | `1` (기본) | business-mcp·rag-mcp(3)가 compose에 들어오면 `0`으로 두고 `MCP_BUSINESS_URL`·`MCP_RAG_URL`을 쓴다 |
+| `MCP_FAKE` | `0` (기본) | 실제 business-mcp·rag-mcp(3)를 쓴다. `1`은 MCP 없이 그래프만 볼 때 (예시 데이터) |
 
 ```bash
 docker compose -p seoulbike-e2e -f infra/compose.yaml --env-file ~/e2e.env up -d --build --wait   # frontend·backend·agent까지
@@ -333,3 +336,4 @@ cd agent && MCP_FAKE=1 AGENT_LLM=none KAFKA_BOOTSTRAP=localhost:19092 PGPASSWORD
 | 2026-10-20 | v0.5 팀 main(`3428c52`, Harness v0.5) 반영 | Harness가 카드·승인 순서·계약 이벤트·인자 주입을 맡게 되어 그래프를 얇게: `task_from_command`·`resume_command` 사용, 그래프의 카드 만들기·헤더(G8)·`plans.py` 삭제. 그래프가 남긴 일: 대기 카드 표(대체, 재시작 단계 ISS-19), RESUME 정리(ISS-20), 계획 카드 보강(G9), LLM 없는 경로(`harness.contract` 함수 사용, 도구 오류 가리기 ISS-21), 가짜 MCP 승인 기록 | Harness 명세 v0.5 1.5 경계 |
 | 2026-10-20 | v0.6 팀 main(`1ecdb7a`, PR #9) 반영 | `threadId`는 작업 단위 `{shiftId}:{taskId}`로 검사(D1·ISS-03), `requestedBy.truckId` 필수(G1·ISS-04), FAILED `code`를 계약 필드로(ISS-05), 근무조 기록을 내부 기록으로 정리(G17) | asyncapi 0.3, openapi 0.4 |
 | 2026-10-20 | v0.7 실제 MCP 서버(3 브랜치) 연결 | 감싼 보고 목록 읽기, rag chunk를 DOC 근거로 채우기(ISS-23), 실제 MCP·backend로 03a·03b 확인 | 팀원 최종본 통합 |
+| 2026-10-21 | v0.8 PR #11 리뷰 반영 | 받은 작업은 어느 길로 가든 종료 이벤트로 끝낸다: 끊긴 작업(RUNNING) 재시도는 다시 실행, 실행하지 않을 결정·끊긴 재개·DLQ는 `FAILED`(`INTERNAL_ERROR`), 발행 실패는 버리지 않고 다시 보낸다. 화면의 결정 권한 판단 삭제, 작업 화면에서 FIELD_REPORT 삭제(G13). compose: `OPENAI_API_KEY`, `MCP_FAKE` 기본 0, healthcheck | 4 리뷰 (병합 전 항목) |

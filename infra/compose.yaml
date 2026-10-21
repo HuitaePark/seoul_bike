@@ -63,12 +63,14 @@ services:
       # 비밀번호는 URL 대신 PGPASSWORD로 준다 (libpq가 읽는다). 특수문자가 있어도 URL 인코딩할 필요가 없다.
       AGENT_PG_URL: postgresql://${POSTGRES_USER:-seoulbike}@postgres:5432/agent
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 .env에 필요하다}
-      # 비우면 harness.yaml 모델, none이면 LLM 없는 경로만, ollama:<모델>이면 그 모델
+      # 비우면 harness.yaml 모델, none이면 LLM 없는 경로만, ollama:<모델>·openai:<모델>이면 그 모델
+      # (서버는 openai:gpt-4.1-mini, 키는 GitHub production 환경 secret → 서버 .env)
       AGENT_LLM: ${AGENT_LLM:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-https://ollama.com}
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
-      # business-mcp·rag-mcp(3)가 이 파일에 들어오기 전까지는 평가용 가짜 MCP로 돈다. 들어오면 .env에서 0으로 바꾼다.
-      MCP_FAKE: ${MCP_FAKE:-1}
+      # 1이면 평가용 가짜 MCP (예시 대여소·공지, backend는 바뀌지 않는다). 시연·서버는 0으로 실제 business-mcp·rag-mcp를 쓴다.
+      MCP_FAKE: ${MCP_FAKE:-0}
       MCP_BUSINESS_URL: ${MCP_BUSINESS_URL:-http://business-mcp:9101/mcp}
       MCP_RAG_URL: ${MCP_RAG_URL:-http://rag-mcp:9102/mcp}
     depends_on:
@@ -81,6 +83,13 @@ services:
       # ai.tasks·ai.events(파티션 6개)는 backend가 만든다. agent가 먼저 구독하면 자동 생성된 1파티션 토픽을 보다가 명령을 놓친다.
       backend:
         condition: service_healthy
+    healthcheck:
+      # MCP 도구를 읽고 Kafka에 붙은 뒤에만 준비 파일이 생기고 10초마다 갱신된다 (graph/worker.py). 크래시 루프면 healthy가 되지 않는다
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/agent-ready') > 30)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     restart: unless-stopped
 
   agent-db-init:

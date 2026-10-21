@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import unittest
+import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,6 +89,23 @@ async def shift_env(steps=(), *, llm=True, world=None, checkpointer=None, names=
 
         yield Env(ShiftAgent(tools, events.append, config=CONFIG, harness=factory, checkpointer=checkpointer,
                              driver_names=names), model, world, events)
+
+
+class FlakySaver(InMemorySaver):
+    """`arm(n)` 뒤 n번째 체크포인트 저장에서 한 번 실패한다. 처리 도중 DB가 끊긴 상황 (작업 기록은 RUNNING으로 남는다)."""
+
+    def __init__(self):
+        super().__init__()
+        self.calls, self.fail_at = 0, 0
+
+    def arm(self, n):
+        self.fail_at = self.calls + n
+
+    async def aput(self, config, checkpoint, metadata, new_versions):
+        self.calls += 1
+        if self.calls == self.fail_at:
+            raise ConnectionError("checkpoint db down")
+        return await super().aput(config, checkpoint, metadata, new_versions)
 
 
 def plan_draft(task_id=None):
@@ -186,15 +204,32 @@ class PlanApprovalTest(unittest.IsolatedAsyncioTestCase):
             ignored = await env.decide(first, card=old)
             self.assertEqual(ignored["status"], "IGNORED")
             self.assertEqual(env.changes(), [])  # 낡은 계획은 승인돼도 실행되지 않는다
+            self.assertEqual(env.of("FAILED"), [])  # 이미 DONE으로 닫은 작업이라 더 낼 이벤트가 없다
+
+    async def test_resume_without_pending_card_fails_the_task(self):
+        """backend는 결정을 받으며 작업을 RUNNING으로 바꾼다. 실행하지 않을 결정이라도 이벤트 없이 끝내면 그 상태에 멈춘다."""
+        async with shift_env(llm=False) as env:
+            cmd = plan_draft()
+            await env.shift.handle(cmd)
+            out = await env.decide(cmd, card={**env.card(), "approvalId": str(uuid.uuid4())}, record=False)
+            self.assertEqual(out["status"], "FAILED")
+            failed = env.of("FAILED", cmd["taskId"])[-1]
+            self.assertEqual(failed["code"], "INTERNAL_ERROR")
+            self.assertEqual([err.message for err in EVENT_SCHEMA.iter_errors(failed)], [])
+            self.assertEqual(env.changes(), [])
 
     async def test_only_the_card_approver_can_decide(self):
         async with shift_env([*PLAN_STEPS, say("활성화했다.")]) as env:
             cmd = plan_draft()
             await env.shift.handle(cmd)
             out = await env.decide(cmd, user=DRIVER_TR1)
-            self.assertEqual(out["status"], "IGNORED")  # backend 403(NOT_APPROVER)을 지나쳐도 실행하지 않는다
+            # backend 403(NOT_APPROVER)을 지나쳐 와도 실행하지 않는다. backend는 작업을 RUNNING으로 바꿨으므로 FAILED로 닫는다
+            self.assertEqual(out["status"], "FAILED")
+            self.assertIn("승인 주체가 아닌 결정", env.of("FAILED", cmd["taskId"])[-1]["error"])
             self.assertEqual(env.changes(), [])
-            self.assertEqual((await env.decide(cmd))["status"], "DONE")
+            self.assertEqual((await env.decide(cmd))["status"], "IGNORED")  # 닫힌 카드는 다시 결정되지 않는다
+            self.assertEqual(env.changes(), [])
+            self.assertIsNone((await env.shift.state(SHIFT_ID))["plan"]["proposed"])
 
     async def test_approver_comment_is_masked_and_wrapped(self):
         async with shift_env([*PLAN_STEPS, say("거절되어 끝냈다.")], names=DRIVER_NAMES) as env:
@@ -232,8 +267,6 @@ class FieldReportTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("ST-2005", [s["stationId"] for s in card["diff"]["after"]])
             self.assertEqual(env.changes(), [])
 
-            ignored = await env.decide(cmd, user=MANAGER)  # 기사 카드는 관리자가 결정할 수 없다
-            self.assertEqual(ignored["status"], "IGNORED")
             done = await env.decide(cmd)
             self.assertEqual(done["status"], "DONE")
             (tool, args), = env.changes()
@@ -463,8 +496,9 @@ class BriefTest(unittest.IsolatedAsyncioTestCase):
 
 class WorkerTest(unittest.IsolatedAsyncioTestCase):
     @asynccontextmanager
-    async def worker(self):
+    async def worker(self, checkpointer=None):
         async with shift_env(llm=False) as env:
+            self.world = env.world
             sent = []
 
             async def send(topic, key, value, headers):
@@ -477,7 +511,7 @@ class WorkerTest(unittest.IsolatedAsyncioTestCase):
             pump = EventPump(send)
             pump.start()
             processed = MemoryProcessed()
-            shift = ShiftAgent(env.shift.code.tools.values(), pump.publish, config=CONFIG)
+            shift = ShiftAgent(env.shift.code.tools.values(), pump.publish, config=CONFIG, checkpointer=checkpointer)
             yield TaskWorker(shift, send, processed, pump), sent, processed, shift
             await pump.stop()
 
@@ -520,7 +554,60 @@ class WorkerTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await worker.handle(self.message(cmd)), "retry")
             self.assertEqual((sent[-1][0], sent[-1][3]["attempt"]), (RETRY, "1"))
             self.assertEqual(await worker.handle(self.message(cmd, attempt="2")), "dlq")
-            self.assertEqual(sent[-1][0], DLQ)
+            self.assertIn(DLQ, [s[0] for s in sent])
+            failed = [s[2] for s in sent if s[0] == EVENTS]  # DLQ로 보내도 작업은 FAILED로 끝낸다
+            self.assertEqual([(e["taskId"], e["type"], e["code"]) for e in failed], [(cmd["taskId"], "FAILED", "INTERNAL_ERROR")])
+            self.assertEqual([err.message for err in EVENT_SCHEMA.iter_errors(failed[0])], [])
+
+    async def test_retry_after_crash_runs_the_task_again(self):
+        """리뷰 재현: 도구가 돈 뒤 처리가 끊기면 기록이 RUNNING으로 남는다. ai.tasks.retry로 다시 온 명령을 버리면 안 된다."""
+        saver = FlakySaver()
+        async with self.worker(checkpointer=saver) as (worker, sent, _, _):
+            cmd = plan_draft()
+            saver.arm(4)  # 입력·receive는 저장되고, 경로 계산 뒤 저장에서 DB가 끊긴다
+            self.assertEqual(await worker.handle(self.message(cmd)), "retry")
+            self.assertIn("TOOL_END", [s[2]["type"] for s in sent if s[0] == EVENTS])
+            self.assertEqual(await worker.handle(self.message(cmd, attempt="1")), "done")
+            self.assertEqual([s[2]["type"] for s in sent if s[0] == EVENTS][-1], "APPROVAL_REQUIRED")
+
+    async def test_resume_cut_off_after_the_change_fails_instead_of_running_twice(self):
+        saver = FlakySaver()
+        async with self.worker(checkpointer=saver) as (worker, sent, _, _):
+            cmd = plan_draft()
+            self.assertEqual(await worker.handle(self.message(cmd)), "done")
+            card = [s[2] for s in sent if s[0] == EVENTS][-1]["approval"]
+            self.world.approve(card)
+            resume = task_command("RESUME", SHIFT_ID, task_id=cmd["taskId"], user=MANAGER, resume={
+                "approvalId": card["approvalId"], "decision": "APPROVE", "decidedBy": {"userId": "manager-1", "role": "MANAGER"}})
+            saver.arm(4)  # 승인된 변경을 실행한 뒤 저장에서 끊긴다
+            self.assertEqual(await worker.handle(self.message(resume)), "retry")
+            self.assertEqual(len(self.world.executed_changes), 1)
+            self.assertEqual(await worker.handle(self.message(resume, attempt="1")), "failed")
+            self.assertEqual(len(self.world.executed_changes), 1)  # 다시 실행하지 않는다
+            last = [s[2] for s in sent if s[0] == EVENTS][-1]
+            self.assertEqual((last["type"], last["code"]), ("FAILED", "INTERNAL_ERROR"))
+            self.assertIn("끊긴", last["error"])
+
+    async def test_event_is_resent_until_the_broker_takes_it(self):
+        tries, delivered = [], []
+
+        async def flaky(topic, key, value, headers):
+            tries.append(json.loads(value)["eventId"])
+            if len(tries) <= 2:
+                raise ConnectionError("broker down")
+            delivered.append(json.loads(value)["eventId"])
+
+        async def no_wait(_):
+            return None
+
+        pump = EventPump(flaky, sleep=no_wait)
+        pump.start()
+        for event_id, type_ in (("e1", "TOOL_START"), ("e2", "DONE")):
+            pump.publish({"type": type_, "taskId": "t", "shiftId": SHIFT_ID, "eventId": event_id})
+        await pump.flush()  # 일꾼은 이게 끝난 뒤에만 오프셋을 커밋한다
+        self.assertEqual(delivered, ["e1", "e2"])  # 버리지 않고 순서대로
+        self.assertEqual(tries, ["e1", "e1", "e1", "e2"])
+        await pump.stop()
 
     async def test_failed_outcome_is_not_marked(self):
         async with self.worker() as (worker, sent, processed, _):

@@ -13,7 +13,8 @@
    안 보내면 backend의 작업이 QUEUED에 멈춘다 (예: reportId 없는 FIELD_REPORT).
 2. `eventId`를 이미 처리했으면 버린다 (Kafka는 '적어도 한 번' 전달).
 3. 근무조 그래프로 처리하고, 진행 이벤트를 다 보낸 뒤 처리 기록을 남기고 오프셋을 커밋한다.
-4. 처리 중 예외(DB·브로커 장애 등)는 `ai.tasks.retry`로 다시 넣고, 3번째도 실패하면 DLQ.
+   이벤트 발행이 실패하면 버리지 않고 될 때까지 다시 보낸다. 그동안 커밋하지 않는다 (커밋했다면 이벤트는 나갔다).
+4. 처리 중 예외(DB·브로커 장애 등)는 `ai.tasks.retry`로 다시 넣고, 3번째도 실패하면 DLQ와 `FAILED`.
    작업 실패(FAILED 이벤트)는 이 일꾼이 재시도하지 않는다. 재시도 여부는 backend가 정한다 (HARNESS 1.5).
    그래서 FAILED로 끝난 명령은 처리 기록을 남기지 않는다: backend가 같은 eventId로 다시 넣어도 처리된다.
 """
@@ -23,6 +24,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -35,8 +37,10 @@ from .shift import ShiftAgent
 log = logging.getLogger(__name__)
 
 TASKS, RETRY, DLQ, EVENTS = "ai.tasks", "ai.tasks.retry", "ai.tasks.dlq", "ai.events"
+READY_EVERY = 10  # 초. 준비 파일(compose healthcheck가 본다)을 이 간격으로 갱신한다
 
 Send = Callable[[str, str | None, bytes, dict[str, str]], Awaitable[None]]
+Sleep = Callable[[float], Awaitable[None]]
 
 
 @dataclass
@@ -107,10 +111,14 @@ class EventPump:
     """그래프의 동기 publish → 비동기 발행. 한 줄 대기열이라 같은 작업의 이벤트가 낸 순서대로 나간다.
 
     backend는 받은 순서대로 seq를 매기므로(키 = shiftId, 같은 파티션) 발행 순서가 곧 화면 순서다.
+    발행이 실패하면 그 이벤트를 될 때까지 다시 보낸다 (간격은 최대 `max_delay`초). 하나를 버리면 그 작업이
+    backend에서 멈추고, 뒤 이벤트를 먼저 보내면 순서가 바뀐다. 브로커가 죽었으면 어차피 명령도 못 받는다.
     """
 
-    def __init__(self, send: Send) -> None:
+    def __init__(self, send: Send, *, sleep: Sleep = asyncio.sleep, max_delay: float = 10.0) -> None:
         self.send = send
+        self.sleep = sleep
+        self.max_delay = max_delay
         self.queue: asyncio.Queue[dict] = asyncio.Queue()
         self._task: asyncio.Task | None = None
 
@@ -124,12 +132,22 @@ class EventPump:
         while True:
             event = await self.queue.get()
             try:
-                headers = {"type": event["type"], "taskId": event["taskId"]}
-                await self.send(EVENTS, event["shiftId"], json.dumps(event, ensure_ascii=False).encode(), headers)
-            except Exception:  # noqa: BLE001 - 발행 실패는 기록하고 다음 이벤트로
-                log.exception("ai.events 발행 실패: %s", event.get("eventId"))
+                await self._deliver(event)
             finally:
                 self.queue.task_done()
+
+    async def _deliver(self, event: dict) -> None:
+        headers = {"type": event["type"], "taskId": event["taskId"]}
+        value = json.dumps(event, ensure_ascii=False).encode()
+        delay = 0.5
+        while True:
+            try:
+                await self.send(EVENTS, event["shiftId"], value, headers)
+                return
+            except Exception:  # noqa: BLE001 - 버리지 않고 다시 보낸다
+                log.exception("ai.events 발행 실패, %.1f초 뒤 다시: %s", delay, event.get("eventId"))
+                await self.sleep(delay)
+                delay = min(delay * 2, self.max_delay)
 
     async def flush(self) -> None:
         """대기열이 빌 때까지 기다린다 (커밋 전에)."""
@@ -156,7 +174,7 @@ class TaskWorker:
             cmd = TaskCommand.parse(raw)
         except (ValueError, CommandError) as exc:  # JSONDecodeError도 ValueError
             await self._dlq(msg, attempt, f"계약 위반: {exc}")
-            await self._fail_invalid(raw, exc)
+            await self._fail_task(raw, f"계약에 맞지 않는 명령이라 처리하지 않았다 ({exc})")
             return "invalid"
         if await self.processed.seen(cmd.event_id):
             return "duplicate"
@@ -170,6 +188,7 @@ class TaskWorker:
                 await self.send(RETRY, msg.key, msg.value, {**msg.headers, "attempt": str(attempt + 1), "reason": reason})
                 return "retry"
             await self._dlq(msg, attempt, reason)
+            await self._fail_task(raw, f"처리 중 오류가 {self.max_attempts}번 이어져 멈췄다 ({reason})")
             return "dlq"
         status = outcome.get("status", "")
         if status == "FAILED":
@@ -177,13 +196,12 @@ class TaskWorker:
         await self.processed.mark(cmd.event_id, cmd.task_id, status)
         return "ignored" if status == "IGNORED" else "done"
 
-    async def _fail_invalid(self, raw: object, exc: Exception) -> None:
-        """계약 위반 명령이라도 어느 작업인지 알면 FAILED로 끝낸다. 화면이 '대기'에서 멈추지 않게."""
+    async def _fail_task(self, raw: object, why: str) -> None:
+        """DLQ로 보낸 명령이라도 어느 작업인지 알면 FAILED(INTERNAL_ERROR)로 끝낸다. 화면이 '대기'·'진행 중'에서 멈추지 않게."""
         if not isinstance(raw, dict) or not all(isinstance(raw.get(k), str) and raw[k] for k in ("taskId", "shiftId")):
             return
         event = ProgressEvent("FAILED", raw["taskId"], str(raw.get("traceId") or raw["taskId"]), raw["shiftId"],
-                              {"error": f"INTERNAL_ERROR: 계약에 맞지 않는 명령이라 처리하지 않았다 ({exc})",
-                               "code": "INTERNAL_ERROR"},
+                              {"error": f"INTERNAL_ERROR: {why}", "code": "INTERNAL_ERROR"},
                               {"code": "INTERNAL_ERROR"})
         self.pump.publish(plain_hyphens(event.to_json()))
         await self.pump.flush()
@@ -193,11 +211,19 @@ class TaskWorker:
                         {**msg.headers, "attempt": str(attempt), "reason": reason[:500], "sourceTopic": msg.topic})
 
 
+async def _keep_ready(path: Path) -> None:
+    """준비 파일을 계속 갱신한다. compose healthcheck는 이 파일이 최근에 바뀌었는지 본다."""
+    while True:
+        path.touch()
+        await asyncio.sleep(READY_EVERY)
+
+
 async def run_kafka(make_shift: Callable[[Callable[[dict], None]], ShiftAgent], processed: Processed,
-                    bootstrap: str, *, group_id: str = "agent", stop: asyncio.Event | None = None) -> None:
+                    bootstrap: str, *, group_id: str = "agent", stop: asyncio.Event | None = None,
+                    ready_file: str | None = None) -> None:
     """Kafka에 붙어 명령을 계속 처리한다. 한 건을 끝까지 처리한 뒤에만 오프셋을 커밋한다.
 
-    make_shift(publish) → ShiftAgent.
+    make_shift(publish) → ShiftAgent. ready_file은 브로커에 붙은 뒤에 만들고 끝날 때 지운다 (healthcheck용).
     """
     from aiokafka import AIOKafkaConsumer, AIOKafkaProducer  # 운영에서만 필요한 의존성
 
@@ -214,6 +240,7 @@ async def run_kafka(make_shift: Callable[[Callable[[dict], None]], ShiftAgent], 
     pump = EventPump(send)
     pump.start()
     worker = TaskWorker(make_shift(pump.publish), send, processed, pump)
+    ready = asyncio.create_task(_keep_ready(Path(ready_file))) if ready_file else None
     try:
         async for record in consumer:
             msg = Message(record.topic, record.key.decode() if record.key else None, record.value,
@@ -224,6 +251,9 @@ async def run_kafka(make_shift: Callable[[Callable[[dict], None]], ShiftAgent], 
             if stop is not None and stop.is_set():
                 break
     finally:
+        if ready:
+            ready.cancel()
+            Path(ready_file).unlink(missing_ok=True)
         await pump.stop()
         await consumer.stop()
         await producer.stop()

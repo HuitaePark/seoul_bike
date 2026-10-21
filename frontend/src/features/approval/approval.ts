@@ -1,6 +1,7 @@
 // Author: Jung Minkyu
 // Date: 20OCT2026
-// Purpose: 승인 카드의 규칙(누가 결정할 수 있나, 뺄 수 있는 대여소, 보낼 몸통)을 화면과 떼어 둔다. 관리자·기사 화면이 같이 쓴다.
+// Purpose: 승인 카드의 표시 규칙(승인 단계, 뺄 수 있는 대여소, 보낼 몸통)을 화면과 떼어 둔다. 관리자·기사 화면이 같이 쓴다.
+// 누가 결정할 수 있는지는 backend가 판단한다 (403 NOT_APPROVER). 화면은 판단하지 않는다.
 
 import type { Schemas } from '../../shared/api/client'
 
@@ -24,16 +25,6 @@ export const gradeLabel: Record<'MINOR' | 'MAJOR', string> = { MINOR: '작은 �
 export const actionLabel: Record<Stop['action'], string> = { PICKUP: '수거', DROPOFF: '보충' }
 
 /**
- * 이 사용자가 카드를 결정할 수 있는가. backend `canBeDecidedBy`와 같은 규칙이다 (어기면 403 NOT_APPROVER).
- * 관리자 카드는 관리자만, 기사 카드는 그 트럭 기사만 결정한다. 권한 판단은 backend가 하고 화면은 버튼만 미리 막는다.
- */
-export function canDecide(card: ApprovalCard, user: Pick<Schemas['User'], 'role' | 'truckId'> | null): boolean {
-  if (!user) return false
-  if (card.approver === 'MANAGER') return user.role === 'MANAGER'
-  return user.role === 'DRIVER' && !!card.truckId && user.truckId === card.truckId
-}
-
-/**
  * 경로 변경의 승인 단계 (openapi v0.3 `requiredApprovers`). 큰 변경은 관리자 승인 → 기사 수락 두 장이다.
  * 지금 카드의 승인자가 몇 번째인지로 지난 단계·지금 단계·남은 단계를 나눈다. 한 장이면 빈 목록.
  */
@@ -46,11 +37,6 @@ export function approvalSteps(card: ApprovalCard): { role: ApprovalCard['approve
     label: approverLabel[role],
     state: i < current ? 'done' : i === current ? 'current' : 'todo',
   }))
-}
-
-/** '일부 제외'는 계획 승인 카드에만 있다 (openapi `ApprovalDecision.excludeStationIds`, UR-04). */
-export function canExclude(card: ApprovalCard): boolean {
-  return card.kind === 'SUBMIT_PLAN'
 }
 
 /** 뺄 수 있는 대여소: 카드 경로(G9) → 변경 후 경로 → 문장 속 대여소 ID 순서로 모은다. */
@@ -75,14 +61,17 @@ export function diffMarks(card: ApprovalCard): Record<string, 'added' | 'removed
   return marks
 }
 
-/** POST /api/ai/tasks/{taskId}/approval 몸통 (openapi `ApprovalDecision`). */
+/**
+ * POST /api/ai/tasks/{taskId}/approval 몸통 (openapi `ApprovalDecision`).
+ * '일부 제외'는 계획 승인 카드에만 있다 (`excludeStationIds`, UR-04).
+ */
 export function decisionBody(
   card: ApprovalCard,
   decision: ApprovalDecision['decision'],
   opts: { exclude?: string[]; comment?: string } = {},
 ): ApprovalDecision {
   const body: ApprovalDecision = { approvalId: card.approvalId, decision }
-  if (opts.exclude?.length && canExclude(card)) body.excludeStationIds = opts.exclude
+  if (opts.exclude?.length && card.kind === 'SUBMIT_PLAN') body.excludeStationIds = opts.exclude
   const comment = (opts.comment ?? '').trim()
   if (comment) body.comment = comment.slice(0, 500)
   return body

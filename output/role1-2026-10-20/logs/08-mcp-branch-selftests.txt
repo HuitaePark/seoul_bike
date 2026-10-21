@@ -1,7 +1,0 @@
-# 3 MCP·RAG 브랜치 유은/mcp 4dd5305 자체 테스트
-$ (cd business-mcp && pytest -q)
-.............................                                            [100%]
-29 passed in 1.73s
-$ (cd rag-mcp && pytest -q)
-.............                                                            [100%]
-13 passed in 1.00s
