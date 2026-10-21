@@ -12,7 +12,8 @@ import pytest
 from fastmcp import Client
 
 from business_mcp.fake_internal import REGION_ID, SHIFT_ID, FakeInternalApi
-from business_mcp.internal import HttpInternalApi
+from business_mcp.errors import InternalApiError
+from business_mcp.internal import HTTP_READY_METHODS, HttpInternalApi, RoutedInternalApi
 from business_mcp.server import build_server
 
 READ_TOOLS = {"get_risk_stations", "get_station_detail", "get_forecast", "get_current_plan",
@@ -191,7 +192,16 @@ async def test_field_reports_latest_first_with_limit(client):
     assert [r["reportId"] for r in res["reports"]] == ["FR-883", "FR-881"]
     assert res["truncated"] is True and res["total"] == 3
     assert {r["reportId"] for r in since["reports"]} == {"FR-883", "FR-881"}
-    assert all(r["driver"].startswith("기사") and "actualBikes" in r for r in res["reports"])
+    assert all(r["driver"].endswith("기사") and "actualBikes" in r for r in res["reports"])
+
+
+async def test_since_excludes_that_moment(client):
+    """계약 0.5.0: since는 그 시각을 뺀다 (마지막으로 받은 시각을 다시 넣어도 중복이 없다)."""
+    async with client:
+        reports = await call(client, "get_field_reports", {"shift_id": SHIFT_ID, "since": "2026-10-21T07:41:00+09:00"})
+        audit = await call(client, "get_audit", {"shift_id": SHIFT_ID, "since": "2026-10-21T07:41:00+09:00"})
+    assert [r["reportId"] for r in reports["reports"]] == ["FR-883"]
+    assert audit["events"] == []
 
 
 async def test_audit_records_changes(client, fake):
@@ -201,7 +211,9 @@ async def test_audit_records_changes(client, fake):
         await call(client, "submit_plan", {"plan_id": cand["plan"]["planId"], **card(fake)})
         after = await call(client, "get_audit", {"shift_id": SHIFT_ID})
     assert before["total"] == 2
-    assert after["events"][0]["type"] == "PLAN_ACTIVATED" and after["events"][0]["targetId"] == cand["plan"]["planId"]
+    # 최신순: 계획 활성화가 맨 앞, 그 앞에 관리자 승인 기록 (계약 AuditEvent 종류)
+    assert [e["type"] for e in after["events"][:2]] == ["PLAN_ACTIVATED", "APPROVAL_APPROVED"]
+    assert after["events"][0]["targetId"] == cand["plan"]["planId"]
 
 
 async def test_long_results_are_truncated_to_budget(fake):
@@ -209,6 +221,14 @@ async def test_long_results_are_truncated_to_budget(fake):
         res = await call(c, "get_risk_stations", {"region_id": REGION_ID})
     assert res["truncated"] is True
     assert len(json.dumps(res, ensure_ascii=False)) <= 900
+
+
+async def test_risk_filter_is_applied_before_limit(client):
+    """위험 종류로 거른 뒤 limit으로 자른다 (자른 뒤 거르면 과적재가 위에 있을 때 빈 대여소가 0곳이 된다)."""
+    async with client:
+        res = await call(client, "get_risk_stations", {"region_id": REGION_ID, "risk": "EMPTY", "limit": 2})
+    assert len(res["stations"]) == 2 and {s["risk"] for s in res["stations"]} == {"EMPTY"}
+    assert res["total"] == 5 and res["truncated"] is True
 
 
 # ── 계산 ─────────────────────────────────────────────────
@@ -232,6 +252,55 @@ async def test_replan_major_requires_manager_then_driver(client):
             "shift_id": SHIFT_ID, "kind": "REPLAN", "exclude_station_ids": ["ST-2240", "ST-1050"],
         })
     assert (cand["grade"], cand["requiredApprovers"]) == ("MAJOR", ["MANAGER", "DRIVER"])
+
+
+STOP_REQUIRED = {"seq", "stationId", "action", "bikes"}  # openapi Stop 필수 필드 (승인 카드 화면이 읽음)
+
+
+async def test_major_replan_result_fits_harness_limit(client):
+    """Harness는 4,000자에서 글자 단위로 자른다. MAJOR 후보도 3,800자 안에서 온전한 JSON이어야 한다."""
+    async with client:
+        cand = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN",
+                                                         "exclude_station_ids": ["ST-2240", "ST-1050"]})
+    assert len(json.dumps(cand, ensure_ascii=False)) <= 3800
+    assert cand["candidateId"] and cand["plan"]["planId"] and cand["requiredApprovers"] == ["MANAGER", "DRIVER"]
+    assert cand["plan"]["omitted"] == ["stationName,eta"] and "truncated" not in cand["plan"]  # 정류장은 자르지 않음
+
+
+async def test_route_diff_keeps_stop_objects_for_approval_card(client):
+    """계약 RouteDiff: before/after는 Stop[]. 승인 카드 화면이 stationId·action·bikes를 읽는다 (PR #23 리뷰)."""
+    async with client:
+        cand = await call(client, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN", "truck_ids": ["TR-01"],
+                                                         "exclude_station_ids": ["ST-2240"]})
+    diff = cand["diffs"][0]
+    assert all(isinstance(s, dict) and STOP_REQUIRED <= s.keys() for s in diff["before"] + diff["after"])
+    assert diff["removed"] == ["ST-2240"] and diff["added"] == []
+    assert "stationName" in diff["before"][0]  # 길이가 넉넉하면 아무것도 빼지 않는다
+    assert "omitted" not in cand["plan"]
+
+
+async def test_plan_is_compacted_then_truncated_under_tight_budget(fake):
+    async with Client(build_server(fake, max_chars=2500)) as c:
+        cand = await call(c, "request_route_plan", {"shift_id": SHIFT_ID, "kind": "REPLAN",
+                                                    "exclude_station_ids": ["ST-2240", "ST-1050"]})
+    assert len(json.dumps(cand, ensure_ascii=False)) <= 2500
+    assert cand["candidateId"] and cand["plan"]["planId"]  # 검증에 필요한 ID는 끝까지 남는다
+    assert cand["plan"]["omitted"][0] == "stationName,eta" and cand["plan"]["totalStops"] > 0
+    assert all(STOP_REQUIRED <= s.keys() for d in cand["diffs"] for s in d["before"] + d["after"])
+
+
+def test_unserved_and_explanation_are_trimmed_before_stops():
+    """포기 대여소가 많으면 정류장을 자르기 전에 unserved 뒤쪽과 긴 설명부터 줄인다 (PR #23 리뷰 추정 항목)."""
+    from business_mcp.server import _fit_plan
+
+    stop = {"seq": 1, "stationId": "ST-1", "action": "PICKUP", "bikes": 3, "status": "PENDING"}
+    plan = {"planId": "P-1", "routes": [{"truckId": "TR-1", "stops": [dict(stop, seq=i) for i in range(1, 6)]}],
+            "unserved": [{"stationId": f"ST-{i}", "priority": 1.0, "reason": "TIME"} for i in range(300)],
+            "explanation": "설명" * 400}
+    out = _fit_plan(plan, 2000)
+    assert len(json.dumps(out, ensure_ascii=False)) <= 2000
+    assert out["unservedTotal"] == 300 and len(out["unserved"]) < 300
+    assert len(out["routes"][0]["stops"]) == 5 and "truncated" not in out  # 정류장은 그대로
 
 
 async def test_plan_kind_has_no_grade(client):
@@ -363,3 +432,34 @@ async def test_http_adapter_paths_token_body_and_problem_mapping():
     assert constraint_body["approvalId"] == approval_id and constraint_body["taskId"] == TASK_ID
     solve_body = next(s[4] for s in seen if s[1] == "/internal/plans/solve")
     assert solve_body["requestedBy"] == {"taskId": TASK_ID}
+
+
+def test_problemless_errors_get_status_codes():
+    """본문 없는 오류도 상태별 코드로. 다시 부를 값이 없으면 retryable=false."""
+    cases = {401: ("UNAUTHORIZED", False), 403: ("FORBIDDEN", False), 404: ("NOT_FOUND", False),
+             409: ("CONFLICT", False), 400: ("INVALID_ARGUMENT", True)}
+    for status, (code, retryable) in cases.items():
+        err = InternalApiError.from_problem(status, {})
+        assert (err.code, err.retryable) == (code, retryable), status
+    with_hint = InternalApiError.from_problem(404, {"code": "STATION_NOT_FOUND", "detail": "없음", "suggestions": ["ST-1"]})
+    assert with_hint.retryable is True and with_hint.hint == {"candidates": ["ST-1"]}
+    assert InternalApiError.from_problem(403, {"code": "APPROVAL_REQUIRED", "suggestions": ["x"]}).retryable is False
+
+
+async def test_hybrid_mode_calls_backend_only_for_opened_apis(fake):
+    """INTERNAL_MODE=hybrid: backend가 연 현장 보고·제약 추가·감사 기록만 http로, 나머지는 가짜로."""
+    paths = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        paths.append(req.url.path)
+        return httpx.Response(200, json=[{"reportId": "R-9", "truckId": "truck-1", "driver": "truck-1 기사",
+                                          "stationId": "108", "actualBikes": 3, "reportedAt": "2026-10-21T08:00:00+09:00"}])
+
+    http = HttpInternalApi("http://backend:8080", token="t", transport=httpx.MockTransport(handler))
+    api = RoutedInternalApi(fake, {m: http for m in HTTP_READY_METHODS})
+    async with Client(build_server(api)) as c:
+        reports = await call(c, "get_field_reports", {"shift_id": SHIFT_ID})
+        plan = await call(c, "get_current_plan", {"shift_id": SHIFT_ID})
+    await http.aclose()
+    assert reports["reports"][0]["reportId"] == "R-9" and paths == [f"/internal/shifts/{SHIFT_ID}/reports"]
+    assert plan["planId"].startswith("PL-")  # 계획은 아직 가짜
