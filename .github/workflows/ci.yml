@@ -89,6 +89,8 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    # 평소 2~3분. 테스트가 막혀도 기본 한도(6시간)까지 러너를 잡지 않는다.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
