@@ -1,6 +1,6 @@
 # 역할 5 마무리 인계 — 합의사항 반영 후
 
-기준: main `e125e6e`, [합의사항](../data/agreements.md), 공개 API 0.13.1·내부 API 0.8.3·Kafka 0.5.1-draft.
+기준: main `b31fcec`, [합의사항](../data/agreements.md), 공개 API 0.13.1·내부 API 0.8.3·Kafka 0.5.1-draft.
 기존 PR #90의 병합 이후 `hyunmoo`에 남은 PR #89 호환 검사와 이번 합의 대응을 함께 제출한다.
 이 문서는 다음 실행에 필요한 입력과 확인할 증거를 정리한다. 아래 준비 조건이 충족돼야 다음 작업에서 운영 마무리가 가능하다.
 
@@ -34,8 +34,8 @@ optimizer worker는 생산자의 neededBikes/priority를 덮어쓰거나 업무 
 | 03a·03b 실행 시나리오 | 역할 1·2·4·6 | 초안→관리자 승인→활성화, 현장 보고→현재 상태 재계산→변경안→관리자/기사 승인→기사 경로 반영. 재고 불일치/진입 불가/트럭 지연의 예상 결과와 traceId |
 
 작업 중 PR #88이 main e125e6e에 병합되어 MCP·관제·공통 구역 목록의 N02 이전을 반영했다.
-역할 2의 평가 가짜 데이터는 해당 담당자가 상태를 확인한다. 새 [PR #93](https://github.com/HuitaePark/skala_seoul_bike/pull/93)은
-실시간 collector·배포 환경을 제공한다. 아직 main 밖의 변경이므로 이 PR에 복제하지 않는다.
+역할 2의 평가 가짜 데이터는 해당 담당자가 상태를 확인한다. [PR #93](https://github.com/HuitaePark/skala_seoul_bike/pull/93)은
+실시간 collector·배포 환경을 제공하며 작업 중 main b31fcec에 병합돼 함께 반영했다.
 키가 없으면 collector는 healthy여도 수집하지 않는 설계다. 서버 담당이 production secret `SEOUL_API_KEY`를 등록하고
 배포한 뒤 실제 live.station_status의 관측 갱신을 확인해야 한다. 값은 채팅/PR에 남기지 않는다.
 예측 DB 적재는 collector와 별도이므로 역할 6의 시간별 예측도 함께 준비한다.

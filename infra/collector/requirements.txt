@@ -1,0 +1,4 @@
+# 실시간 재고 collector (analysis/collect/live_db.py). 수집은 표준 라이브러리, DB 쓰기만 psycopg를 쓴다.
+psycopg==3.3.6
+psycopg-binary==3.3.6
+typing-extensions==4.16.0

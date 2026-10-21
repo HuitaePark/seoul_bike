@@ -16,6 +16,7 @@ import datetime as dt
 import fcntl
 import gzip
 import json
+import os
 import time
 import urllib.request
 from pathlib import Path
@@ -30,11 +31,15 @@ FIELDS = ["ts", "stationId", "stationName", "rackTotCnt", "parkingBikeTotCnt", "
 
 
 def api_key():
-    for line in (ROOT / ".env").read_text().splitlines():
+    # 서버 compose 서비스(collector)는 환경 변수로 받는다. 노트북 cron은 그대로 저장소 루트 .env를 읽는다.
+    if key := os.environ.get("SEOUL_API_KEY", "").strip():
+        return key
+    env = ROOT / ".env"
+    for line in env.read_text().splitlines() if env.exists() else []:
         k, sep, v = line.partition("=")
         if sep and k.strip() == "SEOUL_API_KEY":
             return v.strip().strip("\"'")
-    raise SystemExit("SEOUL_API_KEY가 .env에 없다")
+    raise SystemExit("SEOUL_API_KEY가 환경 변수에도 .env에도 없다")
 
 
 def get_page(key, a, b, service="bikeList", params=()):
