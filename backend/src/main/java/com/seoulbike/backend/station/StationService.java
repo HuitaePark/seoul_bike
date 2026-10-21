@@ -123,7 +123,7 @@ class StationService {
 	}
 
 	/** 다시 부를 수 있게 대여소마다 고칠 후보를 붙인다 (internal-api StationNotFound). */
-	private ApiException notFound(List<String> stationIds) {
+	ApiException notFound(List<String> stationIds) {
 		List<Missing> missing = stationIds.stream().map(this::explain).toList();
 		return ApiException.notFound("STATION_NOT_FOUND",
 				missing.stream().map(Missing::detail).collect(Collectors.joining(" ")),
