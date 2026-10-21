@@ -165,7 +165,7 @@ export interface paths {
         put?: never;
         /**
          * 계정 발급 (관리자)
-         * @description 바로 쓸 수 있는(ACTIVE) 계정을 만든다. 기사는 트럭이 필요하다.
+         * @description 바로 쓸 수 있는(ACTIVE) 계정을 만든다. 기사는 트럭이 필요하다 (TRUCK_REQUIRED). 트럭은 트럭 목록의 운행 중인 트럭이어야 한다 (TRUCK_NOT_FOUND).
          */
         post: operations["createAccount"];
         delete?: never;
@@ -185,7 +185,7 @@ export interface paths {
         put?: never;
         /**
          * 가입 신청 승인 (관리자)
-         * @description 역할과 트럭을 확정하고 ACTIVE로 바꾼다. 기사로 승인하려면 truckId가 필요하다 (TRUCK_REQUIRED).
+         * @description 역할과 트럭을 확정하고 ACTIVE로 바꾼다. 기사로 승인하려면 truckId가 필요하고 (TRUCK_REQUIRED), 트럭 목록의 운행 중인 트럭이어야 한다 (TRUCK_NOT_FOUND). 승인 대기가 아닌 계정은 트럭을 보지 않고 409다.
          */
         post: operations["approveAccount"];
         delete?: never;
@@ -390,7 +390,10 @@ export interface components {
             id: string;
             name: string;
             role: components["schemas"]["Role"];
-            /** @description DRIVER만 */
+            /**
+             * @description DRIVER만. 트럭 ID `TR-NN` (합의 30)
+             * @example TR-01
+             */
             truckId?: string | null;
         };
         /**
@@ -429,12 +432,18 @@ export interface components {
             password: components["schemas"]["Password"];
             name: string;
             role: components["schemas"]["Role"];
-            /** @description DRIVER면 필수 */
+            /**
+             * @description DRIVER면 필수. 트럭 목록의 운행 중인 트럭 ID `TR-NN` (합의 30). 다른 역할이면 버린다
+             * @example TR-01
+             */
             truckId?: string | null;
         };
         ApproveAccountRequest: {
             role: components["schemas"]["Role"];
-            /** @description DRIVER면 필수 */
+            /**
+             * @description DRIVER면 필수. 트럭 목록의 운행 중인 트럭 ID `TR-NN` (합의 30). 다른 역할이면 버린다
+             * @example TR-01
+             */
             truckId?: string | null;
         };
         /**
@@ -1067,7 +1076,18 @@ export interface operations {
                     "application/json": components["schemas"]["Account"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description 요청 형식 오류, 기사인데 트럭 없음(TRUCK_REQUIRED), 또는 트럭 목록에 없거나 운행하지 않는 트럭(TRUCK_NOT_FOUND).
+             *     TRUCK_NOT_FOUND면 `suggestions`에 고를 수 있는 활성 트럭 ID가 번호 순으로 있다 (예 TR-01 … TR-35).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description 이미 쓰는 아이디 (LOGIN_ID_TAKEN) */
@@ -1105,7 +1125,18 @@ export interface operations {
                     "application/json": components["schemas"]["Account"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description 요청 형식 오류, 기사인데 트럭 없음(TRUCK_REQUIRED), 또는 트럭 목록에 없거나 운행하지 않는 트럭(TRUCK_NOT_FOUND).
+             *     TRUCK_NOT_FOUND면 `suggestions`에 고를 수 있는 활성 트럭 ID가 번호 순으로 있다 (예 TR-01 … TR-35).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
