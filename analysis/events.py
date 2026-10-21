@@ -7,11 +7,11 @@
 입력 (손으로 적는다. 한 줄 = 행사 하루):
   analysis/in/events.csv  date(YYYY-MM-DD), name, venue(venues.csv의 venue), kind(KINDS 중 하나),
                           start·end(HH:MM, 그 행사장에서 시작·끝. 비우면 아래 기본값), closed(1 = 그날 그 일대 통제), source(출처 URL, 선택),
-                          attendance(관객 수, 선택. 아직 피처로 쓰지 않는다)
+                          attendance(관객 수, 선택. 예측기의 ev_att)
   analysis/in/venues.csv  venue, place, lat, lon. 새 행사장은 여기에 한 줄 더한다
 기본값: start를 비우면 평일 19시·토 18시·일 17시, end를 비우면 start + DUR[kind]시간. closed = 1이고 시각이 없으면 하루 종일 퇴장으로 본다.
 도착은 시작 4시간 전부터 시작까지, 퇴장은 끝부터 2시간. 출발·도착점인 행사(자전거대행진 도착 등)는 start = end = 그 시각으로 적는다.
-출력: analysis/out/events.csv (type, name, venue, date, arrive_h0, arrive_h1, exit_h0, exit_h1, closed; type = KINDS 순번 1..),
+출력: analysis/out/events.csv (type, name, venue, date, arrive_h0, arrive_h1, exit_h0, exit_h1, closed, attendance; type = KINDS 순번 1..),
       analysis/out/event_stations.csv (venue, st_no, dist_m)
 실행: .venv/bin/python analysis/events.py
 """
@@ -51,8 +51,9 @@ def read_events() -> list[tuple]:
             assert r["venue"] in venues, f"venues.csv에 없는 행사장 {r['venue']!r}"
             assert r["kind"] in KINDS, f"kind는 {KINDS} 중 하나 ({r['kind']!r})"
             assert r["closed"] in ("0", "1", ""), f"closed는 0 또는 1 ({r['closed']!r})"
+            assert r.get("attendance", "") in ("", None) or r["attendance"].isdigit(), f"attendance는 숫자 ({r['attendance']!r})"
             r["closed"] = r["closed"] or "0"
-            rows.append((KINDS.index(r["kind"]) + 1, r["name"], r["venue"], r["date"], *windows(r), int(r["closed"])))
+            rows.append((KINDS.index(r["kind"]) + 1, r["name"], r["venue"], r["date"], *windows(r), int(r["closed"]), r.get("attendance") or ""))
         except (AssertionError, ValueError) as e:
             bad.append(f"  {i}행 {r.get('date')} {r.get('name')}: {e}")
     if bad:  # 손으로 적은 표라 틀린 줄을 한 번에 모두 알려 준다
@@ -71,7 +72,7 @@ def main() -> None:
     out = ROOT / "analysis/out"
     with open(out / "events.csv", "w", newline="") as f:
         w = csv.writer(f, lineterminator="\n")
-        w.writerow(["type", "name", "venue", "date", "arrive_h0", "arrive_h1", "exit_h0", "exit_h1", "closed"])
+        w.writerow(["type", "name", "venue", "date", "arrive_h0", "arrive_h1", "exit_h0", "exit_h1", "closed", "attendance"])
         w.writerows(events)
     used = {e[2] for e in events}
     near = []
