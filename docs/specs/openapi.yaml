@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.13.2-draft
+  version: 0.14.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
     **초안 v0.13.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.14: 관제 지도의 트럭 상태 `GET /api/shifts/{shiftId}/trucks` (관리자·책임자). 에이전트의 트럭 상태 도구와 같은 계산이다. 위치는 GPS가 아니라 마지막으로 끝낸 정류장(`atStationId`), 없으면 차고지(`atStationId` null)다. `TruckState`를 이 문서로 옮겼다 (internal-api가 참조).
     - v0.13.2: 현재 재고(`bikes`)는 실시간 수집에 3시간 안의 가장 최근 기사 현장 보고를 반영한다. 보고가 수집보다 늦으면 보고 재고(도착 재고 − 실은 대수 + 내린 대수)와 보고 시각을 쓰고, 재고 불일치(`INVENTORY_MISMATCH`) 보고는 그 뒤 수집에도 차이(도착 재고 − 보고 때 앱 재고)를 더한다.
     - v0.13.1: 트럭 ID는 서울 전체에서 이어 매기는 `TR-NN`(TR-01~TR-35, 합의 30)이다. 계정 발급·승인에서 기사 트럭이 트럭 목록에 없거나 운행하지 않으면 400 `TRUCK_NOT_FOUND`(`suggestions`에 활성 트럭 ID). 예전 `truck-N` 기사 계정은 `TR-0N`으로 옮겼고 다시 로그인해야 한다.
     - v0.13: 현황 지도 `GET /api/regions/{regionId}/stations` 구현 규칙 (어느 대여소가 나오는지, 어느 관측·예측을 쓰는지, 위험 판단 기준). 없는 구역 404 `REGION_NOT_FOUND`, `horizonH` 범위 밖 400.
@@ -461,6 +462,32 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Plan' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/shifts/{shiftId}/trucks:
+    get:
+      operationId: getShiftTrucks
+      tags: [plans]
+      summary: 근무조 트럭의 지금 위치·적재·남은 정류장 (관제 지도)
+      description: |
+        관리자·책임자만 (모든 트럭이 들어 있어 기사는 403). 에이전트 도구 `get_truck_status`(internal-api)와 같은 계산이다.
+        - 활성 계획이 있으면 그 계획의 트럭(계획 순서). 위치는 **마지막으로 끝낸(DONE) 정류장**(`atStationId`), 없으면 차고지(`atStationId` null).
+          GPS가 없으므로 정류장 사이를 움직이지 않는다. 적재는 그 정류장의 `loadAfter`, 없으면 경로의 `startLoad`.
+        - 활성 계획이 없으면 구역의 운영 중인 트럭(트럭 ID 순)이 차고지에 빈 채로 있다.
+        형식이 틀린 근무조는 400, 없는 구역은 404 `SHIFT_NOT_FOUND`.
+      parameters:
+        - $ref: '#/components/parameters/ShiftId'
+      responses:
+        '200':
+          description: 트럭 상태
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TruckState' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -943,6 +970,23 @@ components:
         risk: { $ref: '#/components/schemas/RiskKind' }
         role: { $ref: '#/components/schemas/StationRole' }
         elevationM: { type: [number, 'null'] }
+
+    TruckState:
+      type: object
+      required: [truckId, capacity, load, remainingStops]
+      properties:
+        truckId: { type: string, examples: [TR-03] }
+        capacity: { type: integer }
+        load: { type: integer, description: 지금 싣고 있는 대수 }
+        lat: { type: [number, 'null'] }
+        lon: { type: [number, 'null'] }
+        atStationId:
+          type: [string, 'null']
+          description: 위치로 쓴 정류장 = 마지막으로 끝낸(DONE) 정류장. null이면 차고지 (GPS 위치가 아니다)
+        shiftEnd: { type: string, format: date-time }
+        remainingStops:
+          type: array
+          items: { $ref: '#/components/schemas/Stop' }
 
     Stop:
       type: object

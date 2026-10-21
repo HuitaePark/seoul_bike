@@ -13,18 +13,22 @@ import tools.jackson.databind.json.JsonMapper;
 import com.seoulbike.backend.common.ApiException;
 
 /**
- * 근무조 트럭의 지금 상태 (계약 internal-api TruckState). 트럭 상태 조회(`get_truck_status`)와 재경로 입력(PlanSolver REPLAN)이
- * 같은 규칙을 쓰도록 여기 한 곳에서 계산한다. 둘이 어긋나면 에이전트가 본 위치·적재와 다른 상태로 다시 계산한다.
+ * 근무조 트럭의 지금 상태 (계약 openapi TruckState). 트럭 상태 조회(`get_truck_status`, 화면 `GET /api/shifts/{shiftId}/trucks`)와
+ * 재경로 입력(PlanSolver REPLAN)이 같은 규칙을 쓰도록 여기 한 곳에서 계산한다. 둘이 어긋나면 에이전트가 본 위치·적재와 다른 상태로
+ * 다시 계산한다.
  *
  * <p>활성 계획이 있으면 그 계획의 트럭(계획 순서): 위치는 마지막으로 끝낸(DONE) 정류장, 없으면 차고지. 적재는 그 정류장의 loadAfter,
  * 없으면 경로의 startLoad. 남은 정류장은 PENDING인 것. 활성 계획이 없으면 구역의 운영 중인 트럭(트럭 ID 순)이 차고지에 빈 채로 있다
- * (계획 초안 PLAN의 출발 상태와 같다).
+ * (계획 초안 PLAN의 출발 상태와 같다). GPS가 없으므로 위치는 정류장 사이를 움직이지 않는다.
  */
 @Component
 class TruckStates {
 
-	/** @param remainingStops 남은(PENDING) 정류장. 계약 Stop 그대로 */
-	record State(String truckId, int capacity, int load, double lat, double lon, Instant shiftEnd,
+	/**
+	 * @param atStationId 위치로 쓴 정류장 (마지막으로 끝낸 정류장). null이면 차고지
+	 * @param remainingStops 남은(PENDING) 정류장. 계약 Stop 그대로
+	 */
+	record State(String truckId, int capacity, int load, double lat, double lon, String atStationId, Instant shiftEnd,
 			List<JsonNode> remainingStops) {
 
 		List<String> remainingStationIds() {
@@ -75,7 +79,7 @@ class TruckStates {
 	List<State> atDepot(Shift shift, SolveInput.Point depot) {
 		return inputs.activeTrucks(shift.regionId())
 			.stream()
-			.map(t -> new State(t.truckId(), t.capacity(), 0, depot.lat(), depot.lon(), shift.end(), List.of()))
+			.map(t -> new State(t.truckId(), t.capacity(), 0, depot.lat(), depot.lon(), null, shift.end(), List.of()))
 			.toList();
 	}
 
@@ -93,7 +97,9 @@ class TruckStates {
 		for (JsonNode route : routes) {
 			JsonNode done = lastDone(route);
 			// 끝낸 정류장이 기준 정보에서 빠졌으면 좌표를 모른다. 차고지로 둔다.
-			SolveInput.Point at = done == null ? depot : positions.getOrDefault(done.path("stationId").asString(), depot);
+			String doneId = done == null ? null : done.path("stationId").asString();
+			String atStationId = doneId != null && positions.containsKey(doneId) ? doneId : null;
+			SolveInput.Point at = atStationId == null ? depot : positions.get(atStationId);
 			int load = done != null && done.has("loadAfter") ? done.path("loadAfter").asInt()
 					: route.path("startLoad").asInt(0);
 			List<JsonNode> pending = new ArrayList<>();
@@ -103,7 +109,7 @@ class TruckStates {
 				}
 			}
 			out.add(new State(route.path("truckId").asString(), route.path("capacity").asInt(15), load, at.lat(), at.lon(),
-					shift.end(), List.copyOf(pending)));
+					atStationId, shift.end(), List.copyOf(pending)));
 		}
 		return out;
 	}

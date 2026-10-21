@@ -285,6 +285,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/shifts/{shiftId}/trucks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 근무조 트럭의 지금 위치·적재·남은 정류장 (관제 지도)
+         * @description 관리자·책임자만 (모든 트럭이 들어 있어 기사는 403). 에이전트 도구 `get_truck_status`(internal-api)와 같은 계산이다.
+         *     - 활성 계획이 있으면 그 계획의 트럭(계획 순서). 위치는 **마지막으로 끝낸(DONE) 정류장**(`atStationId`), 없으면 차고지(`atStationId` null).
+         *       GPS가 없으므로 정류장 사이를 움직이지 않는다. 적재는 그 정류장의 `loadAfter`, 없으면 경로의 `startLoad`.
+         *     - 활성 계획이 없으면 구역의 운영 중인 트럭(트럭 ID 순)이 차고지에 빈 채로 있다.
+         *     형식이 틀린 근무조는 400, 없는 구역은 404 `SHIFT_NOT_FOUND`.
+         */
+        get: operations["getShiftTrucks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/drivers/me/route": {
         parameters: {
             query?: never;
@@ -612,6 +636,20 @@ export interface components {
             risk: components["schemas"]["RiskKind"];
             role?: components["schemas"]["StationRole"];
             elevationM?: number | null;
+        };
+        TruckState: {
+            /** @example TR-03 */
+            truckId: string;
+            capacity: number;
+            /** @description 지금 싣고 있는 대수 */
+            load: number;
+            lat?: number | null;
+            lon?: number | null;
+            /** @description 위치로 쓴 정류장 = 마지막으로 끝낸(DONE) 정류장. null이면 차고지 (GPS 위치가 아니다) */
+            atStationId?: string | null;
+            /** Format: date-time */
+            shiftEnd?: string;
+            remainingStops: components["schemas"]["Stop"][];
         };
         Stop: {
             seq: number;
@@ -1290,6 +1328,33 @@ export interface operations {
                     "application/json": components["schemas"]["Plan"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getShiftTrucks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description {regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. Kafka 메시지 키로도 쓴다 */
+                shiftId: components["parameters"]["ShiftId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 트럭 상태 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TruckState"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
