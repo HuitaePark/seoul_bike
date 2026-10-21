@@ -1,6 +1,6 @@
 # 지도·계획 검토 화면 명세
 
-담당: 역할 5. 기준: [공개 API v0.13.1-draft](openapi.yaml).
+담당: 역할 5. 기준: [공개 API v0.14.0-draft](openapi.yaml).
 구현: [계획 검토 화면](../../frontend/src/features/plan-map/). 공개 API 스키마를 확장하지 않는다.
 MapLibre·OpenFreeMap 배경지도·마커·방문 순서를 구현했다. 실제 도로 경로선과 업무 서버 통합은 후속이다.
 

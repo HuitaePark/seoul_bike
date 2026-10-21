@@ -52,7 +52,8 @@ optimizer worker는 생산자의 neededBikes/priority를 덮어쓰거나 업무 
    배포 시에는 기존 optimizer 한 개를 overlay 구성으로 교체한다. 같은 상태 볼륨을 두 worker가 동시에 열지 않는다.
    서버 env 파일은 배포마다 새로 쓰는 `~/seoul-bike/.env`이다. 현재 `deploy.yml`의 `up --remove-orphans`는 overlay를 모르므로
    다음 main 배포에서 osrm을 지우고 optimizer를 하버사인으로 되돌린다. 배포 스위치가 생기기 전에는 측정을 배포 사이에 끝내고,
-   배포 뒤 거리 계산 방식을 다시 확인한다. runner 작업 폴더 안의 전처리 결과는 checkout이 지우므로 그 밖에 보관한다([OSRM 안내](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)).
+   배포 뒤 거리 계산 방식을 다시 확인한다. runner 작업 폴더 안의 전처리 결과는 checkout이 지우므로
+   `OSRM_DATA_DIR`로 그 밖의 절대 경로를 지정한다. 준비용 `OSRM_INPUT_DIR`도 같은 외부 자료 폴더를 사용한다([OSRM 안내](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)).
 3. 같은 도로 버전으로 N01 265곳·5대 PLAN/REPLAN을 cold/warm 각각 반복 측정하고 원시 표본·p95·캐시·입력 해시를 남긴다.
    300곳은 기존 합성 좌표가 도로 추출물에 모두 포함되는지 `roadcheck --mock-stations 300`으로 먼저 확인하거나 같은 도로 범위의 명시적 300곳 입력을 준비한다.
    지역 참조 작업량은 여전히 합성이며 실제 업무 성능과 별도로 기록한다.
@@ -63,6 +64,16 @@ optimizer worker는 생산자의 neededBikes/priority를 덮어쓰거나 업무 
    `solveMs`나 엔진 benchmark만으로 10초를 판정하지 않고, 현장 보고 수신부터 변경안 생성까지 같은 traceId의 시각으로 측정한다.
 6. [검증 기록](validation.md)에 환경/원시 표본/성공·실패·제외 사유를 저장하고 PR의 미완료 항목을 닫는다.
    담당자에게 필요한 변경이 남으면 구체적인 입력/실패 사례를 넘긴다. 실제 자료 없이 운영 완료로 표시하지 않는다.
+
+## 이번에 준비한 영속 경로와 배포 후속
+
+hyunmoo의 준비용/운영용 Compose는 `OSRM_DATA_DIR`를 공통 사용한다. 원본은 `OSRM_INPUT_DIR`이며,
+미지정 시 기존 개발 경로다. 운영에서는 둘 다 checkout 밖 절대 경로로 지정하고 원본/전처리 결과를 실제로 준비해야 한다.
+이 경로 지정 기능과 읽기 전용·상태 볼륨 보존은 구성 검사로 확인했다. 실제 PBF/서버 검증은 미실행이다.
+
+역할 4의 PR #107은 무중단 배포 변경이다. OSRM overlay 선택·production 변수 전달·절대 경로 필수 검증은
+그 배포 경로와 연결해야 한다. 현재 배포는 기본 Compose만 쓰므로 경로 기능을 준비했다고 OSRM 운영 전환이 끝난 것은 아니다.
+03a 실제 LLM 모드의 승인 누락(#102)은 역할 1이 재검증해야 하며, 모델 없는 경로 통과와 구분한다.
 
 ## 마무리 완료 기준
 

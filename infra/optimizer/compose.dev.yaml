@@ -1,4 +1,5 @@
 # Independent local stack. This file is not included by the server deployment.
+# OSRM_INPUT_DIR/OSRM_DATA_DIR may point to absolute directories outside the checkout.
 name: seoul-bike-optimizer-dev
 
 x-osrm-image: &osrm-image ghcr.io/project-osrm/osrm-backend:v26.10.0-debian@sha256:55dbfd47d984c2cacd64e32901b4321c86b5ec761438e69aa053dc78698a786f
@@ -10,8 +11,8 @@ services:
     entrypoint: [/bin/sh, /scripts/prepare-osrm.sh]
     volumes:
       - ./prepare-osrm.sh:/scripts/prepare-osrm.sh:ro
-      - ./data/input:/input:ro
-      - ./data/processed:/data
+      - ${OSRM_INPUT_DIR:-./data/input}:/input:ro
+      - ${OSRM_DATA_DIR:-./data/processed}:/data
 
   osrm:
     image: *osrm-image
@@ -22,7 +23,7 @@ services:
         exec osrm-routed --algorithm ch --threads 2 --max-table-size 100 /data/region.osrm
     ports: ["127.0.0.1:${OSRM_PORT:-5000}:5000"]
     volumes:
-      - ./data/processed:/data:ro
+      - ${OSRM_DATA_DIR:-./data/processed}:/data:ro
     healthcheck:
       # Port readiness only; validate real routing with the optimizer command.
       test: [CMD, /bin/bash, -c, "exec 3<>/dev/tcp/127.0.0.1/5000"]
@@ -46,7 +47,7 @@ services:
         --osrm-data-version "$$(cat /data/data-version)"
         --matrix-cache-dir /cache --json
     volumes:
-      - ./data/processed:/data:ro
+      - ${OSRM_DATA_DIR:-./data/processed}:/data:ro
       - matrix-cache:/cache
 
 volumes:

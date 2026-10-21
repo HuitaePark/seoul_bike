@@ -9,9 +9,10 @@ services:
       - >-
         test -s /data/data-version &&
         exec osrm-routed --algorithm ch --threads 2 --max-table-size 100 /data/region.osrm
-    # Paths are relative to infra/compose.yaml (the first Compose file).
+    # Default paths are relative to infra/compose.yaml. Set OSRM_DATA_DIR
+    # to an absolute directory outside the checkout for persistent server data.
     volumes:
-      - ./optimizer/data/processed:/data:ro
+      - ${OSRM_DATA_DIR:-./optimizer/data/processed}:/data:ro
     healthcheck:
       test: [CMD, /bin/bash, -c, "exec 3<>/dev/tcp/127.0.0.1/5000"]
       interval: 5s
@@ -33,7 +34,7 @@ services:
         condition: service_healthy
     volumes:
       # The base optimizer-state volume remains mounted at /state for deduplication.
-      - ./optimizer/data/processed:/roads:ro
+      - ${OSRM_DATA_DIR:-./optimizer/data/processed}:/roads:ro
       - optimizer-matrix-cache:/cache
 
 volumes:

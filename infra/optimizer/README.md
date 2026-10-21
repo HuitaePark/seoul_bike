@@ -87,6 +87,37 @@ solver의 행렬은 도달 불가 셀 하나만 있어도 전체를 거부하므
 [공식 컨테이너](https://github.com/Project-OSRM/osrm-backend/pkgs/container/osrm-backend).
 
 
+## 저장소 밖에 도로 자료 보관
+
+준비용 `compose.dev.yaml`과 운영용 `compose.osrm.yaml`은 같은 `OSRM_DATA_DIR`를 사용한다.
+`OSRM_INPUT_DIR`는 준비용 구성의 원본 PBF 폴더이며, `OSRM_DATA_DIR`는 전처리 결과 폴더다.
+설정하지 않으면 기존 개발 경로 `infra/optimizer/data/input`·`processed`를 사용한다.
+서버에서는 checkout이 지우지 않는 **절대 경로**를 두 변수로 지정한다. 공백·한글이 있는 경로도 지원한다.
+
+```bash
+# 저장소 루트. 아래는 경로 예시이며 실제 서버 자원/위치를 확인한 뒤 사용한다.
+export OSRM_INPUT_DIR="$HOME/seoul-bike/osrm/input"
+export OSRM_DATA_DIR="$HOME/seoul-bike/osrm/processed"
+mkdir -p "$OSRM_INPUT_DIR" "$OSRM_DATA_DIR"
+# 준비한 region.osm.pbf를 OSRM_INPUT_DIR 아래에 둔다.
+
+# 같은 셸의 변수로 준비용/운영용 구성의 경로가 일치하는지 확인한다.
+docker compose -f infra/optimizer/compose.dev.yaml --profile prepare --profile tools config -q
+docker compose --env-file infra/.env.example -f infra/compose.yaml \
+  -f infra/optimizer/compose.osrm.yaml config -q
+```
+
+그 뒤 이 안내의 중지→전처리→기동 순서를 따른다. 준비 컨테이너만 전처리 결과에 쓰고,
+OSRM 서버와 optimizer는 같은 결과 폴더를 읽기 전용으로 사용한다. 원본 PBF도 읽기 전용이다.
+호스트에서 버전을 확인할 때는 `cat "$OSRM_DATA_DIR/data-version"`을 사용한다.
+기존 `optimizer-state`·행렬 캐시 볼륨은 도로 폴더를 바꿔도 보존된다.
+
+이는 Compose의 경로 지정 기능이다. production 변수에서 실제 배포로 값을 전달하고 OSRM overlay를
+선택하는 작업은 아직 필요하다. 경로를 지정한 것만으로 기본 배포가 OSRM으로 바뀌지는 않는다.
+[PR #107](https://github.com/HuitaePark/skala_seoul_bike/pull/107)은 무중단 배포를 준비 중이며,
+그 배포 경로에도 이 두 변수와 overlay 선택을 연결해야 한다. 서버 변수는 값이 비어 있거나 상대 경로인 경우를 검증해야 한다.
+실제 도로 복사·PBF 전처리·서버 자원 확인은 이 변경에서 수행하지 않았다.
+
 ## 운영 Compose에 선택적으로 연결
 
 `compose.osrm.yaml`은 도로 자료와 서버 자원 확인 후 명시적으로 선택하는 추가 구성이다.
@@ -122,7 +153,7 @@ docker compose -p seoul-bike --env-file ~/seoul-bike/.env -f infra/compose.yaml 
   서버에서는 runner 작업 폴더 밖에서 전처리하고 보관한다. 배포 스위치를 만들 때 이 경로도 함께 정한다.
 
 추가 osrm은 호스트 포트를 열지 않는다. worker는 같은 네트워크의 `http://osrm:5000`과 읽기 전용
-processed/data-version을 사용한다. 원래 `optimizer-state:/state`는 결과 중복 방지 때문에 보존하고,
+`OSRM_DATA_DIR`의 data-version을 사용한다. 원래 `optimizer-state:/state`는 결과 중복 방지 때문에 보존하고,
 행렬은 `optimizer-matrix-cache:/cache`에 별도로 둔다. 도로/엔진/프로필 변경 시 다시 전처리해 버전을 바꾼다.
 같은 requestId는 도로 버전 변경 뒤에도 저장된 eventId·결과를 재사용한다. 새 계산은 새 requestId로 요청한다.
 OSRM 실패를 하버사인으로 자동 대체하지 않는다. 기본 설정으로 되돌릴 때에도 상태 볼륨을 삭제하지 않는다.

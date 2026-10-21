@@ -1,5 +1,15 @@
 # 역할 5 진행 정리 — 2026-10-21
 
+## 영속 도로 자료 경로 후속 (hyunmoo)
+
+main 9ea362f(#105 공개 트럭 상태·#103 화면 후속)를 반영했다. 계약 기준은 공개 API 0.14.0·내부 API 0.8.5다.
+OSRM_INPUT_DIR/OSRM_DATA_DIR로 준비용·운영용 구성 모두 checkout 밖 절대 경로를 쓸 수 있게 했다.
+원본과 운영 도로는 읽기 전용, 준비 컨테이너의 결과만 쓰기 가능하며 기존 worker 상태/행렬 캐시 볼륨을 보존한다.
+기본 경로와 외부 공백·한글 경로를 실제 Compose config로 검사한다. 실제 PBF 준비·전처리·서버 배포는 하지 않았다.
+이슈 #106에는 완료한 브랜치 작업과 남은 production 변수 전달·자료/자원·실제 통합 검증을 나눠 기록한다.
+사용자 요청대로 새 PR 없이 이 브랜치에 커밋·push만 진행한다.
+
+
 ## 현재 상태 (main a5fac87, #98 병합 후)
 
 [PR #94](https://github.com/HuitaePark/skala_seoul_bike/pull/94)(08:17)와 [PR #98](https://github.com/HuitaePark/skala_seoul_bike/pull/98)(09:22)이 main에 병합됐다.

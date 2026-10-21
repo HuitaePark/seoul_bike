@@ -5,8 +5,8 @@
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.13.2-draft |
-| 내부 API (OpenAPI) | 0.8.4-draft |
+| 공개 API (OpenAPI) | 0.14.0-draft |
+| 내부 API (OpenAPI) | 0.8.5-draft |
 | Kafka (AsyncAPI) | 0.5.1-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
@@ -271,3 +271,11 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 
 예시는 개발 추정을 명시적으로 선택한다. 운영 도로 연결에서는 OSRM 공급자로 교체한다.
 현장 보고부터 변경안 생성까지 10초는 Kafka·backend·설명을 포함해 별도로 검증한다.
+
+
+## OSRM 자료 경로
+
+준비용과 운영용 Compose는 `OSRM_DATA_DIR`의 같은 전처리 결과를 사용한다. 원본 PBF는
+준비용 `OSRM_INPUT_DIR`로 지정한다. 미지정 시 기존 개발 경로이며 서버에서는 checkout 밖 절대 경로를 쓴다.
+운영 서버와 worker는 전처리 결과를 읽기 전용으로 공유하고, 중복 방지 상태와 행렬 캐시는 기존 named volume을 유지한다.
+production 변수 전달·OSRM 배포 선택은 별도 연결이 필요하다. [경로 설정](../../infra/optimizer/README.md#저장소-밖에-도로-자료-보관)을 따른다.
