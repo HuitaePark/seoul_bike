@@ -1,6 +1,6 @@
 # 지도·계획 검토 화면 명세
 
-담당: 역할 5. 기준: main `6a61dc7`, [공개 API v0.6.0-draft](openapi.yaml).
+담당: 역할 5. 기준: main `ea1059a`, [공개 API v0.7.0-draft](openapi.yaml).
 구현은 개인 브랜치 `feat/optimizer-core`에 있다. 공개 API 스키마를 확장하지 않는다.
 MapLibre·OpenFreeMap 배경지도·마커·방문 순서를 구현했다. 실제 도로 경로선과 업무 서버 통합은 후속이다.
 
@@ -66,7 +66,7 @@ WAITING_APPROVAL, SUBMIT_PLAN/MANAGER 카드, 카드와 현재 계획 ID 일치�
 
 최종 승인은 현재 버전 검토 확인 후 `approvalId + APPROVE`, 거절은 `REJECT`를 전송한다.
 의견은 선택이며 500자까지다. 대기 거점만 제외할 수 있고 ID를 중복 없이 전송한다.
-제외 선택 시 최종 승인을 막고 `APPROVE + excludeStationIds`로 새 후보를 요청한다.
+제외 선택 시 최종 승인을 막고 `REJECT + excludeStationIds`로 새 후보를 요청한다.
 새 계획 ID·버전 또는 승인 ID가 바뀌면 검토 확인·제외 목록·의견을 초기화한다.
 새 후보는 자동 확정하지 않으며 다시 검토·최종 승인해야 한다.
 

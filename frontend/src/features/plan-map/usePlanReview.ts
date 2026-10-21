@@ -2,6 +2,7 @@ import { computed, onScopeDispose, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth } from '../../shared/auth/store'
 import { useTaskStream } from '../../shared/composables/useTaskStream'
+import { decisionBody } from '../approval/approval'
 import { apiSource } from './source'
 import { createDemoSource, DEMO_REGION, DEMO_SHIFT, DEMO_TASK_ID } from './demo'
 import { approvalBlockReason, editableStop, isTaskId, ReviewError, validateQuery, type Plan, type Query, type Station, type Task } from './model.ts'
@@ -123,11 +124,9 @@ export function usePlanReview(isDemo: () => boolean) {
     sending.value = true; errors.decision = ''; notice.value = ''; sent.add(approvalId)
     decisionController = new AbortController()
     try {
-      await source.decide(task.value.taskId, {
-        approvalId, decision: kind === 'reject' ? 'REJECT' : 'APPROVE',
-        ...(kind === 'exclude' ? { excludeStationIds: [...excluded.value] } : {}),
-        ...(comment.value.trim() ? { comment: comment.value.trim() } : {}),
-      }, decisionController.signal)
+      await source.decide(task.value.taskId, decisionBody(task.value.pendingApproval!, kind === 'approve' ? 'APPROVE' : 'REJECT', {
+        exclude: kind === 'exclude' ? [...excluded.value] : [], comment: comment.value,
+      }), decisionController.signal)
       if (current !== contextEpoch) return
       notice.value = kind === 'exclude' ? '제외 요청을 전송했습니다. 새 후보가 도착하면 다시 검토하고 최종 승인하세요.' : '결정을 전송했습니다. 실제 반영 상태는 최신 계획과 작업에서 확인하세요.'
       reviewed.value = false

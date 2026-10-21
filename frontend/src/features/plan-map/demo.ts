@@ -77,9 +77,7 @@ export function createDemoSource(): PlanReviewSource {
       if (taskId !== task.taskId || task.status !== 'WAITING_APPROVAL' || body.approvalId !== task.pendingApproval?.approvalId) {
         throw new ReviewError('이미 처리됐거나 다른 승인 요청입니다.', 409)
       }
-      if (body.decision === 'REJECT') {
-        plan.status = 'REJECTED'; task.status = 'DONE'; task.pendingApproval = null
-      } else if (body.excludeStationIds?.length) {
+      if (body.excludeStationIds?.length) {
         const excluded = new Set(body.excludeStationIds)
         const eligible = new Set(plan.routes.flatMap(r => r.stops.filter(s => !s.status || s.status === 'PENDING').map(s => s.stationId)))
         if ([...excluded].some(id => !eligible.has(id))) throw new ReviewError('계획의 대기 정류장만 제외할 수 있습니다.', 400)
@@ -101,6 +99,8 @@ export function createDemoSource(): PlanReviewSource {
         plan.version += 1; plan.planId = `demo-plan-001-v${plan.version}`; plan.status = 'PROPOSED'
         plan.explanation = '선택한 거점을 제외한 새 시연 후보입니다. 실제 최적화 결과가 아니며, 다시 검토하고 최종 승인해야 합니다.'
         task.pendingApproval = { ...task.pendingApproval, approvalId: crypto.randomUUID(), planId: plan.planId }
+      } else if (body.decision === 'REJECT') {
+        plan.status = 'REJECTED'; task.status = 'DONE'; task.pendingApproval = null
       } else {
         plan.status = 'ACTIVE'; task.status = 'DONE'; task.pendingApproval = null
       }

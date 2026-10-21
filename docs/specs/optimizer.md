@@ -1,11 +1,11 @@
 # 최적화 · 인프라 명세
 
 상태: **명세 검토용, 계산·Kafka 실행기는 개인 브랜치에 있으며 운영 backend 미연결**. 담당: 역할 5.
-기준 main: `6a61dc7`.
+기준 main: `ea1059a`.
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.6.0-draft |
+| 공개 API (OpenAPI) | 0.7.0-draft |
 | 내부 API (OpenAPI) | 0.5.0-draft |
 | Kafka (AsyncAPI) | 0.4.0-draft |
 
@@ -144,7 +144,7 @@ nearest-rank p95·행렬/공급자/나머지 엔진 시간·표본·입력/계�
 
 ## MCP 개발 환경·S05 참조 시드
 
-역할 3의 MCP 소스를 최신 main 94d86d1에 맞춰 독립 컨테이너에서 조회·가짜 계산·승인 차단과
+역할 3의 MCP 소스를 최신 main ea1059a에 맞춰 독립 컨테이너에서 조회·가짜 계산·승인 차단과
 docs/evidence/의 RAG 검색·원문 Resource를 검증한다. 기본 메모리 모드와 테스트용 pgvector overlay를
 제공하며, overlay는 일회용 DB·hash 임베딩으로 색인·검색 연결을 검사한다. 실제 의미 검색 품질과
 운영 backend·Kafka 계산 연결 검증은 별도다.

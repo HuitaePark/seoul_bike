@@ -192,7 +192,7 @@ test('제외 요청 202로 확정하지 않고 SSE의 새 후보를 재조회한
   await page.getByRole('button', { name: '제외 후 새 안 요청' }).click()
   await expect(page.getByText('처리 중', { exact: true })).toBeVisible()
   await expect(page.getByText('운영 중', { exact: true })).toHaveCount(0)
-  expect(body).toEqual({ approvalId: demoTask().pendingApproval!.approvalId, decision: 'APPROVE', excludeStationIds: ['ST-101'] })
+  expect(body).toEqual({ approvalId: demoTask().pendingApproval!.approvalId, decision: 'REJECT', excludeStationIds: ['ST-101'] })
   publishCandidate = true
   const confirm = page.getByRole('checkbox', { name: /현재 v2의/ })
   await expect(confirm).toBeVisible()

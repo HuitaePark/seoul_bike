@@ -4,6 +4,7 @@ import { approvalBlockReason, isTaskId, loadPercent, numberText, reasonText, rou
 import { createDemoSource, demoPlan, demoStations, demoTask, DEMO_REGION, DEMO_SHIFT, DEMO_TASK_ID } from '../src/features/plan-map/demo.ts'
 import { mapData, position, truckColor } from '../src/features/plan-map/map-model.ts'
 import type { Station } from '../src/features/plan-map/model.ts'
+import { decisionBody } from '../src/features/approval/approval.ts'
 
 test('0을 보존하고 선택 필드의 누락을 기본값으로 채우지 않는다', () => {
   assert.equal(numberText(0), '0')
@@ -51,7 +52,7 @@ test('시연 제외는 새 승인 카드가 생기며 새 후보를 최종 승�
   const source = createDemoSource()
   const task = await source.readTask(DEMO_TASK_ID)
   const oldApproval = task.pendingApproval!.approvalId
-  await source.decide(DEMO_TASK_ID, { approvalId: oldApproval, decision: 'APPROVE', excludeStationIds: ['ST-101'] })
+  await source.decide(DEMO_TASK_ID, decisionBody(task.pendingApproval!, 'REJECT', { exclude: ['ST-101'] }))
   const next = (await source.readPlan(DEMO_SHIFT))!
   const nextTask = await source.readTask(DEMO_TASK_ID)
   assert.equal(next.version, 2)
@@ -71,7 +72,7 @@ test('시연 원본·응답을 변경해도 다른 세션에 영향을 주지 �
   plan.routes.length = 0
   assert.equal((await source.readPlan(DEMO_SHIFT))!.routes.length, 3)
   const task = await source.readTask(DEMO_TASK_ID)
-  await assert.rejects(source.decide(DEMO_TASK_ID, { approvalId: task.pendingApproval!.approvalId, decision: 'APPROVE', excludeStationIds: ['unknown'] }), /대기 정류장/)
+  await assert.rejects(source.decide(DEMO_TASK_ID, decisionBody(task.pendingApproval!, 'REJECT', { exclude: ['unknown'] })), /대기 정류장/)
   await source.decide(DEMO_TASK_ID, { approvalId: task.pendingApproval!.approvalId, decision: 'REJECT' })
   assert.equal((await source.readPlan(DEMO_SHIFT))!.status, 'REJECTED')
   assert.equal(demoPlan.status, 'PROPOSED')

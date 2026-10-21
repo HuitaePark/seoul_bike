@@ -261,6 +261,31 @@ backend/·frontend/ 폴더와 CI 변경은 main에서 가져왔다. 이번 후�
 실제 업무 서버와 최적화까지 연결한 통합 결과가 아니다. 도로 PBF·OSRM 전처리·Route 기하 조회와 공개 전달 API는 후속이다.
 이번 추가 구현에서 최적화·MCP·backend 업무 코드는 변경하지 않았다. 임시 배포 검증 컨테이너는 종료한다.
 
+## 최신 main ea1059a 반영·전체 개발 PR 준비
+
+- 0765de3에서 최신 main ea1059a(공개 API v0.7·에이전트 그래프·공통 승인 카드·CI)를 병합했다.
+  라우터 충돌은 main의 관리자 화면 역할 제한과 개인 브랜치의 계획 검토 경로를 모두 유지해 해결했다.
+  새 `python-services` CI 잡과 기존 최적화·MCP HTTP·pgvector 검증도 함께 유지했다.
+- 계획 검토의 거점 제외 요청은 main의 공통 `approval/decisionBody`를 사용해 `REJECT + excludeStationIds`로 맞췄다.
+  현재 안을 그대로 활성화하지 않고 재계산된 새 후보를 다시 확인하는 동작은 유지했다.
+  시연 자료도 이 요청 형식으로 새 후보를 반환한다. 공통 승인 카드·공유 인증 모듈 자체는 수정하지 않았다.
+- Python 3.12에서 실제 독립 Kafka 브로커를 포함한 최적화 **202개·24개 subtest 통과**.
+  기존 OR-Tools SWIG 경고 3건은 남아 있다. 성능 표본은 기존 측정 기록을 유지하며 다시 측정하지 않았다.
+- Java 21·Gradle 9.8.1·Testcontainers에서 backend **32개 통과**, 실패·오류·생략 없음.
+- 에이전트는 main CI와 같은 범위에서 **72개 통과·Postgres 1개 생략·기존 fixture 1개 제외**.
+  이어 일회용 PostgreSQL에서 별도 프로세스 승인 복구 검사 **1개 통과**.
+  제외 1개는 main CI가 이미 제외한 `test_field_report_command_becomes_a_driver_task`로 이 PR이 추가한 예외가 아니다.
+- MCP 기본 **46개**, 실제 pgvector **3개**, 메모리 HTTP **3개**, pgvector HTTP **2개 통과**.
+  외부 임베딩 모델 다운로드 검사는 실행하지 않았다. 각 검증은 운영망과 분리된 테스트 서비스에서 실행했다.
+- 프론트 단위 **15개·Chromium 브라우저 20개 통과**, 타입 검사·배포 빌드 통과.
+  실제 승인 요청 본문의 거점 제외가 REJECT이며 새 후보 검토 확인이 초기화되는 것을 검사했다.
+- OpenAPI v0.7에서 임시 생성한 타입은 공유 타입과 일치한다. 공통 YAML·backend·agent·MCP 업무 소스는 fetched main과 같다.
+  CI YAML 중복 키 없음, 운영·독립 개발 Compose 구성과 OSRM 준비 스크립트 구문 검사도 통과했다.
+
+사용자 요청으로 최적화·Kafka·독립 인프라·지도 검토 전체를 개인 브랜치의 한 PR로 준비한다.
+실제 OSRM 도로망·운영 backend solve 연결·전체 업무 흐름 10초 완료는 이 결과로 판정하지 않는다.
+운영 배포와 main 직접 push는 수행하지 않는다.
+
 ## 아직 검증하지 않은 범위
 
 운영 backend의 실제 solve 요청/응답, retry/DLQ·분산 중복 방지·볼륨 유실 복구,
