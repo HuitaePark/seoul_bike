@@ -101,7 +101,7 @@
 ## 6. 직접 돌려 보려면
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements-data.txt
+python3.12 -m venv .venv && .venv/bin/pip install -r requirements-data.txt  # 3.12: 최적화기가 고정한 ortools==9.14.6206이 3.14용으로는 없다 (CI도 3.12)
 .venv/bin/python -m sim --terr 강남-05 --date 2025-06-11      # 정책 4종 하루 비교
 .venv/bin/python -m forecast.nowcast --terr 강남-05            # 예측기 학습·채점 (약 10분)
 ```

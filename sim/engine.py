@@ -209,8 +209,9 @@ def resample_demand(day: Day, seed: int) -> Day:
     return replace(day, trips=trips + day.trips[n:], n_recorded=len(trips))
 
 
-def load_day(terr: str, d: date, latent: bool = True) -> Day:
+def load_day(terr: str, d: date, latent: bool = True, sources_weeks: int | None = None) -> Day:
     """구역 terr의 d일 하루를 파일에서 만든다. latent이면 실제로 비어 있던 시간의 억눌린 수요를 trips 뒤에 더한다.
+    sources_weeks를 주면 공급처를 전해 4~10월 대신 그날 전 그 주 수만큼의 역산 방문으로 고른다(그날 0시 전에 끝난 방문만).
 
     입력: analysis/out/stations.csv, data/shared/<구역>/trips.parquet (export_region.py),
           analysis/rebal/out/gaps_2025.parquet·bike_pick·bike_drop (초기 재고 복원. 2025년만 있다)
@@ -261,9 +262,13 @@ def load_day(terr: str, d: date, latent: bool = True) -> Day:
         SELECT lo + (hi - lo) / 2 AS m, st, kind, n::INT FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet'
         WHERE lo + (hi - lo) / 2 >= $a AND lo + (hi - lo) / 2 < $b ORDER BY m""", {"a": t0 - shift, "b": t1 - shift}).fetchall()
               if st in stations] for shift in (timedelta(0), timedelta(days=7)))
-    # 공급처: 전해 4~10월(성수기) 역산 방문에서 하루 평균 회수 − 배치가 2대 이상인 대여소. 재생하는 해의 자료는 쓰지 않는다
-    y = d.year - 1
+    # 공급처: 하루 평균 회수 − 배치가 2대 이상인 대여소. 기본은 전해 4~10월(성수기) 역산 방문이라 재생하는 해의 자료를 쓰지 않는다
+    if sources_weeks:
+        a, days = t0 - timedelta(weeks=sources_weeks), 7 * sources_weeks
+        where = f"lo >= '{a}' AND hi < '{t0}'"
+    else:
+        days, where = 214, f"lo >= '{d.year - 1}-04-01' AND lo < '{d.year - 1}-11-01'"
     sources = frozenset(r[0] for r in c.execute(f"""
-        SELECT st FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet' WHERE lo >= '{y}-04-01' AND lo < '{y}-11-01'
-        GROUP BY st HAVING sum(CASE WHEN kind = 'pick' THEN n ELSE -n END) / 214.0 >= 2""").fetchall()) & stations.keys()
+        SELECT st FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet' WHERE {where}
+        GROUP BY st HAVING sum(CASE WHEN kind = 'pick' THEN n ELSE -n END) / {days}.0 >= 2""").fetchall()) & stations.keys()
     return Day(t0, stations, trips, (lat, lon), fixed, sources, visits, visits_prev_week, n_recorded)

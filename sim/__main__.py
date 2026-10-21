@@ -37,10 +37,13 @@ def policies_for(terr, d, day) -> dict:
     return out
 
 
+SOURCES_WEEKS = None  # sim --sources-weeks: 본 시스템 공급처를 그날 전 몇 주의 역산 방문으로 고른다(기본은 전해 4~10월)
+
+
 def run_day(terr, d, trucks, resample=0):
     """하루를 정책마다 보정 전·후로 재생한다. resample > 0이면 수요를 그만큼 다시 뽑은 하루(보정 후)도 재생한다.
     반환: (day, rec, {정책: (보정 전 결과, 보정 후 결과)}, [{정책: 다시 뽑은 하루의 결과}, ...])"""
-    day = load_day(terr, d)
+    day = load_day(terr, d, sources_weeks=SOURCES_WEEKS)
     rec = replace(day, trips=day.trips[:day.n_recorded], n_recorded=None)  # 억눌린 수요 보정 전
     pols = policies_for(terr, d, day)
     res = {name: (replay(rec, p, trucks=trucks), replay(day, p, trucks=trucks)) for name, p in pols.items()}
@@ -68,6 +71,7 @@ def one_day(args) -> None:
 
 def many_days(args) -> None:
     tag = "" if args.shifts is None else "_s" + "_".join(f"{a}-{b}" for a, b in args.shifts)
+    tag += f"_src{args.sources_weeks}w" if args.sources_weeks else ""
     out = ROOT / f"data/derived/sim_{args.terr}_{args.date}_{args.until}{tag}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -120,10 +124,13 @@ def main() -> None:
     ap.add_argument("--trucks", type=int)  # 주지 않으면 그 구역의 바쁜 날 동시 트럭 하한(ref_regions.csv, 역산 7절)
     ap.add_argument("--shifts", type=lambda s: tuple(tuple(map(int, x.split("-"))) for x in s.split(",")),
                     help="본 시스템의 근무 시간. 예: 7-22 또는 7-10,13-16,19-21(기본, PRD 7.4)")
+    ap.add_argument("--sources-weeks", type=int, help="본 시스템 공급처를 그날 전 이 주 수만큼의 역산 방문으로 고른다(기본은 전해 4~10월)")
     args = ap.parse_args()
     if args.shifts:
         assert all(0 <= a < b <= 24 for a, b in args.shifts), args.shifts
         AGENT_KW["shifts"] = args.shifts
+    global SOURCES_WEEKS
+    SOURCES_WEEKS = args.sources_weeks
     if args.trucks is None:
         import duckdb
 

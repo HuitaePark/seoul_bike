@@ -5,6 +5,7 @@
 import random
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from sim.engine import Day, replay, resample_demand
 from sim.latent import poisson_arrivals
@@ -139,3 +140,19 @@ class LatentTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+DATA = Path(__file__).resolve().parents[2] / "data/shared/강북-04/rebal_visits.parquet"
+
+
+@unittest.skipUnless(DATA.exists(), "구역 자료(data/shared)가 있을 때만")
+class RecentSourcesTest(unittest.TestCase):
+    def test_recent_sources_use_only_visits_that_ended_before_the_day(self):
+        import duckdb
+        from sim.engine import load_day
+        t0 = datetime(2025, 6, 11)
+        v = duckdb.sql(f"SELECT st, kind, n, lo, hi FROM '{DATA}'").df()
+        w = v[(v.lo >= t0 - timedelta(weeks=8)) & (v.hi < t0)]
+        net = w.assign(x=w.n.where(w.kind == "pick", -w.n)).groupby("st").x.sum() / 56
+        day = load_day("강북-04", t0.date(), latent=False, sources_weeks=8)
+        self.assertEqual(day.pickup_sources, frozenset(net[net >= 2].index) & day.stations.keys())
