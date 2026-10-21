@@ -1,6 +1,6 @@
 # 역할 5 마무리 인계 — 합의사항 반영 후
 
-기준: main `aece814`(#107 순차 배포·#108 현장 보고 진행 포함), [합의사항](../data/agreements.md), 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft.
+기준: main `3fd88ff`(#107·#108 이후 README 운영/시연 안내 포함), [합의사항](../data/agreements.md), 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft.
 처음 #94(main `b31fcec` 기준)로 제출했고, 리뷰 후속과 도로 자료 포함 범위 검사를 #98로 더했다.
 #96으로 현장 보고로 필요가 없어진 정류장이 REPLAN 입력에서 빠진다(계약 필드 변경 없음). 이 입력은 역할 5 계약 검사로 확인했다.
 이 문서는 다음 실행에 필요한 입력과 확인할 증거를 정리한다. 아래 준비 조건이 충족돼야 다음 작업에서 운영 마무리가 가능하다.
@@ -54,7 +54,9 @@ optimizer worker는 생산자의 neededBikes/priority를 덮어쓰거나 업무 
    `OSRM_ENABLED=true`와 준비된 `OSRM_DATA_DIR`를 등록한다. 자료 경로·완료 해시·CH 파일 검사와 OSRM healthy 확인을 거친다.
    runner 작업 폴더 안의 결과는 checkout이 지우므로 그 밖의 절대 경로를 쓴다. 준비용 `OSRM_INPUT_DIR`도 외부 폴더를 사용한다.
    다음 배포에도 OSRM 선택·도로 버전이 유지되는지 확인한다([OSRM 안내](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)).
-3. 같은 도로 버전으로 N01 265곳·5대 PLAN/REPLAN을 cold/warm 각각 반복 측정하고 원시 표본·p95·캐시·입력 해시를 남긴다.
+3. roadcheck와 benchmark 모두 같은 실제 `--depot LAT,LON`과 도로 버전을 지정한다. 두 결과의 depot 좌표를 대조한다.
+   N01 265곳·5대 PLAN/REPLAN을 cold/warm 각각 반복 측정하고 원시 표본·p95·캐시·입력 해시를 남긴다.
+   차고지를 생략하면 기존 좌표 평균/합성 차고지이므로 실제 운영 차고지 측정으로 표시하지 않는다.
    300곳은 기존 합성 좌표가 도로 추출물에 모두 포함되는지 `roadcheck --mock-stations 300`으로 먼저 확인하거나 같은 도로 범위의 명시적 300곳 입력을 준비한다.
    지역 참조 작업량은 여전히 합성이며 실제 업무 성능과 별도로 기록한다.
 4. 실제 데이터로 backend→Kafka→worker→후보 저장을 실행한다. 미사용 트럭의 빈 경로, 이전 DONE/SKIPPED 뒤 seq,

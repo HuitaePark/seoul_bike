@@ -98,3 +98,11 @@ def test_cli_exit_code_reflects_coverage(capsys):
     with patch.object(OsrmTravelTime, "_request", side_effect=fake_osrm):
         assert main(["--mock-stations", "3", "--depot", f"{FAR[0]},{FAR[1]}", "--osrm-url", "http://localhost:5000"]) == 1
     assert json.loads(capsys.readouterr().out)["unsnapped"][0]["label"] == "DEPOT"
+
+
+@pytest.mark.parametrize("geography", [["--region", "N02"], ["--mock-stations", "5"]])
+def test_cli_records_explicit_depot_for_reproducible_measurement(geography, capsys):
+    with patch.object(OsrmTravelTime, "_request", side_effect=fake_osrm):
+        assert main([*geography, "--depot", "37.56,126.98", "--osrm-url", "http://localhost:5000"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["depot"] == {"lat": 37.56, "lon": 126.98} and report["depotBasis"] == "explicit --depot"

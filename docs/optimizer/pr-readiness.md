@@ -1,6 +1,6 @@
 # 역할 5 — 현재 상태와 다음 PR 준비 (2026-10-21)
 
-기준 main은 `aece814`(#107 순차 배포·#108 실제 API/현장 보고 진행 반영)이며 브랜치는 `hyunmoo`다.
+기준 main은 `3fd88ff`(#107·#108 이후 README 운영/시연 안내 반영)이며 브랜치는 `hyunmoo`다.
 이번 후속은 새 PR 없이 브랜치에 저장한다. 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft·payload schemaVersion 1을 따른다.
 [PR #96](https://github.com/HuitaePark/skala_seoul_bike/pull/96)으로 내부 API가 0.8.4가 됐다(`bikes`·`observedAt` 설명).
 optimizer가 받는 계약 필드는 바뀌지 않으며, 현장 보고로 필요가 없어진 정류장이 REPLAN `stations`·`fixedStationIds`에서 빠진다.
@@ -34,7 +34,12 @@ optimizer가 받는 계약 필드는 바뀌지 않으며, 현장 보고로 필�
   OSRM healthy 이후 backend/worker를 갱신한다. 잘못된 설정과 배포 순서를 검사한 15개가 통과했다.
   실제 운영 전환은 아래 자료와 서버 설정이 필요하다.
 
-현재 전체 검증: 최적화 **428 passed·24 subtests**(실제 broker 3개 skipped), 프론트 단위 **42개·Chromium 37개**, 타입 검사·빌드 통과.
+- **실제 차고지 측정 준비(hyunmoo, PR 전):** benchmark에 `--depot LAT,LON`을 추가해 roadcheck와 같은
+  출발·복귀 차고지로 PLAN/REPLAN·캐시 비교를 실행할 수 있다. 두 결과에 좌표와 지정 근거를 남기고,
+  두 도구가 잘못된 좌표를 OSRM 요청 전에 거부한다. 기존 기본값과 합성 작업량은 유지한다.
+
+현재 최적화 전체 검증: **455 passed·24 subtests**(실제 broker 3개 skipped). 이번 신규 검사 27개.
+프론트는 직전 변경에서 단위 **42개·Chromium 37개**, 타입 검사·빌드를 통과했다. 이번 변경은 화면에 영향을 주지 않아 반복 실행하지 않았다.
 
 ## 다음 작업에 필요한 것
 

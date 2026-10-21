@@ -1,6 +1,14 @@
 # 역할 5 진행 정리 — 2026-10-21
 
-## #107 배포 연결·#108 현장 보고 입력 후속 (hyunmoo)
+## 실제 차고지로 도로 검사·성능 측정 정합 (hyunmoo)
+
+main `3fd88ff`의 README 운영/시연 안내를 병합했다. 열린 #109는 관제 화면 변경이며 이번 도구와 겹치지 않는다.
+benchmark에 `--depot LAT,LON`을 추가해 도로 포함 범위 검사와 같은 차고지로 PLAN/REPLAN·캐시 비교를 실행한다.
+두 결과에 사용 좌표·지정 근거를 기록하고 NaN·무한대·범위 밖 좌표는 요청 전에 거부한다.
+기존 기본값·공통 API/Kafka·운영 worker 계산 정책을 유지한다. 실제 도로/차고지 없이 운영 측정을 완료했다고 표시하지 않는다.
+최적화 전체 455 passed·24 subtests(실제 Kafka 3개 skipped). 새 PR 없이 커밋·push한다.
+
+## #107 배포 연결·#108 현장 보고 입력 후속 (이전 이력, hyunmoo)
 
 main `aece814`를 반영했다. 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft이며 wire 필드 변경은 없다.
 production `OSRM_ENABLED` 기본 false를 유지하고 true일 때 overlay를 모든 배포 단계에 적용한다.

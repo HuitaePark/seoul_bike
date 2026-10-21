@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import json
 import sys
 
+from .cli import depot_coordinate
 from .mock_data import DEPOT, make_stations
 from .osrm import OsrmTravelTime, TravelTimeError
 from .seeds import REFERENCE_REGIONS, REFERENCE_STATIONS, load_region_seed
@@ -70,26 +71,22 @@ def check(points: list[Point], road: OsrmTravelTime) -> dict:
 def region_points(region_id: str, depot: LatLon | None) -> tuple[list[Point], dict]:
     seed = load_region_seed(REFERENCE_REGIONS, REFERENCE_STATIONS, region_id)
     points = [Point(s.api_id, s.position) for s in seed.stations]
-    points.append(Point("DEPOT", depot or seed.depot, depot=True))
-    basis = "explicit --depot" if depot else "station-coordinate-mean; not an operational depot"
-    return points, {"regionId": seed.region_id, "depotBasis": basis}
+    position = depot if depot is not None else seed.depot
+    points.append(Point("DEPOT", position, depot=True))
+    basis = "explicit --depot" if depot is not None else "station-coordinate-mean; not an operational depot"
+    return points, {"regionId": seed.region_id, "depotBasis": basis,
+                    "depot": {"lat": position[0], "lon": position[1]}}
 
 
 def mock_points(count: int, seed: int, depot: LatLon | None) -> tuple[list[Point], dict]:
     # Same generator and truncation as the 300-station benchmark (benchmark.build_case).
     stations, _ = make_stations(per_cluster=-(-count // 5), seed=seed)
     points = [Point(f"MOCK-{s.id}", (s.lat, s.lon)) for s in stations[:count]]
-    points.append(Point("DEPOT", depot or DEPOT, depot=True))
+    position = depot if depot is not None else DEPOT
+    points.append(Point("DEPOT", position, depot=True))
     return points, {"mockStations": count, "seed": seed,
-                    "depotBasis": "explicit --depot" if depot else "mock_data.DEPOT (synthetic)"}
-
-
-def _depot(value: str) -> LatLon:
-    try:
-        lat, lon = (float(v) for v in value.split(","))
-    except ValueError as error:
-        raise argparse.ArgumentTypeError("--depot must be LAT,LON") from error
-    return lat, lon
+                    "depotBasis": "explicit --depot" if depot is not None else "mock_data.DEPOT (synthetic)",
+                    "depot": {"lat": position[0], "lon": position[1]}}
 
 
 def parser():
@@ -98,7 +95,7 @@ def parser():
     target.add_argument("--region", help="reference region, e.g. N01")
     target.add_argument("--mock-stations", type=int, help="synthetic benchmark coordinates, e.g. 300")
     cli.add_argument("--seed", type=int, default=7, help="mock coordinate seed (benchmark default)")
-    cli.add_argument("--depot", type=_depot, help="operational depot LAT,LON; default is the reference/mock depot")
+    cli.add_argument("--depot", type=depot_coordinate, help="operational depot LAT,LON; default is the reference/mock depot")
     cli.add_argument("--osrm-url", required=True)
     cli.add_argument("--osrm-data-version", default="unversioned", help="expected road data version, recorded only")
     cli.add_argument("--osrm-max-locations", type=int, default=100)
@@ -109,16 +106,18 @@ def parser():
 
 
 def main(argv=None) -> int:
-    args = parser().parse_args(argv)
-    road = OsrmTravelTime(args.osrm_url, data_version=args.osrm_data_version, max_locations=args.osrm_max_locations,
-                          timeout_s=args.osrm_timeout_seconds, budget_s=args.osrm_budget_seconds,
-                          snap_radius_m=args.osrm_snap_radius_metres)
-    if args.region:
-        points, scope = region_points(args.region, args.depot)
-    else:
-        if args.mock_stations < 1:
-            parser().error("--mock-stations must be positive")
-        points, scope = mock_points(args.mock_stations, args.seed, args.depot)
+    cli = parser()
+    args = cli.parse_args(argv)
+    if args.mock_stations is not None and args.mock_stations < 1:
+        cli.error("--mock-stations must be positive")
+    try:
+        road = OsrmTravelTime(args.osrm_url, data_version=args.osrm_data_version, max_locations=args.osrm_max_locations,
+                              timeout_s=args.osrm_timeout_seconds, budget_s=args.osrm_budget_seconds,
+                              snap_radius_m=args.osrm_snap_radius_metres)
+        points, scope = (region_points(args.region, args.depot) if args.region
+                         else mock_points(args.mock_stations, args.seed, args.depot))
+    except (OSError, ValueError) as error:
+        cli.error(str(error))
     try:
         report = check(points, road)
     except TravelTimeError as error:

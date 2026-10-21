@@ -274,6 +274,8 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 
 예시는 개발 추정을 명시적으로 선택한다. 운영 도로 연결에서는 OSRM 공급자로 교체한다.
 현장 보고부터 변경안 생성까지 10초는 Kafka·backend·설명을 포함해 별도로 검증한다.
+로컬 benchmark와 도로 포함 범위 검사는 `--depot LAT,LON`으로 같은 차고지를 지정하고 사용 좌표를 결과에 기록한다.
+기본값은 기존 참조 좌표 평균/합성 차고지이며 실제 차고지를 지정해도 작업량은 합성이다([측정 안내](../optimizer/README.md#재현성과-성능)).
 
 
 ## OSRM 자료 경로
