@@ -2,8 +2,8 @@
 관제 대시보드 (PRD 10장, FR-01~09).
 실시간: 승인 대기 카드·묻기 답·결정 결과는 근무조 작업 목록과 작업 SSE로 받는다 (useShiftFeed).
 대여소 현황·계획·무승인 변경 수(GET /api/shifts/{shiftId}/safety)는 useBoard가 주기적으로 읽는다. 구역은 레일에서 고른다.
-대여소 API는 실시간 재고 수집기(#93)가 넣은 대여소만 돌려준다. 트럭 위치·적재는 계획 진행으로 구한다 (route-view TruckLive,
-backend TruckStates와 같은 규칙). 트럭 상태 API(#105)가 main에 들어오면 그것으로 바꾼다.
+대여소 API는 실시간 재고 수집기(#93)가 넣은 대여소만 돌려준다. 트럭 위치·적재는 트럭 상태 API(GET /api/shifts/{shiftId}/trucks, #105)다.
+GPS가 아니라 마지막으로 끝낸 정류장, 없으면 차고지다.
 구성: 왼쪽 근무조 레일 · 화면별 탭(관제/예측/에이전트/경로/빠진 대여소). 트럭 적재는 3D 지도 안에 둔다.
 계획 만들기·상황 반영 요청은 상단 메뉴의 작업 콘솔에서 한다 (같은 곳으로 가는 버튼을 따로 두지 않는다).
 -->
@@ -26,7 +26,7 @@ import TruckLoad from './TruckLoad.vue'
 import { riskShades } from './iso'
 import type { LiveCard } from './feed'
 import type { RoutePreview } from './route-view'
-import { legOf, previewOf, truckOfRoute, withPlanRoutes } from './route-view'
+import { legOf, previewOf, withPlanRoutes } from './route-view'
 import { useBoard } from './useBoard'
 import { useShiftFeed } from './useShiftFeed'
 
@@ -41,7 +41,7 @@ const planStatusLabel: Record<Schemas['Plan']['status'], string> = { DRAFT: '초
 const slot = ref<ShiftSlot>(slotAt())
 const shiftId = computed(() => makeShiftId(regionId.value, todayInSeoul(), slot.value))
 const board = useBoard(regionId, shiftId)
-const { stations, plan, safety, stationsState, planState, stationsError, planError } = board
+const { stations, plan, safety, trucks, stationsState, planState, stationsError, planError } = board
 const routes = computed(() => plan.value?.routes ?? [])
 const unserved = computed(() => plan.value?.unserved ?? [])
 // 계획 검토 화면과 같은 트럭 색 (구역마다 트럭 ID가 달라 계획의 트럭 ID 순서로 고른다)
@@ -100,12 +100,12 @@ const stationById = computed(() => new Map(stations.value.map((s) => [s.stationI
 const stationOf = (id: string) => stationById.value.get(id)
 // 계획의 정류장 이름. 경로 계산은 ID만 넣으므로 backend가 붙인 이름, 없으면 구역 대여소 목록의 이름, 그것도 없으면 ID다.
 const nameOf = (s: { stationId: string; stationName?: string | null }) => s.stationName ?? stationOf(s.stationId)?.name ?? s.stationId
-const trucks = computed(() => routes.value.map((r) => truckOfRoute(r, stationById.value)))
 const truckOf = (id: string) => trucks.value.find((t) => t.truckId === id)
-/** 트럭이 지금 있는 곳 (위치 API가 없어 마지막으로 마친 정류장) */
+/** 트럭이 지금 있는 곳 (트럭 상태 API: 마지막으로 끝낸 정류장, 없으면 차고지) */
 const whereText = (id: string) => {
-  const at = truckOf(id)?.stationId
-  return at ? `${stationOf(at)?.name ?? at} 마침` : '출발 전'
+  const t = truckOf(id)
+  if (!t) return '위치 모름'
+  return t.atStationId ? `${stationOf(t.atStationId)?.name ?? t.atStationId} 마침` : '차고지'
 }
 
 const allStops = computed(() => routes.value.flatMap((r) => r.stops.map((s) => ({ ...s, truckId: r.truckId }))))
@@ -343,7 +343,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
               <summary>운행·정류장 상세</summary>
               <dl class="map-truck-facts">
                 <div><dt>트럭</dt><dd>{{ loadInfo.t.truckId }}</dd></div>
-                <div><dt>위치</dt><dd>{{ whereText(loadInfo.t.truckId) }} · 계획 기준</dd></div>
+                <div><dt>위치</dt><dd>{{ whereText(loadInfo.t.truckId) }} · 정류장 기준 (GPS 아님)</dd></div>
                 <div><dt>적재</dt><dd>{{ loadInfo.t.load }} / {{ loadInfo.t.capacity }}대</dd></div>
                 <div><dt>남은 정류장</dt><dd>{{ loadInfo.left }}곳</dd></div>
                 <div><dt>다음 정류장</dt><dd v-if="loadInfo.next">{{ nameOf(loadInfo.next) }} · {{ actionLabel[loadInfo.next.action] }} {{ loadInfo.next.bikes }}대 · {{ timeOf(loadInfo.next.eta) }}</dd><dd v-else>모든 정류장을 마쳤다</dd></div>
@@ -482,7 +482,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
               <span class="t-badge big">{{ r.truckId }}</span>
               <div class="route-name">
                 <strong>{{ r.truckId }}</strong>
-                <!-- 트럭 위치 API가 없어 위치·적재는 계획 진행(마지막으로 마친 정류장)으로 보인다 -->
+                <!-- 위치·적재는 트럭 상태 API (마지막으로 끝낸 정류장, 없으면 차고지) -->
                 <span class="hint">
                   {{ whereText(r.truckId) }} · 적재 {{ truckOf(r.truckId)?.load }}/{{ truckOf(r.truckId)?.capacity }}
                   <template v-if="legs[r.truckId]"> · 다음 {{ nameOf(r.stops[legs[r.truckId]!.next]!) }}</template>

@@ -8,36 +8,11 @@ type Station = Schemas['StationStatus']
 type Route = Schemas['Route']
 type Plan = Schemas['Plan']
 
-/** 경로에 capacity가 없을 때 쓰는 트럭 용량 (계약 Route.capacity 예시값) */
-const DEFAULT_CAPACITY = 15
-
 /**
- * 트럭 한 대의 지금 적재와 위치. 트럭 위치 API가 계약에 아직 없어(GPS 없음) 계획 진행으로 구한다.
- * backend TruckStates(에이전트 `get_truck_status`)와 같은 규칙이다: 위치는 마지막으로 마친(DONE) 정류장,
- * 적재는 그 정류장의 loadAfter, 마친 곳이 없으면 경로의 startLoad. 마친 곳이 없으면 차고지라 지도에는 놓지 않는다(위치 null).
+ * 트럭 한 대의 지금 적재와 위치 (계약 TruckState, GET /api/shifts/{shiftId}/trucks). GPS가 아니라 마지막으로 끝낸(DONE) 정류장
+ * (`atStationId`), 없으면 차고지(`atStationId` null)의 좌표다. 정류장 사이를 움직이지 않는다.
  */
-export type TruckLive = {
-  truckId: string
-  load: number
-  capacity: number
-  /** 위치 근거가 된 정류장 (마지막으로 마친 곳). 아직 출발 전이면 null */
-  stationId: string | null
-  lat: number | null
-  lon: number | null
-}
-
-export function truckOfRoute(route: Route, byId: Map<string, Station>): TruckLive {
-  const last = route.stops.filter((s) => s.status === 'DONE').at(-1)
-  const at = last ? byId.get(last.stationId) : undefined
-  return {
-    truckId: route.truckId,
-    load: last?.loadAfter ?? route.startLoad ?? 0,
-    capacity: route.capacity ?? DEFAULT_CAPACITY,
-    stationId: last?.stationId ?? null,
-    lat: at?.lat ?? null,
-    lon: at?.lon ?? null,
-  }
-}
+export type TruckLive = Schemas['TruckState']
 
 /** 지도에 놓을 수 있는(위치를 아는) 트럭 */
 export const placed = (t: TruckLive): t is TruckLive & { lat: number; lon: number } => t.lat != null && t.lon != null
@@ -59,7 +34,7 @@ export type Leg = { next: number; ratio: number }
  * 지난 정류장(DONE·SKIPPED) 다음 정류장으로 가는 중이면 그 구간을 얼마나 왔는지 구한다.
  * 다음 정류장은 순서상 첫 PENDING이다. DONE 개수로 세면 사이에 건너뛴(SKIPPED) 정류장이 있을 때 그 정류장을 가리킨다.
  * 트럭 위치를 직전 정류장 → 다음 정류장 직선 위에 투영한다 (권역이 좁아 경도는 위도 cos만 곱해 평면으로 본다).
- * 지금 위치는 마지막으로 마친 정류장이라(GPS 없음, TruckLive) ratio는 0이다. 위치 API가 생기면 그대로 중간 지점이 된다.
+ * 트럭 상태 API의 위치는 마지막으로 끝낸 정류장이라(GPS 없음) ratio는 0이다. GPS 위치가 생기면 그대로 중간 지점이 된다.
  * 아직 첫 정류장 전이거나 다 마쳤거나 위치를 모르면 이을 구간이 없어 null.
  */
 export function legOf(route: Route, truck: TruckLive | undefined, byId: Map<string, Station>): Leg | null {

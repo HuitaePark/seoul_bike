@@ -7,6 +7,7 @@ import type { Schemas } from '../../../src/shared/api/client'
 type StationStatus = Schemas['StationStatus']
 type Plan = Schemas['Plan']
 type Task = Schemas['Task']
+type TruckState = Schemas['TruckState']
 
 const observedAt = new Date().toISOString()
 function st(
@@ -101,6 +102,13 @@ const PLAN: Plan = {
 /** 요청한 근무조의 계획 (화면은 다른 근무조 계획을 버린다) */
 export const planFor = (shiftId: string): Plan => ({ ...structuredClone(PLAN), shiftId })
 
+/** 트럭 상태 API처럼 위치는 마지막으로 끝낸 정류장의 좌표다 (GPS가 아니다) */
+const TRUCKS: TruckState[] = [
+  { truckId: 'TR-03', capacity: 15, load: 7, lat: 37.5473, lon: 127.0473, atStationId: 'ST-502', remainingStops: [] },
+  { truckId: 'TR-04', capacity: 15, load: 12, lat: 37.548, lon: 127.0745, atStationId: 'ST-552', remainingStops: [] },
+  { truckId: 'TR-05', capacity: 15, load: 0, lat: 37.5612, lon: 127.0371, atStationId: 'ST-520', remainingStops: [] },
+]
+
 const shiftOf = (url: string) => decodeURIComponent(new URL(url).pathname.split('/')[3]!)
 const DRIVER_SHIFT = 'N02:2026-10-21:AM'
 
@@ -138,12 +146,13 @@ const DRIVER_TASK: Task = {
 }
 
 /**
- * 관제 대시보드: GET /api/regions/{regionId}/stations, GET /api/shifts/{shiftId}/plan,
+ * 관제 대시보드: GET /api/regions/{regionId}/stations, GET /api/shifts/{shiftId}/plan, GET /api/shifts/{shiftId}/trucks,
  * GET /api/shifts/{shiftId}/safety(무승인 0건)를 고정 자료로 답한다.
  */
 export async function mockBoard(page: Page) {
   await page.route('**/api/regions/*/stations?**', (route) => route.fulfill({ json: STATIONS }))
   await page.route('**/api/shifts/*/plan', (route) => route.fulfill({ json: planFor(shiftOf(route.request().url())) }))
+  await page.route('**/api/shifts/*/trucks', (route) => route.fulfill({ json: TRUCKS }))
   await page.route('**/api/shifts/*/safety', (route) =>
     route.fulfill({ json: { shiftId: shiftOf(route.request().url()), approvedChanges: 3, unapprovedChanges: 0 } }))
 }

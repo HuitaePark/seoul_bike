@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { legOf, placed, previewMarks, previewOf, splitAtTruck, truckOfRoute, withPlanRoutes } from '../src/features/dashboard/route-view.ts'
+import { legOf, placed, previewMarks, previewOf, splitAtTruck, withPlanRoutes } from '../src/features/dashboard/route-view.ts'
 import { exactRegion, makeShiftId, searchRegions, todayInSeoul } from '../src/shared/region/regions.ts'
 import type { Schemas } from '../src/shared/api/client'
 import type { ApprovalCard } from '../src/features/approval/approval.ts'
@@ -16,7 +16,7 @@ const route = (done: number): Route => ({
   truckId: 'truck-1',
   stops: ['A', 'B', 'C'].map((stationId, i) => ({ seq: i + 1, stationId, action: 'PICKUP', bikes: 1, status: i < done ? 'DONE' : 'PENDING' })),
 }) as Route
-const truck = (lat: number, lon: number) => ({ truckId: 'truck-1', stationId: 'A', lat, lon, load: 0, capacity: 10 })
+const truck = (lat: number | null, lon: number | null) => ({ truckId: 'truck-1', atStationId: 'A', lat, lon, load: 0, capacity: 10, remainingStops: [] })
 
 test('트럭 위치를 마친 정류장 → 다음 정류장 구간에 투영해 온 비율을 구한다', () => {
   const leg = legOf(route(1), truck(37.54, 127.05), byId)
@@ -27,19 +27,12 @@ test('트럭 위치를 마친 정류장 → 다음 정류장 구간에 투영해
   assert.equal(legOf(route(1), truck(37.54, 127.0), byId)?.ratio, 0)
 })
 
-test('트럭 위치·적재는 마지막으로 마친 정류장으로 구한다 (위치 API가 없다, backend TruckStates와 같은 규칙)', () => {
-  const r = { ...route(2), capacity: 12, startLoad: 3 } as Route
-  r.stops[0]!.loadAfter = 5
-  r.stops[1]!.loadAfter = 9
-  assert.deepEqual(truckOfRoute(r, byId), { truckId: 'truck-1', load: 9, capacity: 12, stationId: 'B', lat: 37.54, lon: 127.06 })
-  // 마친 곳이 없으면 차고지: 적재는 startLoad, 지도에는 놓지 않는다
-  const before = truckOfRoute({ ...route(0), startLoad: 3 } as Route, byId)
-  assert.equal(before.load, 3)
-  assert.equal(before.capacity, 15)
-  assert.equal(placed(before), false)
-  // 정류장 위치는 받았으니 그 자리, 다음 정류장 구간은 막 시작한 것(0)이다
-  assert.equal(legOf(r, truckOfRoute(r, byId), byId)?.ratio, 0)
-  assert.equal(legOf(route(1), before, byId), null)
+test('트럭 상태 API 위치(마지막으로 끝낸 정류장)는 다음 구간을 막 시작한 것이고, 위치를 모르면 지도에 놓지 않는다', () => {
+  // 끝낸 정류장 B(37.54, 127.06) 위의 트럭 → 다음 정류장 C로 가는 구간의 0
+  assert.equal(legOf(route(2), truck(37.54, 127.06), byId)?.ratio, 0)
+  assert.equal(placed(truck(37.54, 127.06)), true)
+  assert.equal(placed(truck(null, null)), false)
+  assert.equal(legOf(route(1), truck(null, null), byId), null)
 })
 
 test('계획 승인 카드는 같은 계획을 받았으면 그 전체 경로(eta 포함)로 채운다 (#91)', () => {
