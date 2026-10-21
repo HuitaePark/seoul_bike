@@ -1,7 +1,7 @@
 // 지도·타임라인이 같이 쓰는 경로 표시 규칙: 트럭이 지금 구간을 얼마나 지났는지, 승인 대기 변경안을 지도에 어떻게 겹칠지.
 
 import type { Schemas } from '../../shared/api/client'
-import { toDemoTruckId, type TruckLive } from '../../shared/dummy'
+import { toDemoTruckId, type TruckLive } from '../../shared/dummy.ts'
 import type { ApprovalCard } from '../approval/approval'
 import { diffMarks } from '../approval/approval.ts'
 
