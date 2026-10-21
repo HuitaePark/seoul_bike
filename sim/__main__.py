@@ -19,7 +19,9 @@ from .policies import Agent, CurrentOps, CurrentOpsLastWeek, NoRebalancing, Simp
 # 본 시스템 설정: 2024 회수처 공급처, 근무조 안에서 매시 다시 계획, 늘 3시간 앞까지 보고, 공급처에서 뺄 때는 여유를 2배로
 # (2025-06 강남-05 8일: 고정 회수 9곳·근무조마다 1,298 → 매시·3시간 1,248 → 회수 여유 2배 1,230건. 보정 전 421 → 366건)
 # 경로 탐색은 5의 plan_routes 기본값(해 50개에서 멈춤)이라 실행마다 같은 답이 나온다. 예전 2초 제한은 같은 문제를 다시 풀면 16개 중 8개만 같았다
-AGENT_KW = dict(replan_h=1, horizon=3, z_pick=2)
+# 근무조 안에서 트럭 위치·적재량을 다음 계획에 넘기고(carry_trucks), 최적화기에 엔진과 같은 이동 시간을 준다(sim_travel).
+# 서울 1주일(2025-06-09~15) 다시 뽑기: 17,911 → 17,249건(현행 운영 재현 18,092), 기록 재생: 12,343 → 11,614건(11,477)
+AGENT_KW = dict(replan_h=1, horizon=3, z_pick=2, carry_trucks=True, sim_travel=True)
 
 
 MODEL_FALLBACK = "강남-05"  # 구역 모형이 없으면 옮겨 쓴다. 강북-02에서 빈 대여소 잡기 50.2%(자체 모형 51.6%), 구역 오차율 12.2%(11.8%)로 차이가 작았다
@@ -75,8 +77,8 @@ def one_day(args) -> None:
 def many_days(args) -> None:
     tag = "" if args.shifts is None else "_s" + "_".join(f"{a}-{b}" for a, b in args.shifts)
     tag += f"_src{args.sources_weeks}w" if args.sources_weeks else ""
-    tag += "_carry" if args.carry_trucks else ""
-    tag += "_simtt" if args.sim_travel else ""
+    tag += "_nocarry" if args.no_carry_trucks else ""
+    tag += "_nosimtt" if args.no_sim_travel else ""
     out = ROOT / f"data/derived/sim_{args.terr}_{args.date}_{args.until}{tag}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -131,8 +133,8 @@ def main() -> None:
     ap.add_argument("--trucks", type=int)  # 주지 않으면 그 구역의 바쁜 날 동시 트럭 하한(ref_regions.csv, 역산 7절)
     ap.add_argument("--shifts", type=lambda s: tuple(tuple(map(int, x.split("-"))) for x in s.split(",")),
                     help="본 시스템의 근무 시간. 예: 7-22 또는 7-10,13-16,19-21(기본, PRD 7.4)")
-    ap.add_argument("--carry-trucks", action="store_true", help="본 시스템: 근무조 안에서 트럭 위치·적재량을 다음 계획에 넘긴다")
-    ap.add_argument("--sim-travel", action="store_true", help="본 시스템: 최적화기에 엔진과 같은 이동 시간(직선 × 1.3, 시속 20km)을 준다")
+    ap.add_argument("--no-carry-trucks", action="store_true", help="본 시스템: 다시 계획할 때마다 거점에서 출발(예전 방식)")
+    ap.add_argument("--no-sim-travel", action="store_true", help="본 시스템: 최적화기 기본 이동 시간(직선, 시속 30km)을 쓴다")
     ap.add_argument("--sources-weeks", type=int, help="본 시스템 공급처를 그날 전 이 주 수만큼의 역산 방문으로 고른다(기본은 전해 4~10월)")
     args = ap.parse_args()
     if args.shifts:
@@ -140,7 +142,7 @@ def main() -> None:
         AGENT_KW["shifts"] = args.shifts
     global SOURCES_WEEKS
     SOURCES_WEEKS = args.sources_weeks
-    AGENT_KW.update(carry_trucks=args.carry_trucks, sim_travel=args.sim_travel)
+    AGENT_KW.update(carry_trucks=not args.no_carry_trucks, sim_travel=not args.no_sim_travel)
     if args.trucks is None:
         import duckdb
 

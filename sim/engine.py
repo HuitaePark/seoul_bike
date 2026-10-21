@@ -399,14 +399,19 @@ def load_day(terr: str, d: date, latent: bool = True, sources_weeks: int | None 
         WHERE lo + (hi - lo) / 2 >= $a AND lo + (hi - lo) / 2 < $b ORDER BY m""", {"a": t0 - shift, "b": t1 - shift}).fetchall()
               if st in stations] for shift in (timedelta(0), timedelta(days=7)))
     # 공급처: 하루 평균 회수 − 배치가 2대 이상인 대여소. 기본은 전해 4~10월(성수기) 역산 방문이라 재생하는 해의 자료를 쓰지 않는다
-    if sources_weeks:
-        a, days = t0 - timedelta(weeks=sources_weeks), 7 * sources_weeks
-        where = f"lo >= '{a}' AND hi < '{t0}'"
-    else:
-        days, where = 214, f"lo >= '{d.year - 1}-04-01' AND lo < '{d.year - 1}-11-01'"
-    sources = frozenset(r[0] for r in c.execute(f"""
-        SELECT st FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet' WHERE {where}
-        GROUP BY st HAVING sum(CASE WHEN kind = 'pick' THEN n ELSE -n END) / {days}.0 >= 2""").fetchall()) & stations.keys()
+    def pick_sources(weeks):
+        if weeks:
+            a, days = t0 - timedelta(weeks=weeks), 7 * weeks
+            where = f"lo >= '{a}' AND hi < '{t0}'"
+        else:
+            days, where = 214, f"lo >= '{d.year - 1}-04-01' AND lo < '{d.year - 1}-11-01'"
+        return frozenset(r[0] for r in c.execute(f"""
+            SELECT st FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet' WHERE {where}
+            GROUP BY st HAVING sum(CASE WHEN kind = 'pick' THEN n ELSE -n END) / {days}.0 >= 2""").fetchall()) & stations.keys()
+
+    sources = pick_sources(sources_weeks)
+    if not sources and not sources_weeks:  # 전해 역산이 없으면(2024년 날짜: 2023 자료 없음) 그날 전 8주로 고른다
+        sources = pick_sources(8)
     names = {"".join(str(n).split()): no for no, n in c.execute(f"SELECT st_no, st_name FROM '{ROOT}/analysis/out/stations.csv'").fetchall()}
     near: dict[str, list[int]] = defaultdict(list)
     for v, no in c.execute(f"SELECT venue, st_no FROM '{ROOT}/analysis/out/event_stations.csv' ORDER BY venue, dist_m, st_no").fetchall():
