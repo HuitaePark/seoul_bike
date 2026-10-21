@@ -5,12 +5,12 @@
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { reasonText } from '../plan-map/model'
 import { useRouter } from 'vue-router'
 import type { Schemas } from '../../shared/api/client'
 import { DUMMY_PENDING, DUMMY_PLAN, DUMMY_REGION, DUMMY_STATIONS, DUMMY_TRUCKS } from '../../shared/dummy'
 import type { ApprovalDecision } from '../approval/approval'
 import { actionLabel } from '../approval/approval'
+import { reasonText } from '../plan-map/model'
 import AgentChat from './AgentChat.vue'
 import ForecastChart from './ForecastChart.vue'
 import IsoStationView from './IsoStationView.vue'
@@ -375,7 +375,7 @@ function decide(body: ApprovalDecision) {
 
         <section id="dropped" class="card">
           <header class="w-head"><h2>이번 계획에서 빠진 대여소</h2><span class="count-pill gray">{{ plan.unserved.length }}</span></header>
-          <p class="hint section-hint">트럭·시간이 모자라 이번엔 들르지 못하는 곳. 숫자는 우선순위(높을수록 급함)</p>
+          <p class="hint section-hint">이번 계획에서 들르지 않는 곳과 그 이유. 숫자는 우선순위(높을수록 급함)</p>
           <ul class="dropped-list">
             <li v-for="u in plan.unserved" :key="u.stationId" tabindex="0" @click="selected = u.stationId" @keydown.enter="selected = u.stationId">
               <RingGauge :value="u.priority" :size="40" :stroke="5" color="var(--ink-3)">{{ u.priority.toFixed(2) }}</RingGauge>
