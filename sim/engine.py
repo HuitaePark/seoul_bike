@@ -135,7 +135,7 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
     same_supply = getattr(policy, "same_supply", False)  # 역산 방문 재생도 그날 회수한 것 + 거점 예비 안에서만 내린다
     fleet: dict[int, tuple] = {}  # carry일 때 근무조 안의 트럭 상태: 트럭 → (경로 키, 위치, 다음 일을 시작할 수 있는 시각)
     ops = [(t, s, dx) for t, s, dx in policy.events(day) if s in stock and day.start <= t < end]
-    q += [(t, 2, "ops", (s, dx)) for t, s, dx in ops]
+    q += [(t, 1.9 if dx < 0 else 2, "ops", (s, dx)) for t, s, dx in ops]  # 같은 시각이면 회수가 먼저: 같은 공급 규칙에서 짝이 되는 배치가 잘리지 않게
     if ops:  # 경로가 없는 정책(현행 운영 재현)은 트럭이 근무조 내내 움직였다고 본다
         res.truck_h = trucks * sum(h1 - h0 for h0, h1 in SHIFTS)
     heapq.heapify(q)
