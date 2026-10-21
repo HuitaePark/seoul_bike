@@ -107,7 +107,7 @@ sequenceDiagram
 
 | 키 | 값 | 요소 | 근거 |
 | --- | --- | --- | --- |
-| `models.primary` · `fallback` · `kwargs` | `openai:gpt-4.1-mini` · `openai:gpt-4.1-nano` · `temperature: 0` (초기값) | Recovery | 팀 결정 전 임시값, NFR-04 |
+| `models.primary` · `fallback` · `kwargs` | `ollama:gemma4:31b` · `ollama:gpt-oss:120b` · `temperature: 0` | Recovery | D25: Ollama Cloud (2026-10-20). 무료 요금제에서 도구 호출이 되는 모델 중 실제 모델 평가로 고름 (9절). 대체 모델은 다른 계열, NFR-04 |
 | `tools.result_max_chars` | `4000` (초기값) | Tools | |
 | `tools.rag_top_k` | `5` | Tools·Context | |
 | `tools.read_only_tasks` | `[qa]` | Tools | 변경 도구 제외 |
@@ -402,6 +402,7 @@ except ApprovalMismatch:
 | 2026-10-20 | Observability | LangSmith 업로드 마스킹 | 업로드 내용에 기사 개인정보 원본 발견 | 업로드 원본 0건 |
 | 2026-10-20 | 전체 | 계약(`docs/specs`) 맞춤: `TaskCommand`·RESUME 입력, `TaskEventMessage` 이벤트, 등급별 승인 카드 (나), 숨긴 `approval_id` 주입, 내부 API 인자 검증, 프롬프트 `common@3` (v0.4) | MCP 담당 제안·팀 계약 | 기준 궤적 15/15, 무승인 변경 0, 이벤트 6종 계약 스키마 통과 |
 | 2026-10-20 | Guardrails, Observability | specs v0.3 (PR #6): 승인 순서는 후보의 `requiredApprovers`, 큰 변경은 관리자 → 기사 카드 두 장, 카드에 `candidateId`·`requiredApprovers`, 이벤트에서 `seq` 제거 (v0.5) | 계약 확정 | [scripted-baseline](eval/2026-10-20-scripted-baseline.md) 15/15, 무승인 변경 0 |
+| 2026-10-20 | Recovery | `models`: `openai:gpt-4.1-mini`·`nano` → Ollama Cloud `gemma4:31b`(주)·`gpt-oss:120b`(대체), `langchain-ollama` 추가 | D25 Ollama 결정. 무료 요금제에서 도구 호출이 되는 후보를 같은 평가셋으로 비교. `gpt-oss:120b`는 변경 도구를 부르지 않고 "추가했다"고 답하는 경우와 ID에 U+2011 하이픈을 쓰는 경우가 있었다 | [ollama-gemma4](eval/2026-10-20-ollama-gemma4.md) 12/14 · 평균 2.09초, [ollama-gpt-oss-120b](eval/2026-10-20-ollama-gpt-oss-120b.md) 7/14 · 4.58초. 두 모델 모두 무승인 변경 0 |
 | 2026-10-21 | Tools, Instructions, Observability | 계약 asyncapi v0.4·internal-api v0.5: `qa`에 `get_audit`, FIELD_REPORT 명령의 `report` 사용, `requestedBy.truckId`, `FAILED.code` 계약 필드로, `request_route_plan`에 `task_id` 주입, 프롬프트 `qa@4` (v0.6) | 계약 반영 (ISS-03~06 해결) | [scripted-baseline](eval/2026-10-21-scripted-baseline.md) 15/15, 무승인 변경 0 |
 
 ---
@@ -414,3 +415,4 @@ except ApprovalMismatch:
 | --- | --- | --- | --- |
 | 큰 변경 카드 단계 보존 | 몇 번째 카드인지 메모리에만 있음. 체크포인트 또는 RESUME에 단계 정보 필요 | 1, 4 | ISS-19 |
 | 실제 모델 · LangSmith 확인 | 키 필요 | 2 | ISS-08, ISS-10 |
+| 주 모델 · 대체 모델 | 결정: Ollama Cloud `gemma4:31b` · `gpt-oss:120b` (D25). 무료 요금제는 동시 요청 수 제한(429)이 있어 여러 작업이 겹치면 재시도에 기댄다 | 전원 | D25 (ARCHITECTURE 13) |
