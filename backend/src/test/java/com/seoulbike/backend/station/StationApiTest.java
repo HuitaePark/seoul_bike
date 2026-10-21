@@ -55,6 +55,10 @@ class StationApiTest {
 	void clean() {
 		jdbc.sql("delete from live.station_status").update();
 		jdbc.sql("delete from forecast.station_forecasts").update();
+		// 다른 테스트가 남긴 현장 보고가 이 구역 재고를 바꾸지 않게 (보고가 수집보다 늦으면 재고로 쓴다)
+		jdbc.sql("delete from field_reports where station_id in (select station_id from ref.stations where region_id = :r)")
+			.param("r", REGION)
+			.update();
 		st = jdbc.sql("select station_id from ref.stations where region_id = :r and active order by station_id limit 8")
 			.param("r", REGION)
 			.query(String.class)
@@ -254,6 +258,32 @@ class StationApiTest {
 		assertThat(call("/internal/forecasts?stationIds=" + a, null, TOKEN).statusCode()).isEqualTo(400);
 	}
 
+	@Test
+	void 실시간_수집보다_늦은_현장_보고의_재고를_쓴다() throws Exception {
+		String reported = st.get(0), older = st.get(1), unloaded = st.get(2);
+		observe(reported, 1, 10, 30);
+		report(reported, 10, null, null, 10); // 앱은 1대였지만 기사가 와 보니 꽉 차 있었다
+		observe(older, 1, 10, 5);
+		report(older, 10, null, null, 20); // 수집보다 먼저 한 보고는 쓰지 않는다
+		observe(unloaded, 1, 10, 30);
+		report(unloaded, 1, null, 6, 10); // 도착 1대, 6대 내림 → 7대
+
+		JsonNode full = json.readTree(call("/internal/stations/" + reported, null, TOKEN).body());
+		assertThat(full.path("bikes").asInt()).isEqualTo(10);
+		assertThat(full.path("risk").asString()).isEqualTo("NONE");
+		OffsetDateTime reportedAt = jdbc.sql("select reported_at from field_reports where station_id = :id")
+			.param("id", reported)
+			.query(OffsetDateTime.class)
+			.single();
+		assertThat(OffsetDateTime.parse(full.path("observedAt").asString()).toInstant()).isEqualTo(reportedAt.toInstant());
+
+		JsonNode stale = json.readTree(call("/internal/stations/" + older, null, TOKEN).body());
+		assertThat(stale.path("bikes").asInt()).isEqualTo(1);
+		assertThat(stale.path("risk").asString()).isEqualTo("EMPTY");
+
+		assertThat(json.readTree(call("/internal/stations/" + unloaded, null, TOKEN).body()).path("bikes").asInt()).isEqualTo(7);
+	}
+
 	// ── 데이터 ────────────────────────────
 
 	private void observe(String stationId, int bikes, int docks, int minutesAgo) {
@@ -303,14 +333,21 @@ class StationApiTest {
 	}
 
 	private void report(String stationId, int actualBikes, int minutesAgo) {
+		report(stationId, actualBikes, null, null, minutesAgo);
+	}
+
+	private void report(String stationId, int actualBikes, Integer loaded, Integer unloaded, int minutesAgo) {
 		jdbc.sql("""
-				insert into field_reports (report_id, shift_id, truck_id, station_id, actual_bikes, reported_by, reported_at)
-				values (:id, 'S05:2026-10-22:AM', 'TR-01', :station, :bikes, 'u-driver-1',
+				insert into field_reports (report_id, shift_id, truck_id, station_id, actual_bikes, loaded, unloaded,
+				                           reported_by, reported_at)
+				values (:id, 'S05:2026-10-22:AM', 'TR-01', :station, :bikes, :loaded, :unloaded, 'u-driver-1',
 				        now() - make_interval(mins => :ago))
 				""")
 			.param("id", UUID.randomUUID())
 			.param("station", stationId)
 			.param("bikes", actualBikes)
+			.param("loaded", loaded)
+			.param("unloaded", unloaded)
 			.param("ago", minutesAgo)
 			.update();
 	}

@@ -251,7 +251,7 @@ export interface paths {
          * 권역 대여소 현황과 예측 (현황 지도)
          * @description 로그인한 모든 역할(관리자·기사·책임자)이 본다. 운영 중인 대여소 가운데 실시간 재고 관측이 하나라도 있는 것만 대여소 ID 순으로 준다.
          *     관측이 없는 대여소는 빠진다 (위험을 판단할 재고가 없다). 관측이 하나도 없는 구역은 빈 목록이다.
-         *     `bikes`·`docks`·`observedAt`은 대여소마다 **가장 최근 관측**이다.
+         *     `bikes`·`observedAt`은 대여소마다 **실시간 수집과 기사 현장 보고 중 늦은 것**이다 (보고는 도착 재고 − 실은 대수 + 내린 대수). `docks`는 가장 최근 실시간 수집 값이다.
          *     예측은 `horizonH`가 같고 **아직 끝나지 않은 구간**(시작 + `horizonH`시간 > 지금) 중 시작이 가장 이른 것을 쓴다:
          *     진행 중인 근무조의 예측이 있으면 그것, 없으면 다음 근무조 예측(시작 30분 전에 들어온다). 지난 근무조 예측은 쓰지 않는다.
          *     고를 예측이 없으면 `forecastBikes`는 null이고 위험은 현재 재고로만 판단한다. 판단 기준은 `RiskKind`.
@@ -593,13 +593,13 @@ export interface components {
             name: string;
             lat: number;
             lon: number;
-            /** @description 거치대 수 (가장 최근 관측) */
+            /** @description 거치대 수 (가장 최근 실시간 수집) */
             docks: number;
-            /** @description 현재 재고 (가장 최근 관측) */
+            /** @description 현재 재고: 실시간 수집과 기사 현장 보고(도착 재고 − 실은 대수 + 내린 대수) 중 늦은 것 */
             bikes: number;
             /**
              * Format: date-time
-             * @description 그 관측 시각
+             * @description 그 재고의 시각 (수집 시각 또는 현장 보고 시각)
              */
             observedAt: string;
             /** @description 예측 구간 끝의 예상 재고 = 재고 궤적의 끝 점 (0 밑으로 내려가지 않는다). 고를 예측이 없으면 null */

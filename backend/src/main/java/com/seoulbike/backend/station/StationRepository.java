@@ -26,12 +26,15 @@ class StationRepository {
 
 	/**
 	 * 운영 중인 대여소와 가장 최근 관측, 그리고 고른 예측 구간. 관측이 없는 대여소는 넣지 않는다 (재고가 없으면 위험을 판단할 수 없다).
+	 * 재고: 실시간 수집(live)과 기사 현장 보고 중 늦은 것. 현장 보고는 "도착 재고 − 실은 대수 + 내린 대수"로 보고 시각의 재고다.
+	 * 보고가 수집보다 늦으면 그 값을 쓴다 (현장에서 본 재고가 앱 재고와 다르다는 보고가 재경로에 반영되게. 다음 수집이 오면 그걸 쓴다).
+	 * 거치대 수는 보고에 없으므로 늘 실시간 수집 값이다.
 	 * 예측 구간: horizon_h가 같고 아직 끝나지 않은(start + H시간 > 지금) 행 중 start가 가장 이른 것. 진행 중인 근무조의 예측이 있으면
 	 * 그것, 없으면 다음 근무조 예측(시작 30분 전에 들어온다)이다. 지난 근무조의 예측은 쓰지 않는다. 같은 start가 둘이면 나중에 넣은 것.
 	 */
 	private static final String OBSERVED = """
 			select s.station_id, s.name, s.district, s.lat, s.lon, s.elevation_m, s.role,
-			       o.bikes, o.docks, o.observed_at,
+			       coalesce(r.bikes, o.bikes) as bikes, o.docks, coalesce(r.reported_at, o.observed_at) as observed_at,
 			       f.start, f.rentals, f.returns, f.rentals_h, f.returns_h
 			from ref.stations s
 			cross join lateral (
@@ -39,6 +42,12 @@ class StationRepository {
 			    where station_id = s.station_id
 			    order by observed_at desc
 			    limit 1) o
+			left join lateral (
+			    select greatest(actual_bikes - coalesce(loaded, 0) + coalesce(unloaded, 0), 0) as bikes, reported_at
+			    from field_reports
+			    where station_id = s.station_id and reported_at > o.observed_at
+			    order by reported_at desc
+			    limit 1) r on true
 			left join lateral (
 			    select start, rentals, returns, rentals_h, returns_h from forecast.station_forecasts
 			    where station_id = s.station_id and horizon_h = :h and start > now() - make_interval(hours => :h)

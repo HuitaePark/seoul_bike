@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.13.1-draft
+  version: 0.13.2-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
     **초안 v0.13.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.13.2: 현재 재고(`bikes`·`observedAt`)는 실시간 수집과 기사 현장 보고 중 **늦은 것**이다. 보고는 "도착 재고 − 실은 대수 + 내린 대수". 기사가 앱과 다른 재고를 보고하면 위험 판단·재경로에 바로 반영된다.
     - v0.13.1: 트럭 ID는 서울 전체에서 이어 매기는 `TR-NN`(TR-01~TR-35, 합의 30)이다. 계정 발급·승인에서 기사 트럭이 트럭 목록에 없거나 운행하지 않으면 400 `TRUCK_NOT_FOUND`(`suggestions`에 활성 트럭 ID). 예전 `truck-N` 기사 계정은 `TR-0N`으로 옮겼고 다시 로그인해야 한다.
     - v0.13: 현황 지도 `GET /api/regions/{regionId}/stations` 구현 규칙 (어느 대여소가 나오는지, 어느 관측·예측을 쓰는지, 위험 판단 기준). 없는 구역 404 `REGION_NOT_FOUND`, `horizonH` 범위 밖 400.
     - v0.12.1: 응답·SSE의 시각은 모두 서울 오프셋 `+09:00`으로 쓴다 (예 `2026-10-21T07:00:00+09:00`). 형식(RFC 3339)은 그대로다.
@@ -413,7 +414,7 @@ paths:
       description: |
         로그인한 모든 역할(관리자·기사·책임자)이 본다. 운영 중인 대여소 가운데 실시간 재고 관측이 하나라도 있는 것만 대여소 ID 순으로 준다.
         관측이 없는 대여소는 빠진다 (위험을 판단할 재고가 없다). 관측이 하나도 없는 구역은 빈 목록이다.
-        `bikes`·`docks`·`observedAt`은 대여소마다 **가장 최근 관측**이다.
+        `bikes`·`observedAt`은 대여소마다 **실시간 수집과 기사 현장 보고 중 늦은 것**이다 (보고는 도착 재고 − 실은 대수 + 내린 대수). `docks`는 가장 최근 실시간 수집 값이다.
         예측은 `horizonH`가 같고 **아직 끝나지 않은 구간**(시작 + `horizonH`시간 > 지금) 중 시작이 가장 이른 것을 쓴다:
         진행 중인 근무조의 예측이 있으면 그것, 없으면 다음 근무조 예측(시작 30분 전에 들어온다). 지난 근무조 예측은 쓰지 않는다.
         고를 예측이 없으면 `forecastBikes`는 null이고 위험은 현재 재고로만 판단한다. 판단 기준은 `RiskKind`.
@@ -927,9 +928,9 @@ components:
         name: { type: string }
         lat: { type: number }
         lon: { type: number }
-        docks: { type: integer, description: 거치대 수 (가장 최근 관측) }
-        bikes: { type: integer, description: 현재 재고 (가장 최근 관측) }
-        observedAt: { type: string, format: date-time, description: 그 관측 시각 }
+        docks: { type: integer, description: 거치대 수 (가장 최근 실시간 수집) }
+        bikes: { type: integer, description: '현재 재고: 실시간 수집과 기사 현장 보고(도착 재고 − 실은 대수 + 내린 대수) 중 늦은 것' }
+        observedAt: { type: string, format: date-time, description: 그 재고의 시각 (수집 시각 또는 현장 보고 시각) }
         forecastBikes:
           type: [integer, 'null']
           description: 예측 구간 끝의 예상 재고 = 재고 궤적의 끝 점 (0 밑으로 내려가지 않는다). 고를 예측이 없으면 null
