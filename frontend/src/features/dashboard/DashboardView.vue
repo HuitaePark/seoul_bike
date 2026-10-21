@@ -641,7 +641,8 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .scene { position: relative; min-height: 560px; background: var(--sky); display: flex; flex-direction: column; }
 .scene-empty { margin: auto; padding: 24px; max-width: 360px; text-align: center; font-size: 14px; color: var(--ink-3); }
 .scene-svg { flex: 1; padding: 56px 8px 8px; max-height: 640px; }
-.flat-map { padding: 60px 16px 16px; }
+/* 평면 지도는 장면 칸을 꽉 채우고, 화면 전환·트럭 버튼(scene-top)은 지도 위에 뜬다 */
+.flat-map { flex: 1; display: flex; flex-direction: column; min-height: 560px; border-radius: inherit; overflow: hidden; }
 .scene-top { position: absolute; top: 14px; left: 14px; right: 14px; display: flex; gap: 10px; flex-wrap: wrap; z-index: 2; }
 .tabs { display: inline-flex; padding: 3px; background: #fff; border-radius: 999px; box-shadow: var(--shadow); }
 .tabs button { padding: 6px 14px; font-size: 13px; background: transparent; color: var(--ink-2); border-radius: 999px; }
@@ -728,8 +729,9 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .stack .seg:disabled { display: none; }
 .ops { margin-top: 18px; }
 .ops-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.ops-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 12px; }
-.ops-list li.on { background: color-mix(in srgb, var(--c) 6%, #fff); }
+/* 트럭 색은 왼쪽 배지(t-badge)가 맡는다. 지도에서 고른 트럭은 테두리 전체를 그 색으로 바꿔 짚는다 */
+.ops-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; transition: border-color 0.15s, background-color 0.15s; }
+.ops-list li.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 6%, #fff); }
 .ops-list dl { display: grid; grid-template-columns: 1.1fr 0.6fr 0.6fr 2fr; gap: 4px 14px; margin: 0; }
 .ops-list dt { font-size: 11px; color: var(--ink-3); font-weight: 600; }
 .ops-list dd { margin: 2px 0 0; font-size: 13px; font-weight: 700; }

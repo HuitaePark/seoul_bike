@@ -1,12 +1,17 @@
 <!--
-위험 거점 지도 (FR-01, FR-06). 지도 타일 없이 위경도를 SVG에 투영한 개략도다.
-실제 거리 비율로 그린다: 동서·남북을 같은 m/px로 맞추고, 격자 한 칸이 몇 m인지 오른쪽 위에 적는다 (가로·세로를 따로 늘이면 거리가 틀어진다).
+위험 거점 지도 (FR-01, FR-06). 실제 지도(MapLibre, 배경은 OpenFreeMap) 위에 대여소·트럭·경로를 겹친다.
 대여소 색은 위험 종류, 크기는 거치대 수, 선은 트럭별 경로(지난 구간 실선, 남은 구간 점선, 트럭 위치에서 나뉜다)다.
 트럭을 고르거나 승인 대기 변경안을 미리 보면(preview) 관련 없는 대여소·경로를 흐리게 한다.
+배경지도는 외부에서 받는다. 못 받으면(발표장 인터넷 차단 등) 빈 바탕 위에 대여소·경로만 그린다.
 -->
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { GeoJSONSource, Map as MapLibreMap, Marker } from 'maplibre-gl'
+import type * as MapLibreModule from 'maplibre-gl'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Schemas } from '../../shared/api/client'
+import { emptyStyle, fetchBasemap, koreanLabels } from '../../shared/map/basemap'
 import type { RoutePreview, TruckLive } from './route-view'
 import { legOf, markText, placed, previewMarks, splitAtTruck } from './route-view'
 
@@ -18,49 +23,15 @@ const props = defineProps<{
   selected?: string | null
   focusTruck?: string | null
   preview?: RoutePreview | null
-  /** 이 위험 종류의 대여소만 그린다 (권역 상태 색 버튼). 축척·배치는 그대로다 */
+  /** 이 위험 종류의 대여소만 그린다 (권역 상태 색 버튼). 지도 범위는 그대로다 */
   only?: Schemas['RiskKind'] | null
 }>()
 const emit = defineEmits<{ select: [stationId: string] }>()
 
-const W = 1000
-const H = 560
-const PAD = 48
-
-const bounds = computed(() => {
-  const lats = props.stations.map((s) => s.lat)
-  const lons = props.stations.map((s) => s.lon)
-  return { minLat: Math.min(...lats), maxLat: Math.max(...lats), minLon: Math.min(...lons), maxLon: Math.max(...lons) }
-})
-
-/** 위도 1도, 적도에서 경도 1도의 m */
-const M_PER_LAT = 110_570
-const M_PER_LON = 111_320
-/** 격자 한 칸 후보(m). 한 칸이 GRID_MIN_PX 이상인 가장 작은 것을 쓴다 */
-const GRID_STEPS_M = [100, 200, 250, 500, 1000, 2000]
-const GRID_MIN_PX = 36
-
-// 동서·남북을 같은 m/px로 맞춰 구역 전체를 담고 가운데 둔다
-const proj = computed(() => {
-  const b = bounds.value
-  const cos = Math.cos((((b.minLat + b.maxLat) / 2) * Math.PI) / 180)
-  const wM = Math.max((b.maxLon - b.minLon) * M_PER_LON * cos, 500)
-  const hM = Math.max((b.maxLat - b.minLat) * M_PER_LAT, 500)
-  const pxPerM = Math.min((W - PAD * 2) / wM, (H - PAD * 2) / hM)
-  return { b, cos, pxPerM, ox: (W - wM * pxPerM) / 2, oy: (H - hM * pxPerM) / 2 }
-})
-function xy(lat: number, lon: number) {
-  const p = proj.value
-  return {
-    x: p.ox + (lon - p.b.minLon) * M_PER_LON * p.cos * p.pxPerM,
-    y: p.oy + (p.b.maxLat - lat) * M_PER_LAT * p.pxPerM,
-  }
-}
-const gridStep = computed(() => GRID_STEPS_M.find((m) => m * proj.value.pxPerM >= GRID_MIN_PX) ?? GRID_STEPS_M.at(-1)!)
-const cell = computed(() => gridStep.value * proj.value.pxPerM)
-/** 대여소 원 반지름(px): 거치대 수에 따라 조금 커진다. 실제 거리가 보이게 원이 서로 덮지 않을 만큼 작게 둔다 */
-const stationR = (docks: number) => 5 + Math.min(docks, 40) / 8
-const gridLabel = computed(() => (gridStep.value >= 1000 ? `${gridStep.value / 1000}km` : `${gridStep.value}m`))
+type LngLat = [number, number]
+const at = (s: { lat: number; lon: number }): LngLat => [s.lon, s.lat]
+/** 대여소 원 반지름(px): 거치대 수에 따라 조금 커진다 */
+const stationR = (docks: number) => 6 + Math.min(docks, 40) / 8
 
 const byId = computed(() => new Map(props.stations.map((s) => [s.stationId, s])))
 
@@ -74,130 +45,305 @@ const lit = computed<Set<string> | null>(() => {
 })
 
 const points = computed(() =>
-  props.stations.filter((s) => !props.only || s.risk === props.only).map((s) => ({ ...s, ...xy(s.lat, s.lon), r: stationR(s.docks), dim: !!lit.value && !lit.value.has(s.stationId) })),
+  props.stations.filter((s) => !props.only || s.risk === props.only).map((s) => ({ ...s, r: stationR(s.docks), dim: !!lit.value && !lit.value.has(s.stationId) })),
 )
-
-const path = (p: [number, number][]) => p.map((q, i) => `${i ? 'L' : 'M'}${q[0].toFixed(1)},${q[1].toFixed(1)}`).join(' ')
-const at = (s: { lat: number; lon: number }): [number, number] => {
-  const p = xy(s.lat, s.lon)
-  return [p.x, p.y]
-}
 
 // 트럭마다 지난 구간(첫 정류장~트럭 위치)과 남은 구간(트럭 위치~끝)을 나눠 그린다.
 const lines = computed(() =>
   props.routes.map((r) => {
     const ss = r.stops.map((s) => byId.value.get(s.stationId)).filter((s) => !!s)
-    const pts = ss.map(at)
     const doneCount = r.stops.filter((s) => s.status === 'DONE').length
     const leg = ss.length === r.stops.length ? legOf(r, props.trucks.find((t) => t.truckId === r.truckId), byId.value) : null
-    const split = splitAtTruck(pts, doneCount, leg)
-    return {
-      truckId: r.truckId,
-      done: path(split.done),
-      todo: path(split.todo),
-      tip: split.tip,
-      dim: focusing.value && focus.value !== r.truckId,
-    }
+    return { truckId: r.truckId, ...splitAtTruck(ss.map(at), doneCount, leg), dim: focusing.value && focus.value !== r.truckId }
   }),
 )
 
 // 위치를 아는(정류장을 하나라도 마친) 트럭만 놓는다
-const trucks = computed(() => props.trucks.filter(placed).map((t) => ({ ...t, ...xy(t.lat, t.lon), dim: focusing.value && focus.value !== t.truckId })))
+const trucks = computed(() => props.trucks.filter(placed).map((t) => ({ ...t, dim: focusing.value && focus.value !== t.truckId })))
 
 // 변경안: 트럭이 지금 있는 곳 → 바뀐 정류장 순서, 빠지는 곳·새로 들르는 곳 표시
-const previewLine = computed(() => {
+const previewLine = computed<LngLat[]>(() => {
   const p = props.preview
-  if (!p?.truckId || !p.after.length) return null
+  if (!p?.truckId || !p.after.length) return []
   const t = trucks.value.find((x) => x.truckId === p.truckId)
   const start = lines.value.find((l) => l.truckId === p.truckId)?.tip ?? (t ? at(t) : null)
   const pts = p.after.map((id) => byId.value.get(id)).filter((s) => !!s).map(at)
-  return path(start ? [start, ...pts] : pts)
+  return start ? [start, ...pts] : pts
 })
 const marks = computed(() =>
   previewMarks(props.preview).flatMap((m) => {
     const s = byId.value.get(m.id)
-    return s ? [{ ...m, ...xy(s.lat, s.lon), r: stationR(s.docks) }] : []
+    return s ? [{ ...m, at: at(s), r: stationR(s.docks) }] : []
   }),
 )
 
-const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', OVERFLOW: 'var(--overflow)', NONE: 'var(--ok)' }
+type Line = { type: 'Feature'; properties: Record<string, string | number>; geometry: { type: 'LineString'; coordinates: LngLat[] } }
+type Lines = { type: 'FeatureCollection'; features: Line[] }
+const routeData = computed<Lines>(() => ({
+  type: 'FeatureCollection',
+  features: lines.value.flatMap((l) => {
+    const op = l.dim ? 0.1 : props.preview ? 0.55 : 1
+    const color = props.colors[l.truckId] ?? '#64748b'
+    const line = (kind: 'done' | 'todo', coordinates: LngLat[]): Line[] =>
+      coordinates.length > 1 ? [{ type: 'Feature', properties: { kind, color, op }, geometry: { type: 'LineString', coordinates } }] : []
+    return [...line('done', l.done), ...line('todo', l.todo)]
+  }),
+}))
+const previewData = computed<Lines>(() => ({
+  type: 'FeatureCollection',
+  features: previewLine.value.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: previewLine.value } }] : [],
+}))
+
+/** 대여소가 있는 범위. 재고만 바뀌면 같아서 지도를 다시 맞추지 않는다 (구역을 바꾸면 다시 맞춘다) */
+const bounds = computed<[LngLat, LngLat] | null>(() => {
+  if (!props.stations.length) return null
+  const lons = props.stations.map((s) => s.lon)
+  const lats = props.stations.map((s) => s.lat)
+  return [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]]
+})
+
+const container = ref<HTMLDivElement>()
+const state = ref<'loading' | 'ready' | 'failed'>('loading')
+const basemap = ref<'loading' | 'ready' | 'failed'>('loading')
+let map: MapLibreMap | undefined
+let lib: typeof MapLibreModule | undefined
+let observer: ResizeObserver | undefined
+let basemapCtl: AbortController | undefined
+let styleChanging = false
+let alive = false
+const stationMarkers = new Map<string, { marker: Marker; el: HTMLButtonElement; dot: HTMLSpanElement; name: HTMLSpanElement }>()
+const truckMarkers = new Map<string, { marker: Marker; el: HTMLDivElement; label: HTMLSpanElement }>()
+let markMarkers: Marker[] = []
+
+// 위쪽은 화면 전환·트럭 버튼이 덮고, 대여소 위에 트럭 이름표(약 40px)가 선다
+const FIT = { padding: { top: 110, right: 40, bottom: 40, left: 40 }, maxZoom: 16 }
+function fit() {
+  const b = bounds.value
+  if (!map || !b) return
+  map.fitBounds(b, { ...FIT, duration: 0 })
+}
+
+function upsertLayers(m: MapLibreMap) {
+  for (const [id, data] of [['routes', routeData.value], ['preview', previewData.value]] as const) {
+    const source = m.getSource(id) as GeoJSONSource | undefined
+    if (source) source.setData(data)
+    else m.addSource(id, { type: 'geojson', data })
+  }
+  if (m.getLayer('route-done')) return
+  const round = { 'line-cap': 'round', 'line-join': 'round' } as const
+  m.addLayer({ id: 'route-done', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'done'], layout: round, paint: { 'line-color': ['get', 'color'], 'line-width': 5, 'line-opacity': ['*', 0.45, ['get', 'op']] } })
+  m.addLayer({ id: 'route-todo', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'todo'], layout: round, paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': ['get', 'op'], 'line-dasharray': [0.5, 2.25] } })
+  m.addLayer({ id: 'preview-casing', type: 'line', source: 'preview', layout: round, paint: { 'line-color': '#fff', 'line-width': 9 } })
+  m.addLayer({ id: 'preview-line', type: 'line', source: 'preview', layout: round, paint: { 'line-color': '#ea580c', 'line-width': 4.5, 'line-dasharray': [2.7, 1.3] } })
+}
+
+function syncStations(m: MapLibreMap, L: typeof MapLibreModule) {
+  const keep = new Set<string>()
+  for (const p of points.value) {
+    keep.add(p.stationId)
+    let entry = stationMarkers.get(p.stationId)
+    if (!entry) {
+      const el = document.createElement('button')
+      el.type = 'button'
+      const body = document.createElement('span')
+      body.className = 'st'
+      const pulse = document.createElement('span')
+      pulse.className = 'st-pulse'
+      const dot = document.createElement('span')
+      dot.className = 'st-dot'
+      const name = document.createElement('span')
+      name.className = 'st-name'
+      body.append(pulse, dot, name)
+      el.append(body)
+      const id = p.stationId
+      el.addEventListener('click', (e) => { e.stopPropagation(); emit('select', id) })
+      entry = { marker: new L.Marker({ element: el, anchor: 'center' }).setLngLat(at(p)).addTo(m), el, dot, name }
+      stationMarkers.set(id, entry)
+    }
+    const selected = p.stationId === props.selected
+    // MapLibre가 붙인 위치용 class(maplibregl-marker 등)를 지우지 않게 className을 통째로 바꾸지 않는다
+    entry.el.classList.add('station')
+    for (const risk of ['EMPTY', 'OVERFLOW', 'NONE']) entry.el.classList.toggle(risk, p.risk === risk)
+    entry.el.classList.toggle('selected', selected)
+    entry.el.classList.toggle('dim', p.dim)
+    entry.el.style.setProperty('--r', `${p.r}px`)
+    entry.el.style.zIndex = selected ? '3' : p.risk === 'NONE' ? '1' : '2'
+    entry.el.title = `${p.name} · 재고 ${p.bikes}/${p.docks} · 예측 ${p.forecastBikes}`
+    entry.el.setAttribute('aria-label', `${p.name} 재고 ${p.bikes}/${p.docks}`)
+    entry.el.setAttribute('aria-pressed', String(selected))
+    entry.dot.textContent = String(p.bikes)
+    entry.name.textContent = p.name
+    entry.marker.setLngLat(at(p))
+  }
+  for (const [id, e] of stationMarkers) if (!keep.has(id)) { e.marker.remove(); stationMarkers.delete(id) }
+}
+
+function syncTrucks(m: MapLibreMap, L: typeof MapLibreModule) {
+  const keep = new Set<string>()
+  for (const t of trucks.value) {
+    keep.add(t.truckId)
+    let entry = truckMarkers.get(t.truckId)
+    if (!entry) {
+      const el = document.createElement('div')
+      el.className = 'truck-marker'
+      const label = document.createElement('span')
+      label.className = 'tm-label'
+      const tip = document.createElement('span')
+      tip.className = 'tm-tip'
+      const dot = document.createElement('span')
+      dot.className = 'tm-dot'
+      el.append(label, tip, dot)
+      // 흰 점(반지름 6px)의 가운데가 트럭 위치에 오게 아래로 6px 내린다
+      entry = { marker: new L.Marker({ element: el, anchor: 'bottom', offset: [0, 6] }).setLngLat(at(t)).addTo(m), el, label }
+      truckMarkers.set(t.truckId, entry)
+    }
+    entry.el.style.setProperty('--c', props.colors[t.truckId] ?? '#64748b')
+    entry.el.classList.toggle('dim', t.dim)
+    entry.label.textContent = `${t.truckId} ${t.load}/${t.capacity}`
+    entry.marker.setLngLat(at(t))
+  }
+  for (const [id, e] of truckMarkers) if (!keep.has(id)) { e.marker.remove(); truckMarkers.delete(id) }
+}
+
+function syncMarks(m: MapLibreMap, L: typeof MapLibreModule) {
+  for (const mk of markMarkers) mk.remove()
+  markMarkers = marks.value.map((mk) => {
+    const el = document.createElement('div')
+    el.className = `pv-mark ${mk.kind}`
+    el.textContent = markText[mk.kind]
+    return new L.Marker({ element: el, anchor: 'bottom', offset: [0, -(mk.r + 6)] }).setLngLat(mk.at).addTo(m)
+  })
+}
+
+function sync() {
+  if (!map || !lib || state.value !== 'ready') return
+  // 배경지도로 바꾸는 중에는 스타일이 비어 있어 선을 못 넣는다. 바뀐 뒤(style.load) 다시 넣는다
+  if (!styleChanging) upsertLayers(map)
+  syncStations(map, lib)
+  syncTrucks(map, lib)
+  syncMarks(map, lib)
+}
+
+async function loadBasemap() {
+  if (!map) return
+  basemapCtl?.abort()
+  const ctl = new AbortController()
+  basemapCtl = ctl
+  const timer = window.setTimeout(() => ctl.abort(), 10_000)
+  basemap.value = 'loading'
+  try {
+    const style = koreanLabels(await fetchBasemap(ctl.signal))
+    if (basemapCtl !== ctl || !map) return
+    styleChanging = true
+    map.setStyle(style, { diff: false })
+  } catch {
+    if (basemapCtl === ctl) basemap.value = 'failed'
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function teardown() {
+  basemapCtl?.abort()
+  observer?.disconnect()
+  for (const e of stationMarkers.values()) e.marker.remove()
+  for (const e of truckMarkers.values()) e.marker.remove()
+  for (const mk of markMarkers) mk.remove()
+  stationMarkers.clear()
+  truckMarkers.clear()
+  markMarkers = []
+  map?.remove()
+  map = undefined
+  styleChanging = false
+}
+
+async function start() {
+  try {
+    lib = await import('maplibre-gl')
+    if (!alive || !container.value) return
+    lib.setWorkerUrl(workerUrl)
+    const b = bounds.value
+    map = new lib.Map({
+      container: container.value,
+      style: structuredClone(emptyStyle),
+      bounds: b ?? undefined,
+      fitBoundsOptions: FIT,
+      maxPitch: 0,
+      attributionControl: { compact: true },
+      locale: { 'NavigationControl.ZoomIn': '확대', 'NavigationControl.ZoomOut': '축소', 'AttributionControl.ToggleAttribution': '지도 출처' },
+    })
+    map.dragRotate.disable()
+    map.touchZoomRotate.disableRotation()
+    map.getCanvas().setAttribute('aria-label', '위험 거점 지도')
+    // 위쪽은 화면 전환·트럭 버튼, 왼쪽 아래는 다음 도착 카드 자리라 지도 단추·축척은 오른쪽 아래에 둔다
+    map.addControl(new lib.ScaleControl({ unit: 'metric' }), 'bottom-right')
+    map.addControl(new lib.NavigationControl({ showCompass: false }), 'bottom-right')
+    map.on('style.load', () => {
+      if (styleChanging) {
+        styleChanging = false
+        basemap.value = 'ready'
+      }
+      state.value = 'ready'
+      sync()
+    })
+    map.once('load', () => void loadBasemap())
+    map.on('webglcontextlost', () => { state.value = 'failed' })
+    observer = new ResizeObserver(() => map?.resize())
+    observer.observe(container.value)
+  } catch {
+    // WebGL을 못 쓰는 브라우저
+    state.value = 'failed'
+  }
+}
+
+watch([routeData, previewData, points, trucks, marks, () => props.selected, () => props.colors], sync)
+watch(() => JSON.stringify(bounds.value), fit)
+onMounted(() => { alive = true; void start() })
+onBeforeUnmount(() => { alive = false; teardown() })
 </script>
 
 <template>
-  <svg :viewBox="`0 0 ${W} ${H}`" class="map" role="img" aria-label="위험 거점 지도">
-    <defs>
-      <!-- 격자 한 칸 = gridStep m. 구역 왼쪽 위(대여소가 있는 범위의 북서쪽)에 맞춘다 -->
-      <pattern id="grid" :width="cell" :height="cell" patternUnits="userSpaceOnUse" :patternTransform="`translate(${proj.ox} ${proj.oy})`">
-        <path :d="`M${cell} 0H0V${cell}`" fill="none" stroke="#d3dce7" stroke-width="1" />
-      </pattern>
-      <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-        <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.18" />
-      </filter>
-    </defs>
-    <rect :width="W" :height="H" fill="#f7fafc" />
-    <rect :width="W" :height="H" fill="url(#grid)" />
-    <!-- 축척: 격자 한 칸 -->
-    <g class="scale" :transform="`translate(${W - 20 - Math.max(cell, 84) / 2 - cell / 2} 26)`" :data-grid-m="gridStep">
-      <rect :x="cell / 2 - Math.max(cell + 20, 104) / 2" y="-18" :width="Math.max(cell + 20, 104)" height="30" rx="8" fill="#fff" opacity="0.9" />
-      <path :d="`M0 4V8H${cell}V4`" fill="none" stroke="#475569" stroke-width="1.6" />
-      <text :x="cell / 2" y="-3">한 칸 = {{ gridLabel }}</text>
-    </g>
-
-    <g v-for="l in lines" :key="l.truckId" :opacity="l.dim ? 0.1 : preview ? 0.55 : 1">
-      <path :d="l.done" :stroke="colors[l.truckId]" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.45" />
-      <path :d="l.todo" :stroke="colors[l.truckId]" stroke-width="4" fill="none" stroke-dasharray="2 9" stroke-linecap="round" stroke-linejoin="round" />
-    </g>
-    <g v-if="previewLine">
-      <path :d="previewLine" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-      <path :d="previewLine" stroke="#ea580c" stroke-width="4.5" fill="none" stroke-dasharray="12 6" stroke-linecap="round" stroke-linejoin="round" />
-    </g>
-
-    <g
-      v-for="p in points"
-      :key="p.stationId"
-      class="station"
-      :class="{ selected: p.stationId === selected }"
-      :opacity="p.dim ? 0.2 : 1"
-      tabindex="0"
-      @click="emit('select', p.stationId)"
-      @keydown.enter="emit('select', p.stationId)"
-    >
-      <circle v-if="p.risk !== 'NONE'" :cx="p.x" :cy="p.y" :r="p.r + 4" :fill="riskColor[p.risk]" opacity="0.16" class="pulse" />
-      <circle :cx="p.x" :cy="p.y" :r="p.r" :fill="riskColor[p.risk]" stroke="#fff" stroke-width="2.5" />
-      <text :x="p.x" :y="p.y + 4" class="count">{{ p.bikes }}</text>
-      <text :x="p.x" :y="p.y - p.r - 7" class="name">{{ p.name }}</text>
-      <title>{{ p.name }} · 재고 {{ p.bikes }}/{{ p.docks }} · 예측 {{ p.forecastBikes }}</title>
-    </g>
-
-    <g v-for="m in marks" :key="'m' + m.id" :transform="`translate(${m.x},${m.y - m.r - 6})`" :class="['mark', m.kind]">
-      <rect x="-26" y="-20" width="52" height="19" rx="9.5" />
-      <text y="-6.5">{{ markText[m.kind] }}</text>
-    </g>
-
-    <g v-for="t in trucks" :key="t.truckId" :transform="`translate(${t.x},${t.y})`" filter="url(#shadow)" :opacity="t.dim ? 0.3 : 1">
-      <rect x="-39" y="-36" width="78" height="22" rx="11" :fill="colors[t.truckId]" />
-      <text y="-21" class="truck-label">{{ t.truckId }} {{ t.load }}/{{ t.capacity }}</text>
-      <path d="M0 -14 L-6 -6 H6 Z" :fill="colors[t.truckId]" />
-      <circle r="6" fill="#fff" :stroke="colors[t.truckId]" stroke-width="3" />
-    </g>
-  </svg>
+  <div class="station-map" :data-map-state="state">
+    <div ref="container" class="map-canvas" />
+    <p v-if="state === 'failed'" class="map-note" role="alert">이 브라우저에서는 지도를 그릴 수 없다. 3D 관제 뷰를 쓴다.</p>
+    <p v-else-if="basemap === 'failed'" class="map-note" role="status">
+      배경지도를 받지 못해 대여소와 경로만 그렸다.
+      <button type="button" @click="loadBasemap">다시 받기</button>
+    </p>
+  </div>
 </template>
 
-<style scoped>
-.map { width: 100%; height: auto; display: block; border-radius: 12px; }
-.scale text { font-size: 12px; font-weight: 700; fill: #334155; text-anchor: middle; }
-.station { cursor: pointer; outline: none; }
-.station .name { font-size: 11px; fill: #334155; text-anchor: middle; font-weight: 600; paint-order: stroke; stroke: #f8fafc; stroke-width: 4px; opacity: 0; transition: opacity 0.15s; }
-.station:hover .name, .station:focus .name, .station.selected .name { opacity: 1; }
-.station.selected > circle:nth-last-of-type(1) { stroke: var(--ink); stroke-width: 3.5; }
-.count { font-size: 8.5px; font-weight: 700; fill: #fff; text-anchor: middle; pointer-events: none; }
-.truck-label { font-size: 11px; font-weight: 700; fill: #fff; text-anchor: middle; }
-.station { transition: opacity 0.2s; }
-.mark { pointer-events: none; }
-.mark text { font-size: 11px; font-weight: 800; fill: #fff; text-anchor: middle; }
-.mark.removed rect { fill: #dc2626; }
-.mark.added rect { fill: #059669; }
-.mark.named rect { fill: #ea580c; }
-.pulse { animation: pulse 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
-@keyframes pulse { 50% { transform: scale(1.35); opacity: 0.05; } }
+<!-- 대여소·트럭 표시는 MapLibre가 만든 DOM이라 scoped(data-v 속성)가 붙지 않는다. .station-map 아래로만 건다 -->
+<style>
+.station-map { position: relative; flex: 1; min-height: 480px; }
+.station-map .map-canvas { position: absolute; inset: 0; }
+.station-map .map-note { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 2; margin: 0; padding: 8px 12px; border-radius: 10px; background: rgb(255 255 255 / 0.95); color: var(--ink-2); font-size: 13px; box-shadow: var(--shadow); }
+.station-map .map-note button { margin-left: 6px; padding: 3px 10px; font-size: 12px; }
+.station-map .maplibregl-ctrl-attrib { font-size: 10px; }
+
+.station-map .station { width: calc(var(--r) * 2); height: calc(var(--r) * 2); padding: 0; border: 0; background: none; cursor: pointer; }
+.station-map .station .st { position: absolute; inset: 0; transition: opacity 0.2s; }
+.station-map .station.dim .st { opacity: 0.2; }
+.station-map .st-dot { position: absolute; inset: 0; display: grid; place-items: center; border: 2.5px solid #fff; border-radius: 50%; color: #fff; font-size: 8.5px; font-weight: 700; line-height: 1; }
+.station-map .st-pulse { position: absolute; inset: -4px; border-radius: 50%; opacity: 0.16; animation: st-pulse 2.4s ease-in-out infinite; }
+.station-map .station.NONE .st-pulse { display: none; }
+.station-map .station.EMPTY .st-dot, .station-map .station.EMPTY .st-pulse { background: var(--empty); }
+.station-map .station.OVERFLOW .st-dot, .station-map .station.OVERFLOW .st-pulse { background: var(--overflow); }
+.station-map .station.NONE .st-dot { background: var(--ok); }
+.station-map .station.selected .st-dot { border: 3.5px solid var(--ink); }
+/* 이름은 원 아래에 둔다. 위쪽은 그 대여소에 서 있는 트럭 이름표 자리다 */
+.station-map .st-name { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 11px; font-weight: 600; color: #334155; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.station-map .station:hover .st-name, .station-map .station:focus-visible .st-name, .station-map .station.selected .st-name { opacity: 1; }
+@keyframes st-pulse { 50% { transform: scale(1.35); opacity: 0.05; } }
+
+.station-map .truck-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; filter: drop-shadow(0 2px 3px rgb(15 23 42 / 0.18)); transition: opacity 0.2s; }
+.station-map .truck-marker.dim { opacity: 0.3; }
+.station-map .tm-label { padding: 3px 9px; border-radius: 11px; background: var(--c); color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.station-map .tm-tip { width: 0; height: 0; border: 6px solid transparent; border-top: 8px solid var(--c); border-bottom: 0; }
+.station-map .tm-dot { width: 12px; height: 12px; margin-top: 2px; border: 3px solid var(--c); border-radius: 50%; background: #fff; box-sizing: border-box; }
+
+.station-map .pv-mark { padding: 2px 8px; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 800; white-space: nowrap; pointer-events: none; }
+.station-map .pv-mark.removed { background: #dc2626; }
+.station-map .pv-mark.added { background: #059669; }
+.station-map .pv-mark.named { background: #ea580c; }
 </style>
