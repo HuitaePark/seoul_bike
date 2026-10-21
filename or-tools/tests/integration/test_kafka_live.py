@@ -68,10 +68,20 @@ def test_real_kafka_worker_restarts_and_deduplicates(tmp_path):
                 "--idle-timeout-seconds", "20"],
                 cwd=ROOT / "or-tools", capture_output=True, text=True, timeout=40)
             assert result.returncode == 0, result.stderr
+            logs = []
+            for line in result.stderr.splitlines():
+                if line.startswith('{"event":'):
+                    logs.append(json.loads(line))
+            completed = [r for r in logs if r["event"] == "solve.completed"]
+            assert len(completed) == count, result.stderr
+            assert all(r["shiftId"] == payload["shiftId"] and r["durationMs"] >= 0 for r in completed)
+            assert logs[0]["event"] == "worker.started" and logs[-1]["outcome"] == "clean"
+            return completed
 
         for p in (payload, payload, envelope, invalid):
             send(p)
-        worker(4)
+        completed = worker(4)
+        assert [r["computed"] for r in completed] == [True, False, False, True]
         received = []
         deadline = monotonic() + 10
         while len(received) < 2 and monotonic() < deadline:
@@ -97,7 +107,7 @@ def test_real_kafka_worker_restarts_and_deduplicates(tmp_path):
         assert received[0]["stats"]["bikesMoved"] == 10
         # A new process and a new input offset must still reuse the completed request.
         send(envelope)
-        worker(1)
+        assert worker(1)[0]["outcome"] == "duplicate"
         assert observer.poll(2) is None
         assert offsets.committed([TopicPartition(REQUEST_TOPIC, 0)], timeout=10)[0].offset == request_start + 5
         assert observer.get_watermark_offsets(TopicPartition(RESULT_TOPIC, 0), timeout=10)[1] == result_start + 2

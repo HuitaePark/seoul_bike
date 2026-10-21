@@ -1,6 +1,7 @@
 """Recovery tests exercise real files and the actual solve adapter."""
 import copy
 import json
+import logging
 from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -9,6 +10,7 @@ import pytest
 
 from rebalancing.journal import FileJournal, JournalError, canonical
 from rebalancing.kafka_transport import KafkaTransport
+from rebalancing.matrix_cache import CachedTravelTime
 from rebalancing.osrm import TravelTimeError
 from rebalancing.runtime import Contexts
 from rebalancing.travel_time import HaversineTravelTime
@@ -291,3 +293,79 @@ def test_lost_journal_identity_does_not_adopt_existing_results(tmp_path, payload
     with pytest.raises(JournalError, match="identity is missing"):
         with FileJournal(tmp_path, identity="other"):
             pass
+
+
+def worker_events(caplog):
+    return [json.loads(r.getMessage()) for r in caplog.records if r.name == "rebalancing.worker"]
+
+
+def test_logs_correlate_completion_and_distinguish_cached_result_time(tmp_path, payload, contexts, caplog):
+    caplog.set_level(logging.INFO, logger="rebalancing.worker")
+    travel = CachedTravelTime(HaversineTravelTime(), namespace="test")
+    transport = Transport()
+    with FileJournal(tmp_path, identity="test") as journal:
+        for _ in range(2):
+            process_message(Message(payload), transport=transport, journal=journal, contexts=contexts, travel_time=travel)
+    completed = [r for r in worker_events(caplog) if r["event"] == "solve.completed"]
+    first, duplicate = completed
+    assert first["requestId"] == payload["requestId"] and first["shiftId"] == payload["shiftId"]
+    assert first["traceId"] == payload["traceId"] and first["eventId"] == payload["eventId"]
+    assert first["resultEventId"] == duplicate["resultEventId"]
+    assert first["computed"] is True and first["stage"] == "commit"
+    assert first["durationMs"] >= first["computeMs"] >= 0
+    assert first["matrixCache"] == {"hits": 0, "misses": 1}
+    assert duplicate["outcome"] == "duplicate" and duplicate["computed"] is False and duplicate["computeMs"] == 0
+    assert duplicate["matrixCache"] == {"hits": 0, "misses": 0}
+    assert first["resultSolveMs"] == duplicate["resultSolveMs"]
+    assert len(transport.sent) == 1 and len(transport.committed) == 2
+    assert "stations" not in caplog.text and "unrelated" not in caplog.text
+
+
+@pytest.mark.parametrize("stage,code", [("lookup", "JOURNAL_ERROR"), ("context", "RUNTIME_CONTEXT_ERROR"),
+                                       ("compute", "COMPUTATION_ERROR"), ("publish", "PUBLISH_FAILED"),
+                                       ("mark_published", "JOURNAL_ERROR"), ("commit", "COMMIT_FAILED")])
+def test_failure_log_identifies_stage_without_ack_or_error_body(tmp_path, payload, contexts, caplog, stage, code):
+    caplog.set_level(logging.INFO, logger="rebalancing.worker")
+    transport = Transport()
+    secret = "PRIVATE coordinates=37.5,127 token=hidden"
+    failure = Mock(side_effect=RuntimeError(secret))
+    kwargs = {}
+    with FileJournal(tmp_path, identity="test") as journal:
+        if stage == "context":
+            contexts = Mock(resolve=failure)
+        elif stage == "compute":
+            kwargs["solve"] = failure
+        elif stage in ("publish", "commit"):
+            setattr(transport, stage, failure)
+        else:
+            setattr(journal, "find" if stage == "lookup" else stage, failure)
+        with pytest.raises(RuntimeError, match="PRIVATE"):
+            process(payload, transport, journal, contexts, **kwargs)
+    error = worker_events(caplog)[-1]
+    assert error["event"] == "solve.failed" and error["stage"] == stage and error["errorCode"] == code
+    assert error["requestId"] == payload["requestId"] and error["errorType"] == "RuntimeError"
+    assert error["durationMs"] >= 0 and not transport.committed
+    assert secret not in caplog.text and not any(r["event"] == "solve.completed" for r in worker_events(caplog))
+
+
+def test_malformed_envelope_log_excludes_raw_input(tmp_path, payload, contexts, caplog):
+    transport = Transport()
+    with FileJournal(tmp_path, identity="test") as journal:
+        with pytest.raises(ValueError):
+            process_message(Message(payload, raw=b'{"memo":"PRIVATE_NOTE",broken'), transport=transport,
+                            journal=journal, contexts=contexts, travel_time=HaversineTravelTime())
+    error = worker_events(caplog)[-1]
+    assert error["stage"] == "decode" and error["errorCode"] == "INVALID_ENVELOPE"
+    assert "requestId" not in error and "PRIVATE_NOTE" not in caplog.text
+    assert not transport.sent and not transport.committed
+
+
+def test_failed_calculation_is_logged_as_delivered_result_not_worker_failure(tmp_path, payload, contexts, caplog):
+    caplog.set_level(logging.INFO, logger="rebalancing.worker")
+    payload["trucks"][0]["load"] = 16
+    with FileJournal(tmp_path, identity="test") as journal:
+        transport = Transport()
+        assert process(payload, transport, journal, contexts) == "published"
+    completed = worker_events(caplog)[-1]
+    assert completed["event"] == "solve.completed" and completed["status"] == "FAILED"
+    assert completed["errorCode"] == "INVALID_REQUEST" and len(transport.committed) == 1

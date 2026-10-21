@@ -104,11 +104,37 @@ OR-Tools 버전을 고정하고 입력의 대여소·트럭 순서를 정규화�
 ../.venv/bin/python -m rebalancing.benchmark --stations 200 --trucks 5 --repeats 3
 # 모든 200곳을 방문 후보로 만드는 별도 스트레스 입력
 ../.venv/bin/python -m rebalancing.benchmark --stations 200 --trucks 5 --repeats 3 --all-candidates
+# 같은 재경로 입력으로 캐시 없음·빈 캐시·준비된 메모리 캐시를 각각 20회 측정
+../.venv/bin/python -m rebalancing.benchmark --stations 200 --trucks 5 --repeats 20 \
+  --all-candidates --scenario replan --cache-mode compare
 ```
 
-출력에는 후보 수, 계산 시간, 버전, 미처리량, 반복 결과의 해시를 남긴다.
-측정 범위는 **행렬 준비와 로컬 엔진 호출**이다. Kafka 대기, 실제 OSRM HTTP,
-백엔드, LLM을 포함한 "현장 보고부터 변경안 생성까지 10초" 수용 기준은 별도로 검증한다.
+기존 명령은 유지하며, 출력에 후보 수·계산 시간·버전·미처리량·반복 결과 해시와 p95를 남긴다.
+p95는 nearest-rank 방식으로 정렬한 표본의 ceil(0.95 × 반복 수)번째 값이다.
+기본 3회에서는 p95가 최댓값과 같으므로 비교 기록에는 20회 이상을 사용한다.
+
+replan은 먼저 초기 경로를 계산하고, 사용 차량마다 첫 작업을 완료한 뒤 그 위치에서 기다리는
+가상 스냅샷을 만든다. 가장 늦은 첫 작업 완료 시각을 공통 기준으로 남은 근무시간을 줄이며,
+완료 거점의 재고·트럭 적재량을 갱신하고 완료 거점을 제외한다. 남은 거점 한 곳은 진입 불가로 지정한다.
+실제 운행 중 위치를 추정하거나 관측 데이터로 취급하지 않는다. setup_s에 기록한 입력 준비는 측정에서 제외한다.
+
+| 출력 | 범위 |
+| --- | --- |
+| elapsed_s·median_s·p95_s·max_s | 행렬 준비를 포함한 로컬 엔진 호출. 결과 해시 생성은 제외 |
+| timings.matrix | 공급자 또는 캐시에서 행렬을 얻는 시간 |
+| timings.provider | 캐시를 거치기 전 실제 공급자 호출 시간. matrix 시간에 포함됨 |
+| timings.non_matrix | 엔진 호출에서 matrix 시간을 뺀 나머지. 순수 솔버 시간과 다름 |
+| cache_hits·cache_misses·provider_calls | 측정 구간의 횟수. warm 준비 호출은 제외. provider_calls는 matrix 호출 수이며 OSRM 분할 HTTP 횟수가 아님 |
+| input_sha256·plan_sha256 | 같은 입력인지, 반복·캐시 모드에서 같은 계획이 나오는지 확인 |
+
+compare는 캐시 없이 매번 공급자 호출(none), 매번 새 메모리 캐시(cold), 한 번 준비한 캐시(warm)를 비교한다.
+warm의 사전 엔진 호출은 warmup_s에 별도로 남기고 표본·캐시 횟수·공급자 횟수에서 제외한다.
+디스크 캐시·다른 프로세스에서의 캐시 재사용은 이 비교의 대상이 아니다.
+
+기본 이동 공급자는 하버사인 **개발 추정치**다. 준비된 OSRM에서 측정하려면
+--travel-source osrm --osrm-url http://127.0.0.1:5000 --osrm-data-version 실제버전을 함께 지정한다.
+이 경우 행렬 시간에 OSRM HTTP가 포함되며 실패를 추정치로 대체하지 않는다.
+Kafka 대기·backend·LLM을 포함한 "현장 보고부터 변경안 생성까지 10초" 수용 기준은 별도로 검증한다.
 
 이번 변경의 테스트·측정 결과는 [검증 기록](validation.md)에 남겼다.
 

@@ -95,6 +95,27 @@ docker compose -f infra/optimizer/compose.kafka.yaml exec broker rpk topic consu
 
 ## 검증
 
+worker의 생명주기와 요청 처리 로그는 JSON 한 줄씩 stderr에 남긴다.
+라이브러리 로그와 명령 인자 오류는 다른 형식일 수 있다.
+
+| 필드 | 의미 |
+| --- | --- |
+| event·loggedAt | worker.started/stopped, solve.started/completed/failed와 UTC 기록 시각 |
+| requestId·shiftId·traceId·eventId | 검증된 입력 상관관계. traceId는 입력에 있을 때만 기록 |
+| resultEventId·resultTraceId | 실제 발행·재사용 결과의 ID. 중복 입력의 traceId와 다를 수 있음 |
+| stage | decode·validate·lookup·context·compute·prepare·publish·mark_published·commit 중 현재 단계 |
+| durationMs | 입력 처리 시작부터 저장·발행·offset commit까지. Kafka에서 기다린 시간은 제외 |
+| computed·computeMs | 이번 전달에서 계산 함수를 호출했는지와 소요 시간. 저장 결과 재사용은 false·0 |
+| resultSolveMs | 결과에 저장된 계산 시간. 재시작·중복 요청에서는 최초 계산의 과거 값 |
+| outcome·status | published/duplicate와 계산 결과 OK/FAILED/TIMEOUT. completed는 전송 완료이며 계산 성공만 뜻하지 않음 |
+| matrixCache | 캐시 공급자를 사용할 때 이번 요청의 hits·misses 증가량 |
+| errorCode·errorType | 결과의 알려진 오류 코드 또는 실패 단계별 로그 전용 코드·예외 종류 |
+
+solve.completed는 offset commit이 끝난 뒤 기록한다. 잘못된 봉투는 ID를 신뢰할 수 없으므로
+solve.failed에 상관관계를 기록하지 않는다. 실패는 입력을 commit하지 않고 예외를 그대로 전달한다.
+요청 본문·좌표·정류장 목록·임의 헤더·예외 본문은 새 worker 로그에 기록하지 않는다.
+로그 전용 오류 코드는 Kafka payload의 새 필드나 자동 재시도 정책이 아니다.
+
 ```bash
 # 독립 브로커만 시작한다. 위의 worker가 실행 중이면 먼저 중지한다.
 docker compose -f infra/optimizer/compose.kafka.yaml stop worker
