@@ -118,7 +118,7 @@ OSRM 도로 거리·시간을 조회하며 중복 제거·요청 분할·순서 
 정적 car 프로필은 실시간 교통·트럭 높이/중량을 보장하지 않는다.
 
 [독립 개발 환경](../../infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
-운영 Compose·backend 연결·운영 retry/DLQ 토픽·관제·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
+운영 Compose·backend 연결·운영 retry/DLQ 관제·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
 CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
 
 ## Kafka 실행기
@@ -138,7 +138,7 @@ solve.requests.retry에서 기본 추가 3회·처리 전 2초 대기 후 재시
 상태 손상·기록 실패, 원본 commit·retry/DLQ 발행·수신 실패는 미완료로 두고 중단한다.
 FAILED·TIMEOUT도 같은 requestId의 최종 계산 결과이며, 새 계산은 새 requestId를 쓴다.
 retry/DLQ도 ACK와 commit 사이의 장애로 중복될 수 있고 원본과 retry 사이의 전체 순서는 보장하지 않는다.
-운영 6파티션 토픽·보존/관제·재처리 절차와 backend 시간 초과 정책은 역할 4와 연결한다.
+backend가 요청 retry/DLQ 토픽도 app.kafka.partitions(기본 6)로 생성한다. 운영 보존/관제·재처리 절차와 backend 시간 초과 정책은 역할 4와 연결한다.
 인자 범위·헤더·운영 한계는 [Kafka 실행 안내](../../infra/optimizer/KAFKA.md#제한-재시도--dlq)를 따른다.
 
 실행기 로그는 요청 상관관계·UTC 기록 시각·실패 단계·처리 시간과 결과 재사용 여부를 JSON으로 남긴다.

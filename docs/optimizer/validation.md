@@ -408,6 +408,20 @@ ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exa
 추가 기능·계산 정책 변경·운영 배포·새 CI는 포함하지 않았다. backend 변경은 PR #34의 기존 커밋이며
 이번 대응에서 새 업무 로직을 추가하지 않았다. 실제 운영 backend·도로 연결의 검증 범위는 아래와 같다.
 
+## PR #34 최신 main 통합·제출 검증 — 2026-10-21
+
+- main 17c8984의 계획 API·조회 권한·대시보드·보안 패치를 보존해 병합했다. 공개 API 변경 이력은
+  기존 v0.9·v0.10에 이어 v0.11로 정리했고 내부 API v0.6·Kafka v0.5·payload 버전 1을 따른다.
+- 실제 Kafka를 포함한 최적화 **267개·24개 subtest**, Java 21·Testcontainers 백엔드 **44개** 통과.
+  프론트 생성 타입·배포 빌드·단위 **15개**, 공개/내부 OpenAPI·AsyncAPI·운영/개발 Compose 검사 통과.
+- 지도 style.load 뒤 사용자가 전체 보기를 누르면 뒤늦은 최초 load에서 선택 트럭으로 다시 확대되는 문제를
+  12회 중 5회 재현했다. 최초 범위 맞춤을 조작 버튼 활성화 전에 마치도록 수정했다.
+  수정 후 같은 지도 검사 **10회 연속 통과**, 전체 Chromium **24개 통과**.
+- 작업 중 추가된 PR #34의 43b87ad(backend 요청 retry/DLQ 토픽 생성)와 main 8b3f65a(데이터 PR #10)도 반영했다.
+  데이터 파트 소스와 forecast/는 원본 그대로 유지하며 optimizer 예측기 계약은 이번에 변경하지 않았다.
+- GitHub 최종 CI 상태는 [PR #34 Checks](https://github.com/HuitaePark/skala_seoul_bike/pull/34/checks)에서 확인한다.
+  실제 도로·운영 backend와 worker를 잇는 전체 흐름은 후속 검증이다.
+
 ## 아직 검증하지 않은 범위
 
 운영 backend와 실제 worker 사이의 solve 요청/응답, 운영 retry/DLQ 토픽·관제·재처리,

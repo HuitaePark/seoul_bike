@@ -22,7 +22,7 @@ uv로 만든 환경은 pip 대신 `uv pip install --python .venv/bin/python`에 
 초기화 서비스는 개발용 `solve.requests`, `solve.results`, `solve.requests.retry`,
 `solve.requests.dlq`를 각 1파티션·복제 1로 생성한다. 이미 있는 토픽은 다시 만들지 않는다.
 worker는 requests와 requests.retry만 구독하고 토픽을 자동 생성하지 않는다.
-운영에서는 역할 4가 requests.retry·requests.dlq도 기존 solve 토픽과 맞는 6파티션으로 준비하고
+backend는 requests.retry·requests.dlq도 기존 solve 토픽과 같은 app.kafka.partitions(기본 6)로 생성한다. 운영에서는
 보존·접근 권한을 정한 뒤 worker를 시작해야 한다. 이 초기화 명령은 운영용이 아니다.
 기본 worker는 메시지의 depot·asOf와 **개발용 하버사인 추정치**를 사용한다.
 
@@ -172,5 +172,5 @@ OPTIMIZER_KAFKA_BOOTSTRAP=127.0.0.1:19092 ../.venv/bin/python -m pytest -q tests
 일반 테스트 실행에서는 실제 브로커 테스트 2건을 건너뛰며, CI는 별도 단계에서 브로커를 띄워 실행한다.
 
 SDK의 [발행 ACK·동기 commit API](https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html)를 사용한다.
-실제 worker와 backend 연결, 운영 retry/DLQ 토픽·관제, 실제 OSRM 도로 데이터,
+실제 worker와 backend 연결, 운영 retry/DLQ 관제·재처리, 실제 OSRM 도로 데이터,
 전체 10초 목표와 서버 배포는 이번 검증 범위 밖이다.
