@@ -30,7 +30,11 @@
 | ISS-14 | 한글 브랜치 이름 `성훈`이 도구에서 `\uC131` 등으로 깨져 보임 | 결정 | 병합 커밋 제목, `revert-3-성훈` 등에서 읽기 어려움 | 2 | 영문 브랜치(예 `seonghun`)로 바꿀지 결정 | 팀장 지적 |
 | ISS-16 | `docs/ROLES.md` 역할 번호가 Slack 분담과 다름 | 열림 | 문서마다 역할 번호 해석이 다름 | 팀장 | ROLES 갱신 요청 | QUALITY 1.4 |
 | ISS-17 | MCP 도구 인자 이름 규칙 미정 | 결정 | 3번 실제 서버와 Harness 검증 스키마·프롬프트가 다르면 모든 호출이 거부됨 | 3 | Harness 안: 내부 API 필드의 snake_case (`request_route_plan(shift_id, kind, truck_ids, exclude_station_ids)` 등), 변경 도구는 `approval_id`·`task_id` 인자를 받되 Harness가 채움. 3번 확인 | HARNESS 3.6, `evaluation/fake_mcp.py` |
-| ISS-19 | 큰 변경의 카드 단계(관리자 카드 승인 뒤 기사 카드 대기)가 프로세스 메모리에만 있음 | 열림 | 관리자 승인 뒤 agent가 재시작되면 Harness가 다시 관리자 카드를 기다린다. 변경이 무승인으로 실행되지는 않음 (backend가 순서 전체 확인) | 1, 2 | 단계 정보를 체크포인트에 저장하거나 RESUME에 담아 보내도록 1·4번과 결정 | `HarnessAgent._steps`, HARNESS 3.4 |
+| ISS-19 | 큰 변경의 카드 단계(관리자 카드 승인 뒤 기사 카드 대기)가 프로세스 메모리에만 있음 | 진행 | 관리자 승인 뒤 agent가 재시작되면 Harness가 다시 관리자 카드를 기다린다. 변경이 무승인으로 실행되지는 않음 (backend가 순서 전체 확인) | 1, 2 | 1에서 임시 처리: 그래프가 대기 카드를 근무조 체크포인트에 두고, 재시작 뒤 `resume_command` 전에 카드의 단계를 `_steps`에 되돌린다 (`graph/shift.py`, `test_restart_between_manager_and_driver_keeps_the_step`). 비공개 속성을 쓰므로 Harness가 RESUME의 `approvalId`로 단계를 찾게 바꾸면(카드 ID가 승인자마다 결정적이라 가능) 닫는다 (2) | `HarnessAgent._steps`, HARNESS 3.4, AGENT-GRAPH 3.2 |
+| ISS-20 | 승인자 의견(RESUME `comment`)이 가리지 않고 감싸지 않은 채 모델에게 간다 | 진행 | 의견에 기사 이름·연락처가 있으면 모델·LangSmith에 원본이 남고, 의견 속 문장이 지시처럼 읽힐 수 있다 | 1, 2 | 1에서 처리: 그래프가 `resume_command` 전에 의견을 `Masker`로 가리고 `<user_input>`으로 감싼다 (`graph/approvals.py clean_resume`). Harness `decision_from_resume`이 직접 하면 닫는다 (2) | `harness/contract.py`, AGENT-GRAPH 3.2 |
+| ISS-21 | MCP 도구 오류가 예외가 아니라 `"Error executing tool …"` 글로 돌아온다 | 진행 | 도구를 직접 부르는 코드가 오류를 결과로 읽는다. LLM 없는 경로가 backend 403(승인 없음)을 성공으로 보고 "승인되어 실행했습니다"라고 답했다 | 1 | 1에서 처리: tool call 형태로 불러 `status=error`면 실패로 끝낸다 (`graph/codepath.py`, `test_change_refused_by_backend_is_not_reported_as_done`). 3 MCP 도구 단위 테스트도 같은 방식으로 볼 것 | AGENT-GRAPH 5절 |
+| ISS-22 | Kafka 메시지 압축을 정하지 않았다 | 결정 | 압축 해제 라이브러리가 없는 소비자는 압축된 메시지 하나에 죽고 재시작해도 같은 메시지에서 또 죽는다 (`rpk topic produce` 기본 snappy로 agent에서 겪음) | 1, 4 | agent는 `aiokafka[snappy,lz4,zstd]`로 처리함. asyncapi 공통 규칙에 압축 여부 한 줄 | AGENT-GRAPH 7절 G15 |
+| ISS-23 | rag-mcp `search_docs`는 `{chunks: [...]}`를 주는데 Harness `sources`는 목록 모양만 읽는다 | 진행 | 실제 rag-mcp(3, `유은/mcp`)와 붙이면 모델 답변의 문서 근거가 통째로 빠진다 (평가표 "근거와 함께 답함") | 1, 2, 3 | 1에서 처리: 그래프가 DONE의 `sources`에 chunk를 DOC로 채운다 (제목에 절 이름, `graph/approvals.py doc_sources`). Harness `sources`가 MCP 명세 4.1 모양을 읽으면 닫는다 (2) | MCP.md 4.1, openapi `Source`, AGENT-GRAPH 3.5 |
 
 ---
 

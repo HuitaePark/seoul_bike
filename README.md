@@ -36,6 +36,7 @@ Docker Compose로 운영하며, 밖으로 여는 포트는 frontend(:3000) 하�
 - [역할 분담 (6인)](docs/ROLES.md): 역할별 작업, 완료 기준, 1주차 계약, 단계
 - [PRD](docs/PRD.md): 문제 정의, 요구사항, 에이전트 설계
 - [아키텍처](docs/ARCHITECTURE.md): 스택, 모듈 구조, 메시징, 컨테이너 구성
+- [에이전트 그래프 설계](docs/AGENT-GRAPH.md): 근무조 그래프 State·노드, 승인 카드 대응 (초안)
 - [Harness 명세](docs/HARNESS.md): Harness 8요소 규칙·초기값, 진행 이벤트, 실패 코드, 시나리오 평가셋 (코드 `agent/`)
 - [MCP 명세](docs/MCP.md): business-mcp 도구 11개, rag-mcp 검색(pgvector)·Resource·색인기, 승인 전달 (코드 `business-mcp/`, `rag-mcp/`, 근거 문서 [docs/evidence](docs/evidence/README.md))
 - [품질 매핑](docs/QUALITY.md): ISO/IEC 25010:2023 품질 특성별 측정 방법과 증거
