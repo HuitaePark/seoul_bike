@@ -72,6 +72,8 @@ def one_day(args) -> None:
 def many_days(args) -> None:
     tag = "" if args.shifts is None else "_s" + "_".join(f"{a}-{b}" for a, b in args.shifts)
     tag += f"_src{args.sources_weeks}w" if args.sources_weeks else ""
+    tag += "_carry" if args.carry_trucks else ""
+    tag += "_simtt" if args.sim_travel else ""
     out = ROOT / f"data/derived/sim_{args.terr}_{args.date}_{args.until}{tag}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -124,6 +126,8 @@ def main() -> None:
     ap.add_argument("--trucks", type=int)  # 주지 않으면 그 구역의 바쁜 날 동시 트럭 하한(ref_regions.csv, 역산 7절)
     ap.add_argument("--shifts", type=lambda s: tuple(tuple(map(int, x.split("-"))) for x in s.split(",")),
                     help="본 시스템의 근무 시간. 예: 7-22 또는 7-10,13-16,19-21(기본, PRD 7.4)")
+    ap.add_argument("--carry-trucks", action="store_true", help="본 시스템: 근무조 안에서 트럭 위치·적재량을 다음 계획에 넘긴다")
+    ap.add_argument("--sim-travel", action="store_true", help="본 시스템: 최적화기에 엔진과 같은 이동 시간(직선 × 1.3, 시속 20km)을 준다")
     ap.add_argument("--sources-weeks", type=int, help="본 시스템 공급처를 그날 전 이 주 수만큼의 역산 방문으로 고른다(기본은 전해 4~10월)")
     args = ap.parse_args()
     if args.shifts:
@@ -131,6 +135,7 @@ def main() -> None:
         AGENT_KW["shifts"] = args.shifts
     global SOURCES_WEEKS
     SOURCES_WEEKS = args.sources_weeks
+    AGENT_KW.update(carry_trucks=args.carry_trucks, sim_travel=args.sim_travel)
     if args.trucks is None:
         import duckdb
 

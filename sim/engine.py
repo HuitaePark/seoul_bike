@@ -12,6 +12,8 @@
   - 거치대 수를 넘는 반납도 받는다. 거치대 수를 넘은 시간은 과적재 지표로만 센다(PRD 7.1).
 트럭: 정책이 근무조 시작마다 rebalancing.models.Plan을 내면, 경로를 시간에 맞춰 실행한다.
       도착할 때 실제 재고·적재량에 맞춰 싣고 내린다. 근무조가 끝나면 남은 정류장은 버리고 거점으로 돌아간다.
+      정책에 carry_trucks가 있으면 근무조 안에서 다시 계획할 때 트럭을 거점으로 되돌리지 않고, 마지막으로 들른 곳·적재량·
+      남은 근무 시간을 rebalancing.models.Truck으로 넘긴다(PRD v0.2 재경로). 거점에서 싣는 것은 근무조 시작 때 한 번이다.
 """
 from __future__ import annotations
 
@@ -23,8 +25,9 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from rebalancing.geo import haversine_m
-from rebalancing.models import Plan, Station
+from rebalancing.geo import distance_matrix, haversine_m
+from rebalancing.models import Plan, Station, Truck
+from rebalancing.travel_time import TravelMatrix
 
 ROOT = Path(__file__).resolve().parents[1]
 SHIFTS = ((7, 10), (13, 16), (19, 21))  # 근무조 (PRD 7.4, 역산 추정)
@@ -72,7 +75,16 @@ def leg_minutes(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def stop_minutes(bikes: int) -> float:
-    return 3 + 0.5 * bikes  # PRD 7.2 정차 시간 초기값
+    return 3 + 0.5 * bikes  # PRD 7.2 정차 시간 초기값 (5의 PlanningOptions 기본값 180초 + 대당 30초와 같다)
+
+
+class SimTravelTime:
+    """5의 TravelTime 구현. 최적화기가 근무 시간 예산을 엔진과 같은 이동 시간(직선 × DETOUR, SPEED_KMH)으로 계산하게 한다(합의 19번).
+    5의 기본값(HaversineTravelTime: 직선, 시속 30km)은 엔진보다 2배쯤 빨라, 짠 경로가 엔진에서 시간 안에 끝나지 않는다."""
+
+    def matrix(self, points):
+        d = distance_matrix(points)
+        return TravelMatrix(d, [[math.ceil(x * DETOUR / (SPEED_KMH / 3.6)) for x in row] for row in d], "sim")
 
 
 def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Result:
@@ -101,7 +113,10 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
     shifts = getattr(policy, "shifts", SHIFTS)  # 근무 시간을 바꿔 보는 시나리오(sim --shifts)
     for h0, h1 in shifts:
         for h in range(h0, h1, step or h1 - h0):
-            q.append((day.start + timedelta(hours=h), 2, "plan", day.start + timedelta(hours=min(h + (step or h1 - h0), h1))))
+            q.append((day.start + timedelta(hours=h), 2, "plan", (day.start + timedelta(hours=min(h + (step or h1 - h0), h1)),
+                                                                  day.start + timedelta(hours=h1))))
+    carry = getattr(policy, "carry_trucks", False)
+    fleet: dict[int, tuple] = {}  # carry일 때 근무조 안의 트럭 상태: 트럭 → (경로 키, 위치, 다음 일을 시작할 수 있는 시각)
     ops = [(t, s, dx) for t, s, dx in policy.events(day) if s in stock and day.start <= t < end]
     q += [(t, 2, "ops", (s, dx)) for t, s, dx in ops]
     if ops:  # 경로가 없는 정책(현행 운영 재현)은 트럭이 근무조 내내 움직였다고 본다
@@ -131,25 +146,55 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
             if v not in failed_trips:
                 change(day.trips[v][3], now, +1)
         elif kind == "plan":
+            v, shift_end = v
             snapshot = [Station(s, st.name, st.lat, st.lon, st.capacity, stock[s]) for s, st in day.stations.items()]
-            plan: Plan = policy.plan(now, snapshot, day.depot, trucks, truck_capacity)
+            if carry:
+                for i in range(trucks):
+                    if i not in fleet:  # 근무조 시작: 거점에서 예비 자전거를 반쯤 싣고 나간다
+                        n = min(truck_capacity // 2, depot_bikes)
+                        depot_bikes -= n
+                        load[(i, now)] = n
+                        fleet[i] = ((i, now), None, now)
+                avail = [Truck(i, truck_capacity, load=load[rk], position=pos,
+                               available_time_s=max(0, int((shift_end - max(now, ready)).total_seconds())))
+                         for i, (rk, pos, ready) in sorted(fleet.items())]
+                plan: Plan = policy.plan(now, snapshot, day.depot, avail, truck_capacity)
+            else:
+                plan = policy.plan(now, snapshot, day.depot, trucks, truck_capacity)
             for r in plan.routes:
-                start_load = min(r.start_load, depot_bikes)
-                depot_bikes -= start_load
-                rk = (r.truck_id, now)
-                load[rk] = start_load
-                t, pos = now, day.depot
+                if carry:
+                    old, pos, t = fleet[r.truck_id]
+                    rk = (r.truck_id, now)
+                    load[rk] = load.pop(old)
+                    pos, t = pos or day.depot, max(now, t)
+                else:
+                    start_load = min(r.start_load, depot_bikes)
+                    depot_bikes -= start_load
+                    rk = (r.truck_id, now)
+                    load[rk] = start_load
+                    t, pos = now, day.depot
+                t0 = t
                 for stop in r.stops:
                     st = day.stations[stop.station_id]
-                    t = t + timedelta(minutes=leg_minutes(pos, (st.lat, st.lon)))
-                    if t >= v:  # 근무조가 끝나면 남은 정류장은 버린다
+                    arrive = t + timedelta(minutes=leg_minutes(pos, (st.lat, st.lon)))
+                    if arrive >= v:  # 다음 계획(또는 근무조 끝)까지 못 가는 정류장은 버린다
                         break
-                    heapq.heappush(q, (t, 2, "stop", (rk, stop.station_id, stop.action, stop.bikes)))
-                    t += timedelta(minutes=stop_minutes(stop.bikes))
+                    heapq.heappush(q, (arrive, 2, "stop", (rk, stop.station_id, stop.action, stop.bikes)))
+                    t = arrive + timedelta(minutes=stop_minutes(stop.bikes))
                     pos = (st.lat, st.lon)
-                back = min(t + timedelta(minutes=leg_minutes(pos, day.depot)), v)
-                res.truck_h += (back - now).total_seconds() / 3600
+                if carry and v < shift_end:  # 근무조 안: 마지막으로 들른 곳에서 다음 계획을 기다린다
+                    fleet[r.truck_id] = (rk, pos, t)
+                    res.truck_h += (t - t0).total_seconds() / 3600
+                    continue
+                fleet.pop(r.truck_id, None)
+                back = min(t + timedelta(minutes=leg_minutes(pos, day.depot)), shift_end if carry else v)
+                res.truck_h += (back - t0).total_seconds() / 3600
                 heapq.heappush(q, (back, 3, "unload", rk))
+            if carry and v >= shift_end:  # 경로 없이 근무조가 끝난 트럭도 거점으로 돌아가 내린다
+                for i, (rk, pos, ready) in list(fleet.items()):
+                    back = min(ready + timedelta(minutes=leg_minutes(pos or day.depot, day.depot)), shift_end)
+                    heapq.heappush(q, (max(back, now), 3, "unload", rk))
+                    fleet.pop(i)
         elif kind == "stop":
             rk, s, action, bikes = v
             if action == "pickup":

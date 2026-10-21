@@ -19,7 +19,7 @@ from rebalancing.baseline import plan_greedy
 from rebalancing.models import Imbalance, Plan, Station, Truck
 from rebalancing.planner import plan_routes
 
-from .engine import SHIFTS
+from .engine import SHIFTS, SimTravelTime
 
 LOW = 2  # 단순 규칙: 재고가 이 이하면 빈 위험 (초기값)
 MAX_LEAD = 5  # 예측기가 내다보는 최대 시간(forecast/nowcast.py, 합의 29번)
@@ -88,12 +88,12 @@ class Agent(Policy):
     replan_h를 주면 엔진이 근무조 안에서 그 간격마다 다시 부른다(그 시각의 실제 재고와 새 예측으로).
     경로는 5의 plan_routes(OR-Tools)를 그대로 쓴다.
     경로 탐색은 5의 기본값을 따른다(해 50개에서 멈춤, 실행마다 같은 답). time_limit_s는 주지 않는다(주면 CPU 부하에 따라 답이 바뀐다).
-    shortcut: plan_routes가 트럭의 현재 위치·적재량·남은 근무 시간을 받게 됐지만(PRD v0.2) 엔진은 다시 계획할 때마다
-              거점에서 빈 트럭으로 출발시킨다. 엔진이 트럭 위치·적재량을 들고 다니게 바꾸면 Truck에 넘긴다."""
+    carry_trucks이면 엔진이 근무조 안에서 트럭의 현재 위치·적재량·남은 근무 시간을 Truck으로 넘긴다(PRD v0.2 재경로).
+    아니면 다시 계획할 때마다 거점에서 반쯤 싣고 출발한다. sim_travel이면 최적화기에 엔진과 같은 이동 시간을 준다(합의 19번)."""
 
     def __init__(self, predictor, sources: frozenset[int], z: float = 1.0, replan_h: int | None = None,
                  horizon: int | None = None, time_limit_s: int | None = None, z_pick: float | None = None, bridge: bool = False,
-                 shifts: tuple = SHIFTS):
+                 shifts: tuple = SHIFTS, carry_trucks: bool = False, sim_travel: bool = False):
         self.predictor = predictor
         self.sources = sources
         self.z = z  # 배치 여유
@@ -103,6 +103,8 @@ class Agent(Policy):
         self.bridge = bridge  # 근무조 마지막 계획은 다음 근무조 시작까지(최대 MAX_LEAD시간) 버티게 본다
         self.time_limit_s = time_limit_s
         self.shifts = shifts  # 엔진도 이 근무조로 계획 시각을 잡는다
+        self.carry_trucks = carry_trucks
+        self.travel_time = SimTravelTime() if sim_travel else None
 
     def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int) -> Plan:
         h0, h1 = next((a, b) for a, b in self.shifts if a <= now.hour < b)
@@ -125,4 +127,5 @@ class Agent(Policy):
                 continue
             if delta:  # 회수량을 내림하면 0이 될 수 있다
                 todo.append(Imbalance(s.id, max(-truck_capacity, min(truck_capacity, delta))))
-        return plan_routes(depot, stations, todo, depot_trucks(trucks, truck_capacity), time_limit_s=self.time_limit_s)
+        fleet = trucks if isinstance(trucks, list) else depot_trucks(trucks, truck_capacity)  # carry_trucks면 엔진이 Truck 목록을 준다
+        return plan_routes(depot, stations, todo, fleet, time_limit_s=self.time_limit_s, travel_time=self.travel_time)

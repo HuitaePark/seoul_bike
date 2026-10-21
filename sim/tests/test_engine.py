@@ -9,9 +9,9 @@ from pathlib import Path
 
 from sim.engine import Day, replay, resample_demand
 from sim.latent import poisson_arrivals
-from sim.policies import Agent, CurrentOps, CurrentOpsLastWeek, NoRebalancing, SimpleRule
+from sim.policies import Agent, CurrentOps, CurrentOpsLastWeek, NoRebalancing, Policy, SimpleRule
 from forecast import Forecast
-from rebalancing.models import Station
+from rebalancing.models import Plan, Route, Station, Stop
 
 T0 = datetime(2025, 6, 11)
 
@@ -107,6 +107,27 @@ class ReplayTest(unittest.TestCase):
             replay(Day(T0, stations, trips, (37.500, 127.0)), p, trucks=1)
         self.assertEqual(default.at, [7, 8, 9, 13, 14, 15, 19, 20])
         self.assertEqual(full.at, list(range(7, 22)))
+
+    def test_carry_trucks_keeps_position_and_load_between_plans(self):
+        # 07시: 거점에서 반쯤(7대) 싣고 나가 A에서 5대 회수. 08시 계획에는 트럭이 A에 12대를 싣고 있다고 넘어온다
+        class Carry(Policy):
+            replan_h, carry_trucks, shifts = 1, True, ((7, 9),)
+
+            def __init__(self):
+                self.seen = []
+
+            def plan(self, now, stations, depot, trucks, cap):
+                self.seen.append([(t.load, t.position, t.available_time_s) for t in trucks])
+                if now.hour == 7:
+                    return Plan([Route(0, trucks[0].load, [Stop(1, "pickup", 5, trucks[0].load + 5)])], [], "test")
+                return Plan([], [], "test")
+
+        stations = {1: Station(1, "A", 37.505, 127.0, 10, 20), 2: Station(2, "B", 37.500, 127.0, 10, 0)}
+        p = Carry()
+        r = replay(Day(T0, stations, [], (37.500, 127.0)), p, trucks=1, truck_capacity=14)
+        self.assertEqual(p.seen[0], [(7, None, 2 * 3600)])
+        self.assertEqual(p.seen[1], [(12, (37.505, 127.0), 3600)])
+        self.assertEqual((r.stock[1], r.moved), (15, 5))
 
     def test_resampled_day_keeps_hour_and_level_and_leaves_latent_alone(self):
         stations = {1: Station(1, "A", 37.50, 127.00, 10, 50), 2: Station(2, "B", 37.51, 127.01, 10, 0)}
