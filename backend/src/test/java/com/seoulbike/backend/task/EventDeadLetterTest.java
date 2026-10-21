@@ -8,21 +8,18 @@ import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.KafkaHeaders;
 import tools.jackson.databind.json.JsonMapper;
 
 import com.seoulbike.backend.DeadLetters;
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 
 /**
  * ai.events를 처리하지 못하면 버리지 않고 dlq에 남긴다. 다시 해도 같은 형식 오류는 재시도 없이 바로 가고,
  * 다시 하면 될 수 있는 실패(모르는 작업)는 ai.events.retry를 거친 뒤 간다 (TestInfra: 4번, 200ms 간격).
  */
-@SpringBootTest(properties = TestInfra.PROPS)
-@Import(TestInfra.class)
+@IntegrationTest
 class EventDeadLetterTest {
 
 	private static final String DLQ = Topics.AI_EVENTS + ".dlq";

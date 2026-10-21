@@ -13,21 +13,18 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 import com.seoulbike.backend.task.TaskFlowTest.SseStream;
 
 /** /internal/** (business-mcp용): 서비스 토큰으로만 열리고, 변경 API는 관리자 승인이 있어야 실행된다 (FR-18). */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = TestInfra.PROPS)
-@Import(TestInfra.class)
+@IntegrationTest
 class InternalApiTest {
 
 	private static final String TOKEN = "test-internal-token";
