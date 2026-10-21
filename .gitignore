@@ -8,6 +8,9 @@ __pycache__/
 *.pyc
 .DS_Store
 *.egg-info/
+# 수집 데이터·로그는 커밋하지 않는다 (6 데이터·시뮬레이터)
+/data/
+/logs/
 # 그림 원본(SVG)은 Figma 편집용으로 로컬에만 둔다
 docs/images/**/*.svg
 # 비밀값
