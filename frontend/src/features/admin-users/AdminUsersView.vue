@@ -91,7 +91,7 @@ onMounted(load)
             <option v-for="(label, role) in roleLabel" :key="role" :value="role">{{ label }}</option>
           </select>
         </label>
-        <label v-if="createForm.role === 'DRIVER'">트럭 <input v-model="createForm.truckId" placeholder="truck-3" required /></label>
+        <label v-if="createForm.role === 'DRIVER'">트럭 <input v-model="createForm.truckId" placeholder="TR-03" required /></label>
         <p v-if="createError" class="error">{{ createError }}</p>
         <button>발급</button>
       </form>

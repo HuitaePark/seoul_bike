@@ -42,6 +42,6 @@ MapLibre·OpenFreeMap을 연결했다. 점선은 방문 순서이고 실제 도�
 
 ## 시연 계정
 
-`manager`(관제), `driver1`·`driver2`(기사, truck-1·truck-2), `executive`(책임자). 비밀번호는 서버 `.env`의 `SEED_USER_PASSWORD`이며 팀에 따로 공유한다.
+`manager`(관제), `driver1`·`driver2`(기사, TR-01·TR-02), `executive`(책임자). 비밀번호는 서버 `.env`의 `SEED_USER_PASSWORD`이며 팀에 따로 공유한다.
 
 진짜 agent가 붙기 전까지는 backend의 **가짜 에이전트**가 답한다. 모든 답에 `[가짜 에이전트]`가 붙는다.
