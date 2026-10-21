@@ -339,7 +339,7 @@ function decide(body: ApprovalDecision) {
               <dd v-else>모든 정류장을 마쳤다</dd>
             </div>
           </dl>
-          <button class="ghost focus-btn" @click="focusTruck = loadTruck; go('view')">지도에서 이 트럭만 보기</button>
+          <button class="ghost focus-btn" @click="pickTruck(loadTruck); go('view')">지도에서 이 트럭만 보기</button>
         </section>
 
         <section v-if="station" class="card w-detail">
