@@ -66,16 +66,15 @@ const forecastSelected = ref<string | null>(null)
 const routeSelected = ref<string | null>(null)
 const stockPane = ref<HTMLElement | null>(null)
 const focusTruck = ref<string | null>(null)
-const loadTruck = ref<string | null>(null)
+// 3D 지도 위 트럭 적재 칸 켜기·끄기
+const showLoad = ref(true)
+// 권역 상태의 색 버튼으로 고른 위험 종류. 지도·재고 현황에 그 대여소만 보인다 (null이면 전부)
+const riskFilter = ref<Schemas['RiskKind'] | null>(null)
 const toast = ref('')
 // 승인 대기 변경안을 지도에 겹쳐 본다. 켜져 있으면 그 변경안의 트럭·대여소만 밝게 보인다.
 const preview = ref<RoutePreview | null>(null)
 const openDropped = ref<string | null>(null)
 
-// 지도에서 트럭 하나만 보면 적재 패널도 그 트럭을 보여 준다
-watch(focusTruck, (t) => {
-  if (t) loadTruck.value = t
-})
 // 대여소를 고르면 재고 현황 칸을 맨 위로 올려 방금 고른 대여소가 바로 보이게 한다
 watch(mapSelected, (id) => {
   if (id) stockPane.value?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -137,8 +136,20 @@ watch(riskOrder, (r) => {
 watch(regionId, () => {
   mapSelected.value = forecastSelected.value = routeSelected.value = focusTruck.value = null
   preview.value = null
+  riskFilter.value = null
   autoPick = true
 })
+// 재고 현황 목록: 위험 순. 색 버튼으로 고르면 그 종류만 (정상은 재고 비율이 낮은 순)
+const stockList = computed(() => {
+  const k = riskFilter.value
+  if (!k) return riskOrder.value.slice(0, 7)
+  if (k !== 'NONE') return riskOrder.value.filter((s) => s.risk === k)
+  return stations.value.filter((s) => s.risk === 'NONE').sort((a, b) => a.bikes / (a.docks || 1) - b.bikes / (b.docks || 1))
+})
+function toggleRisk(k: Schemas['RiskKind']) {
+  riskFilter.value = riskFilter.value === k ? null : k
+}
+const riskWord: Record<Schemas['RiskKind'], string> = { EMPTY: '부족', OVERFLOW: '과잉', NONE: '정상' }
 const riskCounts = computed(() => (['EMPTY', 'OVERFLOW', 'NONE'] as const).map((k) => ({ k, n: stations.value.filter((s) => s.risk === k).length })))
 
 function progress(r: Schemas['Route']) {
@@ -146,16 +157,17 @@ function progress(r: Schemas['Route']) {
 }
 // 트럭이 다음 정류장 구간의 어디쯤인지 (타임라인에 트럭 표시를 둔다)
 const legs = computed(() => Object.fromEntries(routes.value.map((r) => [r.truckId, legOf(r, truckOf(r.truckId), stationById.value)])))
-// 적재 패널의 트럭: 고른 트럭이 이 계획에 없으면(근무조를 바꿨다) 첫 트럭
-const loadTruckId = computed(() => (routes.value.some((r) => r.truckId === loadTruck.value) ? loadTruck.value : routes.value[0]?.truckId ?? null))
-const loadInfo = computed(() => {
-  const r = routes.value.find((x) => x.truckId === loadTruckId.value)
-  const t = r && truckOf(r.truckId)
-  if (!r || !t) return null
-  // 지도 진행선(legOf)과 같은 기준: 남은 정류장은 PENDING만. 건너뛴(SKIPPED) 곳은 다음 정류장이 아니다.
-  const left = r.stops.filter((s) => (s.status ?? 'PENDING') === 'PENDING')
-  return { t, next: left[0], left: left.length }
-})
+// 트럭별 운행 상세 (관제 뷰 아래). 지도 진행선(legOf)과 같은 기준: 남은 정류장은 PENDING만. 건너뛴(SKIPPED) 곳은 다음 정류장이 아니다.
+const ops = computed(() =>
+  routes.value.flatMap((r) => {
+    const t = truckOf(r.truckId)
+    if (!t) return []
+    const left = r.stops.filter((s) => (s.status ?? 'PENDING') === 'PENDING')
+    return [{ t, next: left[0], left: left.length }]
+  }),
+)
+// 적재 칸의 트럭: 위 트럭 버튼으로 고른 트럭, 고르지 않았으면 첫 트럭
+const loadInfo = computed(() => ops.value.find((o) => o.t.truckId === focusTruck.value) ?? ops.value[0] ?? null)
 
 const nav: { id: DashboardTab; label: string; icon: string }[] = [
   { id: 'view', label: '관제 뷰', icon: 'M3 7l9-4 9 4-9 4-9-4zm0 5 9 4 9-4M3 17l9 4 9-4' },
@@ -292,11 +304,23 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
                 <i />{{ r.truckId }}
               </button>
             </div>
+            <button
+              v-if="view === '3d'"
+              type="button"
+              role="switch"
+              :aria-checked="showLoad"
+              :class="['load-toggle', { on: showLoad }]"
+              @click="showLoad = !showLoad"
+            >
+              <span class="knob" aria-hidden="true" />트럭 적재
+            </button>
           </div>
 
           <template v-if="stations.length">
+            <!-- 구역을 바꾸면 새로 그려 확대·이동을 처음(구역 전체)으로 되돌린다 -->
             <IsoStationView
               v-if="view === '3d'"
+              :key="regionId"
               class="scene-svg"
               :stations="stations"
               :routes="routes"
@@ -305,6 +329,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
               :selected="mapSelected"
               :focus-truck="focusTruck"
               :preview="preview"
+              :only="riskFilter"
               @select="mapSelected = $event"
             />
             <div v-else class="flat-map">
@@ -316,6 +341,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
                 :selected="mapSelected"
                 :focus-truck="focusTruck"
                 :preview="preview"
+                :only="riskFilter"
                 @select="mapSelected = $event"
               />
             </div>
@@ -323,33 +349,13 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
           <p v-else class="scene-empty">
             {{ stationsState === 'loading' ? '대여소 재고를 읽는 중' : `${regionName}에 실시간 재고가 들어온 대여소가 아직 없다. 수집기(collector)가 5분마다 넣는다.` }}
           </p>
-          <aside v-if="view === '3d' && stations.length && loadInfo" class="map-truck-load" aria-label="트럭 적재">
+          <!-- 트럭 적재: 위 트럭 버튼으로 고른 트럭(고르지 않았으면 첫 트럭). 운행 상세는 관제 뷰 아래 칸에 있다 -->
+          <aside v-if="view === '3d' && showLoad && stations.length && loadInfo" class="map-truck-load" aria-label="트럭 적재">
             <div class="map-truck-head">
-              <h2>트럭 적재</h2>
+              <h2>트럭 적재 <span class="load-truck" :style="{ color: colors[loadInfo.t.truckId] }">{{ loadInfo.t.truckId }}</span></h2>
               <span>{{ loadInfo.t.load }} / {{ loadInfo.t.capacity }}대</span>
             </div>
-            <div class="truck-chips small" role="group" aria-label="적재를 볼 트럭">
-              <button
-                v-for="r in routes"
-                :key="r.truckId"
-                :class="['chip', { on: loadTruckId === r.truckId }]"
-                :style="{ '--c': colors[r.truckId] }"
-                :aria-pressed="loadTruckId === r.truckId"
-                @click="pickTruck(r.truckId)"
-              >{{ r.truckId }}</button>
-            </div>
             <TruckLoad :load="loadInfo.t.load" :capacity="loadInfo.t.capacity" :color="colors[loadInfo.t.truckId]!" />
-            <details class="map-truck-extra">
-              <summary>운행·정류장 상세</summary>
-              <dl class="map-truck-facts">
-                <div><dt>트럭</dt><dd>{{ loadInfo.t.truckId }}</dd></div>
-                <div><dt>위치</dt><dd>{{ whereText(loadInfo.t.truckId) }} · 정류장 기준 (GPS 아님)</dd></div>
-                <div><dt>적재</dt><dd>{{ loadInfo.t.load }} / {{ loadInfo.t.capacity }}대</dd></div>
-                <div><dt>남은 정류장</dt><dd>{{ loadInfo.left }}곳</dd></div>
-                <div><dt>다음 정류장</dt><dd v-if="loadInfo.next">{{ nameOf(loadInfo.next) }} · {{ actionLabel[loadInfo.next.action] }} {{ loadInfo.next.bikes }}대 · {{ timeOf(loadInfo.next.eta) }}</dd><dd v-else>모든 정류장을 마쳤다</dd></div>
-              </dl>
-              <button class="ghost map-truck-focus" @click="pickTruck(loadInfo.t.truckId)">지도에서 이 트럭만 보기</button>
-            </details>
           </aside>
           <div v-if="preview" class="preview-banner" role="status">
             <span class="badge WAITING_APPROVAL">승인 대기 미리보기</span>
@@ -376,7 +382,7 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 
           <ul v-if="view === '3d'" class="iso-legend" aria-label="3D 뷰 읽는 법">
             <li><i class="solid" />기둥 = 지금 재고</li>
-            <li><i class="ghost" />투명 상자 = 거치대</li>
+            <li><i class="ghost" />투명 상자 = 거치대 (확대하면)</li>
             <li><i class="dash" />점선 = 3시간 뒤</li>
             <li class="north" title="북쪽은 화면 오른쪽 위">북 ↗</li>
           </ul>
@@ -394,22 +400,25 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
               :colors="colors"
               @close="mapSelected = null"
             />
-            <h2>재고 현황 <span class="muted">위험 순</span></h2>
-            <ul class="stock-list">
-              <li v-for="s in riskOrder.slice(0, 7)" :key="s.stationId">
-                <button :class="{ sel: s.stationId === mapSelected }" @click="mapSelected = s.stationId">
-                  <RingGauge :value="s.bikes / s.docks" :size="42" :stroke="5" :color="riskShades[s.risk][1]" />
-                  <span class="stock-text">
-                    <span class="stock-name">{{ s.name }}</span>
-                    <span><b>{{ s.bikes }}</b> / {{ s.docks }} · <span :class="['risk', s.risk]">{{ s.risk === 'EMPTY' ? '부족' : '과잉' }}</span></span>
-                  </span>
-                </button>
-              </li>
-            </ul>
+            <h2>재고 현황 <span class="muted">{{ riskFilter ? `${riskLabel[riskFilter]}만` : '위험 순' }}</span></h2>
             <div class="zone-status">
-              <h3>권역 상태 <span class="muted">{{ stations.length }}곳</span></h3>
-              <div class="stack" role="img" :aria-label="riskCounts.map((r) => `${riskLabel[r.k]} ${r.n}곳`).join(', ')">
-                <span v-for="r in riskCounts" :key="r.k" :style="{ flex: r.n, background: riskShades[r.k][1] }">{{ r.n }}</span>
+              <h3>
+                권역 상태 <span class="muted">{{ stations.length }}곳</span>
+                <button v-if="riskFilter" type="button" class="text-btn" @click="riskFilter = null">전체 보기</button>
+              </h3>
+              <!-- 색 버튼을 누르면 지도·목록에 그 대여소만 보인다. 다시 누르면 전부 -->
+              <div class="stack" role="group" aria-label="위험 종류별 대여소 골라 보기">
+                <button
+                  v-for="r in riskCounts"
+                  :key="r.k"
+                  type="button"
+                  :class="['seg', { on: riskFilter === r.k, off: !!riskFilter && riskFilter !== r.k }]"
+                  :style="{ flex: r.n || 0.0001, background: riskShades[r.k][1] }"
+                  :aria-pressed="riskFilter === r.k"
+                  :aria-label="`${riskLabel[r.k]} ${r.n}곳만 보기`"
+                  :disabled="!r.n"
+                  @click="toggleRisk(r.k)"
+                >{{ r.n }}</button>
               </div>
               <div class="stack-legend">
                 <span><i style="background: var(--empty)" />부족</span>
@@ -417,8 +426,39 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
                 <span><i style="background: var(--ok)" />정상</span>
               </div>
             </div>
+            <ul class="stock-list">
+              <li v-for="s in stockList" :key="s.stationId">
+                <button :class="{ sel: s.stationId === mapSelected }" @click="mapSelected = s.stationId">
+                  <RingGauge :value="s.bikes / s.docks" :size="42" :stroke="5" :color="riskShades[s.risk][1]" />
+                  <span class="stock-text">
+                    <span class="stock-name">{{ s.name }}</span>
+                    <span><b>{{ s.bikes }}</b> / {{ s.docks }} · <span :class="['risk', s.risk]">{{ riskWord[s.risk] }}</span></span>
+                  </span>
+                </button>
+              </li>
+            </ul>
           </div>
         </aside>
+      </section>
+
+      <!-- 운행 상세: 트럭마다 위치(정류장 기준)·적재·남은 정류장·다음 정류장. 관제 뷰 아래에 둔다 -->
+      <section v-show="active === 'view'" class="card ops" aria-label="운행 상세">
+        <header class="w-head"><h2>운행 상세</h2><span class="hint">위치는 GPS가 아니라 마지막으로 끝낸 정류장, 없으면 차고지</span></header>
+        <p v-if="!ops.length" class="hint section-hint">{{ plan ? '트럭 상태를 읽는 중' : '이 근무조에 계획이 없어 운행 중인 트럭이 없다' }}</p>
+        <ul v-else class="ops-list">
+          <li v-for="o in ops" :key="o.t.truckId" :class="{ on: focusTruck === o.t.truckId }" :style="{ '--c': colors[o.t.truckId] }">
+            <span class="t-badge">{{ o.t.truckId }}</span>
+            <dl>
+              <div><dt>위치</dt><dd>{{ whereText(o.t.truckId) }}</dd></div>
+              <div><dt>적재</dt><dd>{{ o.t.load }} / {{ o.t.capacity }}대</dd></div>
+              <div><dt>남은 정류장</dt><dd>{{ o.left }}곳</dd></div>
+              <div class="next"><dt>다음 정류장</dt><dd v-if="o.next">{{ nameOf(o.next) }} · {{ actionLabel[o.next.action] }} {{ o.next.bikes }}대 · {{ timeOf(o.next.eta) }}</dd><dd v-else>모든 정류장을 마쳤다</dd></div>
+            </dl>
+            <button class="ghost" :aria-pressed="focusTruck === o.t.truckId" @click="pickTruck(focusTruck === o.t.truckId ? null : o.t.truckId)">
+              {{ focusTruck === o.t.truckId ? '전체 보기' : '지도에서 이 트럭만' }}
+            </button>
+          </li>
+        </ul>
       </section>
 
       <!-- 각 화면은 메뉴에서 선택한 것만 보여 준다. 에이전트 패널은 숨겨도 상태를 유지한다. -->
@@ -601,7 +641,8 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .scene { position: relative; min-height: 560px; background: var(--sky); display: flex; flex-direction: column; }
 .scene-empty { margin: auto; padding: 24px; max-width: 360px; text-align: center; font-size: 14px; color: var(--ink-3); }
 .scene-svg { flex: 1; padding: 56px 8px 8px; max-height: 640px; }
-.flat-map { padding: 60px 16px 16px; }
+/* 평면 지도는 장면 칸을 꽉 채우고, 화면 전환·트럭 버튼(scene-top)은 지도 위에 뜬다 */
+.flat-map { flex: 1; display: flex; flex-direction: column; min-height: 560px; border-radius: inherit; overflow: hidden; }
 .scene-top { position: absolute; top: 14px; left: 14px; right: 14px; display: flex; gap: 10px; flex-wrap: wrap; z-index: 2; }
 .tabs { display: inline-flex; padding: 3px; background: #fff; border-radius: 999px; box-shadow: var(--shadow); }
 .tabs button { padding: 6px 14px; font-size: 13px; background: transparent; color: var(--ink-2); border-radius: 999px; }
@@ -618,18 +659,14 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .map-truck-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 7px; }
 .map-truck-head h2 { margin: 0; font-size: 14px; }
 .map-truck-head span { font-size: 13px; font-weight: 800; color: var(--brand-strong); }
-.map-truck-load .truck-chips { justify-content: center; }
-.map-truck-load .chip { flex: 1; justify-content: center; padding: 4px 6px; }
+.load-truck { font-size: 12px; font-weight: 800; margin-left: 4px; }
+.load-toggle { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; padding: 6px 12px 6px 6px; font-size: 12.5px; font-weight: 700; color: var(--ink-2); background: #fff; border: 0; border-radius: 999px; box-shadow: var(--shadow); }
+.load-toggle .knob { position: relative; width: 30px; height: 18px; border-radius: 999px; background: #cbd5e1; transition: background 0.15s; }
+.load-toggle .knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.load-toggle.on { color: var(--brand-strong); }
+.load-toggle.on .knob { background: var(--brand); }
+.load-toggle.on .knob::after { transform: translateX(12px); }
 .map-truck-load :deep(.truck) { max-height: 132px; }
-.map-truck-extra { border-top: 1px solid var(--line); padding-top: 6px; }
-.map-truck-extra summary { cursor: pointer; font-size: 11px; font-weight: 700; color: var(--ink-2); }
-.map-truck-facts { display: grid; gap: 4px; margin: 4px 0 0; }
-.map-truck-facts div { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
-.map-truck-facts dt { flex: none; }
-.map-truck-facts dd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: 11px; }
-.map-truck-facts div:last-child { display: block; }
-.map-truck-facts div:last-child dd { overflow: visible; text-overflow: clip; white-space: normal; text-align: left; line-height: 1.4; }
-.map-truck-focus { width: 100%; margin-top: 8px; padding: 5px; font-size: 11px; }
 .next-card { position: absolute; left: 14px; bottom: 14px; width: 232px; display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; background: rgb(255 255 255 / 0.94); border-radius: 14px; box-shadow: 0 8px 24px rgb(15 23 42 / 0.1); }
 .next-card .label { font-size: 11px; font-weight: 700; color: var(--ink-3); }
 .next-card .label:nth-of-type(2) { margin-top: 8px; }
@@ -680,11 +717,24 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .risk { font-weight: 700; }
 .risk.EMPTY { color: var(--empty); }
 .risk.OVERFLOW { color: #b45309; }
-.zone-status { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
-.zone-status h3 { margin: 0 0 8px; font-size: 13px; display: flex; justify-content: space-between; }
+.zone-status { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.zone-status h3 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: baseline; gap: 6px; }
 .zone-status h3 .muted { font-size: 11px; }
-.stack { display: flex; height: 26px; border-radius: 8px; overflow: hidden; gap: 2px; }
-.stack span { display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 800; min-width: 22px; }
+.zone-status .text-btn { margin-left: auto; padding: 0; font-size: 11.5px; font-weight: 700; color: var(--brand-strong); background: none; border: 0; }
+.stack { display: flex; height: 30px; border-radius: 8px; overflow: hidden; gap: 2px; }
+.stack .seg { display: grid; place-items: center; min-width: 26px; padding: 0; color: #fff; font-size: 12px; font-weight: 800; border: 0; border-radius: 0; cursor: pointer; transition: opacity 0.15s, filter 0.15s; }
+.stack .seg:hover:not(:disabled) { filter: brightness(1.08); }
+.stack .seg.off { opacity: 0.3; }
+.stack .seg.on { outline: 2px solid var(--ink); outline-offset: -2px; }
+.stack .seg:disabled { display: none; }
+.ops { margin-top: 18px; }
+.ops-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+/* 트럭 색은 왼쪽 배지(t-badge)가 맡는다. 지도에서 고른 트럭은 테두리 전체를 그 색으로 바꿔 짚는다 */
+.ops-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; transition: border-color 0.15s, background-color 0.15s; }
+.ops-list li.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 6%, #fff); }
+.ops-list dl { display: grid; grid-template-columns: 1.1fr 0.6fr 0.6fr 2fr; gap: 4px 14px; margin: 0; }
+.ops-list dt { font-size: 11px; color: var(--ink-3); font-weight: 600; }
+.ops-list dd { margin: 2px 0 0; font-size: 13px; font-weight: 700; }
 .stack-legend { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; color: var(--ink-3); font-weight: 600; }
 .stack-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .stack-legend i { width: 8px; height: 8px; border-radius: 50%; }
@@ -774,6 +824,9 @@ dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
   .stock { border-left: 0; border-top: 1px solid var(--line); }
   .stock-scroll { position: static; overflow: visible; }
   .routes-panel { grid-template-columns: minmax(0, 1fr); }
+  .ops-list li { grid-template-columns: auto minmax(0, 1fr); }
+  .ops-list li > button { grid-column: 1 / -1; }
+  .ops-list dl { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 640px) {
   .rail { grid-template-columns: minmax(0, 1fr); }
@@ -784,7 +837,6 @@ dd { margin: 2px 0 0; font-weight: 700; font-size: 13px; }
   .map-truck-load { top: 90px; right: 12px; width: min(150px, calc(100% - 24px)); padding: 6px; }
   .map-truck-head { margin-bottom: 4px; }
   .map-truck-head h2, .map-truck-head span { font-size: 11px; }
-  .map-truck-load .chip { padding: 2px; font-size: 10px; }
   .map-truck-load :deep(.truck) { max-height: 62px; }
   .preview-banner { position: static; max-width: none; margin: 0 12px 12px; }
   .next-card, .iso-legend { position: static; width: auto; margin: 0 12px 12px; }

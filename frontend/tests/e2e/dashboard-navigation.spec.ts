@@ -9,6 +9,10 @@ async function openDashboard(page: Page) {
     user: { userId: 'fixture-manager', loginId: 'fixture', name: '검토자', role: 'MANAGER', status: 'ACTIVE' },
   })))
   await page.route('**/api/ai/tasks?**', route => route.fulfill({ json: { items: [] } }))
+  // 평면 지도 배경은 외부(OpenFreeMap)에서 받는다. 시험은 네트워크에 기대지 않게 빈 스타일을 준다
+  await page.context().route('https://tiles.openfreemap.org/**', route => route.fulfill({ json: {
+    version: 8, sources: {}, layers: [{ id: 'test-background', type: 'background', paint: { 'background-color': '#e8eef4' } }],
+  } }))
   await mockBoard(page)
   await page.goto('/dashboard')
   // 개발 서버가 대시보드(3D 뷰·지도)를 처음 컴파일하면 5초를 넘길 수 있다. CI는 늘 캐시 없이 돈다.
@@ -42,18 +46,116 @@ test('초기 관제 화면만 보이고 적재 현황은 3D 지도 안에만 있
   expect(load!.y).toBeLessThan(scene!.y + 100)
   await page.screenshot({ path: 'test-results/dashboard-1440-3d.png', fullPage: true })
 
+  // 적재 칸에는 트럭 버튼이 없다. 위 트럭 버튼으로 고른 트럭을 보여 준다
   const loadPanel = page.locator('.map-truck-load')
-  await loadPanel.getByRole('button', { name: 'TR-04' }).click()
-  await expect(page.getByRole('group', { name: '트럭 경로 골라 보기' }).getByRole('button', { name: 'TR-04' })).toHaveAttribute('aria-pressed', 'true')
-  await loadPanel.locator('summary').click()
-  await expect(loadPanel.getByText('다음 정류장')).toBeVisible()
-  await expect(loadPanel.getByRole('button', { name: '지도에서 이 트럭만 보기' })).toBeVisible()
+  await expect(loadPanel.getByRole('button')).toHaveCount(0)
+  await expect(loadPanel.locator('.load-truck')).toHaveText('TR-03')
+  await page.getByRole('group', { name: '트럭 경로 골라 보기' }).getByRole('button', { name: 'TR-04' }).click()
+  await expect(loadPanel.locator('.load-truck')).toHaveText('TR-04')
+  await expect(loadPanel).toContainText('12 / 15대')
+  // 적재 칸은 켜고 끈다
+  const loadSwitch = page.getByRole('switch', { name: '트럭 적재' })
+  await expect(loadSwitch).toHaveAttribute('aria-checked', 'true')
+  await loadSwitch.click()
+  await expect(page.locator('.map-truck-load')).toHaveCount(0)
+  await loadSwitch.click()
+  await expect(page.locator('.map-truck-load')).toBeVisible()
+  // 운행 상세는 관제 뷰 아래 칸에 트럭마다 있다
+  const ops = page.getByRole('region', { name: '운행 상세' })
+  await expect(ops.locator('.ops-list li')).toHaveCount(3)
+  await expect(ops).toContainText('다음 정류장')
+  expect((await ops.boundingBox())!.y).toBeGreaterThan(scene!.y + scene!.height)
+  await expect(ops.locator('li', { hasText: 'TR-04' }).getByRole('button', { name: '전체 보기' })).toBeVisible()
 
   await page.getByRole('tab', { name: '평면 지도' }).click()
   await expect(page.locator('#view .flat-map')).toBeVisible()
   await expect(page.locator('.map-truck-load')).toHaveCount(0)
   await page.getByRole('tab', { name: '3D 관제 뷰' }).click()
   await expect(page.locator('.scene > .map-truck-load')).toBeVisible()
+})
+
+test('권역 상태 색 버튼은 그 위험 종류의 대여소만 지도·재고 현황에 보인다 (다시 누르면 전부)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openDashboard(page)
+  const stock = page.locator('#view .stock')
+  // 권역 상태는 재고 현황 목록 위에 있다
+  const zone = (await stock.locator('.zone-status').boundingBox())!
+  expect(zone.y).toBeLessThan((await stock.locator('.stock-list').boundingBox())!.y)
+
+  await expect(page.locator('svg.iso .col')).toHaveCount(18)
+  const empty = stock.getByRole('button', { name: '빈 대여소 위험 6곳만 보기' })
+  await empty.click()
+  await expect(empty).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('svg.iso .col')).toHaveCount(6)
+  await expect(stock.locator('.stock-list li')).toHaveCount(6)
+  for (const word of await stock.locator('.stock-list .risk').allTextContents()) expect(word).toBe('부족')
+  // 평면 지도도 같다
+  await page.getByRole('tab', { name: '평면 지도' }).click()
+  await expect(page.locator('.flat-map .station')).toHaveCount(6)
+  await page.getByRole('tab', { name: '3D 관제 뷰' }).click()
+
+  await stock.getByRole('button', { name: '정상 7곳만 보기' }).click()
+  await expect(page.locator('svg.iso .col')).toHaveCount(7)
+  for (const word of await stock.locator('.stock-list .risk').allTextContents()) expect(word).toBe('정상')
+  await stock.getByRole('button', { name: '정상 7곳만 보기' }).click()
+  await expect(page.locator('svg.iso .col')).toHaveCount(18)
+})
+
+test('지도는 실제 거리 비율로 그리고 축척을 적는다', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openDashboard(page)
+  const map = page.locator('svg.iso')
+  const grid3d = async () => Number(await map.getAttribute('data-grid-m'))
+  // 3D: 멀리서는 넓은 칸, 확대하면 100m 칸까지 촘촘해지고 그 값을 확대 버튼 아래에 적는다
+  const far = await grid3d()
+  await expect(page.locator('.zoom-ctl .grid-scale')).toContainText(far >= 1000 ? `${far / 1000}km` : `${far}m`)
+  const zoomIn = page.getByRole('button', { name: '확대', exact: true })
+  while ((await grid3d()) > 100 && (await zoomIn.isEnabled())) await zoomIn.click()
+  expect(await grid3d()).toBe(100)
+  await expect(page.locator('.zoom-ctl .grid-scale')).toContainText('100m')
+  expect(far).toBeGreaterThan(100)
+  // 평면 지도: 실제 지도(MapLibre)의 축척 막대
+  await page.getByRole('tab', { name: '평면 지도' }).click()
+  await expect(page.locator('.flat-map .station-map')).toHaveAttribute('data-map-state', 'ready')
+  await expect(page.locator('.flat-map .maplibregl-ctrl-scale')).toHaveText(/^\d+\s?(m|km)$/)
+})
+
+test('3D 관제 뷰: 휠로 확대·축소, 끌어서 이동(끈 뒤 클릭은 선택이 아님), 버튼·전체 보기', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openDashboard(page)
+  const map = page.locator('svg.iso')
+  const zoom = async () => Number(await map.getAttribute('data-zoom'))
+  await expect(map).toHaveAttribute('data-zoom', '1.00')
+  // 멀리서는 기둥만 그린다. 거치대 상자는 고른 대여소(처음엔 가장 급한 곳) 하나뿐
+  await expect(page.locator('svg.iso .col .ghost')).toHaveCount(1)
+
+  const box = (await map.boundingBox())!
+  const [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2]
+  await page.mouse.move(cx, cy)
+  await page.mouse.wheel(0, -300)
+  await page.mouse.wheel(0, -300)
+  await expect.poll(zoom).toBeGreaterThan(1.8)
+  // 확대하면 모든 대여소의 거치대 상자를 그린다
+  await expect(page.locator('svg.iso .col .ghost')).toHaveCount(18)
+
+  // 끌면 보기가 옮겨지고, 끈 뒤의 클릭은 대여소를 고르지 않는다
+  const detail = page.locator('#view .stock .w-detail')
+  const picked = await detail.textContent()
+  const before = await map.getAttribute('viewBox')
+  await page.mouse.down()
+  await page.mouse.move(cx + 140, cy + 70, { steps: 6 })
+  await page.mouse.up()
+  expect(await map.getAttribute('viewBox')).not.toBe(before)
+  await expect(detail).toHaveText(picked!)
+
+  await page.getByRole('button', { name: '구역 전체 보기' }).click()
+  await expect(map).toHaveAttribute('data-zoom', '1.00')
+  await expect(page.getByRole('button', { name: '구역 전체 보기' })).toBeDisabled()
+  await page.getByRole('button', { name: '확대', exact: true }).click()
+  await expect(map).toHaveAttribute('data-zoom', '1.60')
+  await page.getByRole('button', { name: '축소', exact: true }).click()
+  await expect(map).toHaveAttribute('data-zoom', '1.00')
+  await page.screenshot({ path: 'test-results/dashboard-3d-zoom.png' })
 })
 
 test('관제 뷰에서 고른 대여소는 지도 바로 옆 재고 현황 칸에 보인다 (#74)', async ({ page }) => {
