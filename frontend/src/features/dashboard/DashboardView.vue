@@ -9,23 +9,36 @@ import type { Schemas } from '../../shared/api/client'
 import { DUMMY_PENDING, DUMMY_PLAN, DUMMY_REGION, DUMMY_STATIONS, DUMMY_TRUCKS } from '../../shared/dummy'
 import ApprovalCard from '../approval/ApprovalCard.vue'
 import type { ApprovalDecision } from '../approval/approval'
-import { actionLabel, kindLabel } from '../approval/approval'
-import StationMap from './StationMap.vue'
+import { actionLabel, kindLabel, stationChoices } from '../approval/approval'
+import StationMap, { type MapPreview } from './StationMap.vue'
 
 const router = useRouter()
 const colors: Record<string, string> = { 'truck-1': '#2563eb', 'truck-2': '#9333ea', 'truck-3': '#0891b2' }
 const riskLabel: Record<Schemas['RiskKind'], string> = { EMPTY: '빈 대여소 위험', OVERFLOW: '과적재 위험', NONE: '정상' }
 const roleLabel: Record<Schemas['StationRole'], string> = { FIXED_PICKUP: '고정 회수', FIXED_DROPOFF: '고정 배치', VARIABLE: '변동' }
+type Panel = 'EMPTY' | 'OVERFLOW' | 'PROGRESS' | 'PENDING' | 'UNAUTHORIZED' | 'UNSERVED' | 'STATION'
 
 const stations = DUMMY_STATIONS
 const plan = DUMMY_PLAN
 const trucks = DUMMY_TRUCKS
 const pending = ref([...DUMMY_PENDING])
 const openCard = ref<string | null>(null)
-const selected = ref<string | null>('ST-503')
+const selected = ref<string | null>(null)
 const focusTruck = ref<string | null>(null)
+const panel = ref<Panel>('PENDING')
+const expandedItem = ref<string | null>(null)
+
+// 펼친 변경안을 지도에 겹쳐 보여 준다. 경로 변경은 지금·바뀐 경로, 제약 추가는 대상 대여소
+const openPending = computed(() => pending.value.find((p) => p.approvalId === openCard.value))
+const preview = computed<MapPreview | null>(() => {
+  const p = openPending.value
+  if (!p) return null
+  if (p.diff) return { truckId: p.diff.truckId, before: p.diff.before, after: p.diff.after, focus: [] }
+  return { truckId: p.truckId, before: [], after: [], focus: stationChoices(p) }
+})
 const toast = ref('')
 const question = ref('')
+const asked = ref('')
 const answer = ref('')
 
 const station = computed(() => stations.find((s) => s.stationId === selected.value))
@@ -37,18 +50,53 @@ const stopOf = computed(() => {
   return null
 })
 const unservedOf = computed(() => plan.unserved.find((u) => u.stationId === selected.value))
+const stationById = (stationId: string) => stations.find((s) => s.stationId === stationId)
 
 const allStops = plan.routes.flatMap((r) => r.stops)
 const kpis = computed(() => [
-  { label: '빈 대여소 위험', value: stations.filter((s) => s.risk === 'EMPTY').length, unit: '곳', tone: 'empty' },
-  { label: '과적재 위험', value: stations.filter((s) => s.risk === 'OVERFLOW').length, unit: '곳', tone: 'overflow' },
-  { label: '진행 정류장', value: `${allStops.filter((s) => s.status === 'DONE').length}/${allStops.length}`, unit: '', tone: 'info' },
-  { label: '대기 중 변경안', value: pending.value.length, unit: '건', tone: pending.value.length ? 'overflow' : 'ok' },
-  { label: '무승인 변경', value: 0, unit: '건', tone: 'ok' },
+  { id: 'EMPTY' as const, label: '빈 대여소 위험', value: stations.filter((s) => s.risk === 'EMPTY').length, unit: '곳', tone: 'empty' },
+  { id: 'OVERFLOW' as const, label: '과적재 위험', value: stations.filter((s) => s.risk === 'OVERFLOW').length, unit: '곳', tone: 'overflow' },
+  { id: 'PROGRESS' as const, label: '진행 정류장', value: `${allStops.filter((s) => s.status === 'DONE').length}/${allStops.length}`, unit: '', tone: 'info' },
+  { id: 'PENDING' as const, label: '대기 중 변경안', value: pending.value.length, unit: '건', tone: pending.value.length ? 'overflow' : 'ok' },
+  { id: 'UNAUTHORIZED' as const, label: '무승인 변경', value: 0, unit: '건', tone: 'ok' },
+  { id: 'UNSERVED' as const, label: '포기 거점', value: plan.unserved.length, unit: '곳', tone: 'neutral' },
 ])
+
+const panelStations = computed(() =>
+  panel.value === 'EMPTY' || panel.value === 'OVERFLOW'
+    ? stations.filter((s) => s.risk === panel.value)
+    : [],
+)
 
 function progress(r: Schemas['Route']) {
   return Math.round((r.stops.filter((s) => s.status === 'DONE').length / r.stops.length) * 100)
+}
+
+// 트럭별 경로 표에 쓸 실시간 상태(기사, 운행 여부, 적재량)를 경로에 붙인다
+const truckRows = plan.routes.map((r) => ({ route: r, live: trucks.find((t) => t.truckId === r.truckId) }))
+
+function selectPanel(next: Exclude<Panel, 'STATION'>) {
+  panel.value = next
+  expandedItem.value = null
+  selected.value = null
+  if (next !== 'PENDING') openCard.value = null
+}
+
+function selectStation(stationId: string) {
+  selected.value = stationId
+  panel.value = 'STATION'
+  expandedItem.value = null
+  openCard.value = null
+}
+
+function toggleStation(stationId: string) {
+  expandedItem.value = expandedItem.value === stationId ? null : stationId
+  selected.value = expandedItem.value ? stationId : null
+}
+
+function toggleTruck(truckId: string) {
+  expandedItem.value = expandedItem.value === truckId ? null : truckId
+  focusTruck.value = expandedItem.value ? truckId : null
 }
 
 function notify(text: string) {
@@ -66,6 +114,7 @@ function decide(body: ApprovalDecision) {
 // 더미: 정해 둔 답을 보여 준다. 실제로는 QUESTION 작업을 만들고 SSE로 답을 받는다.
 function ask() {
   if (!question.value.trim()) return
+  asked.value = question.value.trim()
   answer.value =
     '오늘 성수·뚝섬 회수가 많은 이유는 서울숲 정문(3시간 뒤 34대)과 뚝섬유원지역(31대)이 거치대 수를 넘을 것으로 예측되기 때문이다. 두 곳 모두 고정 회수 거점이다.'
 }
@@ -77,19 +126,46 @@ function ask() {
       <h1>관제 대시보드 <span class="dummy-tag">더미 데이터</span></h1>
       <p>{{ DUMMY_REGION.name }} · 오전 근무조 07:00–10:00 · 계획 v{{ plan.version }} <span class="badge ACTIVE">활성</span></p>
     </div>
-    <!-- 계획 초안·상황 반영 요청·질의는 모두 작업 콘솔에서 종류를 골라 만든다 -->
-    <button @click="router.push('/console')">작업 요청</button>
+    <div class="head-actions">
+      <div class="ask-wrap">
+        <form class="ask" role="search" @submit.prevent="ask">
+          <input v-model="question" placeholder="에이전트에게 묻기" aria-label="에이전트에게 묻기" />
+          <button class="ask-btn" aria-label="검색">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+            </svg>
+          </button>
+        </form>
+        <div v-if="answer" class="answer-pop" role="status">
+          <div class="answer-q">
+            <strong>{{ asked }}</strong>
+            <button class="ghost answer-close" aria-label="답변 닫기" @click="answer = ''">닫기</button>
+          </div>
+          <p>{{ answer }}</p>
+          <span class="hint">근거: 예측 재고 (forecast), 계획 v3</span>
+        </div>
+      </div>
+      <!-- 계획 초안·상황 반영 요청·질의는 모두 작업 콘솔에서 종류를 골라 만든다 -->
+      <button @click="router.push('/console')">작업 요청</button>
+    </div>
   </div>
 
   <section class="kpis">
-    <div v-for="k in kpis" :key="k.label" :class="['kpi', k.tone]">
+    <button
+      v-for="k in kpis"
+      :key="k.id"
+      :class="['kpi', k.tone, { active: panel === k.id }]"
+      :aria-pressed="panel === k.id"
+      @click="selectPanel(k.id)"
+    >
       <span class="kpi-label">{{ k.label }}</span>
       <strong>{{ k.value }}<small>{{ k.unit }}</small></strong>
-    </div>
+    </button>
   </section>
 
   <div class="grid">
-    <section class="card map-card">
+    <div class="main-column">
+    <section :class="['card', 'map-card', { previewing: preview }]">
       <div class="map-head">
         <h2>위험 거점 지도</h2>
         <div class="legend">
@@ -115,70 +191,43 @@ function ask() {
         :colors="colors"
         :selected="selected"
         :focus-truck="focusTruck"
-        @select="selected = $event"
+        :preview="preview"
+        @select="selectStation"
       />
+      <div v-if="openPending" class="preview-bar">
+        <div class="preview-title">
+          <span class="badge WAITING_APPROVAL">{{ kindLabel[openPending.kind] }} 미리보기</span>
+          <strong>{{ openPending.summary }}</strong>
+        </div>
+        <div class="preview-legend">
+          <template v-if="openPending.diff">
+            <span><i class="ln before" />지금 경로</span>
+            <span><i class="ln after" :style="{ background: colors[openPending.diff.truckId] }" />바뀐 경로</span>
+            <span><i class="ring removed" />빠짐</span>
+            <span><i class="ring added" />추가</span>
+            <span><i class="ring changed" />대수 변경</span>
+            <span v-if="openPending.diff.addedMinutes" class="plus-min">소요 +{{ openPending.diff.addedMinutes }}분</span>
+          </template>
+          <span v-else><i class="ring focus" />제약 대상 대여소</span>
+          <button class="ghost close" aria-label="미리보기 닫기" @click="openCard = null">닫기</button>
+        </div>
+      </div>
       <p class="muted explain">💡 {{ plan.explanation }}</p>
     </section>
 
-    <aside class="side">
-      <section class="card">
-        <h2>대기 중 변경안 <span class="count-pill">{{ pending.length }}</span></h2>
-        <p v-if="!pending.length" class="muted">승인할 변경안이 없다</p>
-        <div v-for="p in pending" :key="p.approvalId" class="pending">
-          <div class="pending-row" @click="openCard = openCard === p.approvalId ? null : p.approvalId">
-            <div>
-              <span class="badge WAITING_APPROVAL">{{ kindLabel[p.kind] }}</span>
-              <span v-if="p.grade === 'MAJOR'" class="badge FAILED">큰 변경</span>
-              <p class="pending-title">{{ p.summary }}</p>
-              <span class="hint">{{ p.createdMin }}분 전<template v-if="p.truckId"> · {{ p.truckId }}</template></span>
-            </div>
-            <span class="chev" :class="{ open: openCard === p.approvalId }">›</span>
-          </div>
-          <ApprovalCard v-if="openCard === p.approvalId" :card="p" @decide="decide" />
-        </div>
-      </section>
-
-      <section v-if="station" class="card">
-        <h2>{{ station.name }} <span class="muted">{{ station.stationId }}</span></h2>
-        <div class="stock">
-          <div class="stock-bar">
-            <span :style="{ width: `${Math.min(100, (station.bikes / station.docks) * 100)}%` }" :class="station.risk" />
-          </div>
-          <span class="muted">재고 {{ station.bikes }} / 거치대 {{ station.docks }}</span>
-        </div>
-        <dl class="facts">
-          <dt>3시간 뒤 예측</dt><dd>{{ station.forecastBikes }}대</dd>
-          <dt>위험</dt><dd><span :class="['risk', station.risk]">{{ riskLabel[station.risk] }}</span></dd>
-          <dt>역할</dt><dd>{{ station.role ? roleLabel[station.role] : '-' }}</dd>
-          <dt>고도</dt><dd>{{ station.elevationM }}m</dd>
-        </dl>
-        <div v-if="stopOf" class="plan-note" :style="{ '--c': colors[stopOf.truckId] }">
-          <strong>{{ stopOf.truckId }} · {{ stopOf.seq }}번째 · {{ actionLabel[stopOf.action] }} {{ stopOf.bikes }}대</strong>
-          <span>{{ stopOf.reason }}</span>
-        </div>
-        <div v-else-if="unservedOf" class="plan-note dropped">
-          <strong>포기 거점 · 우선순위 {{ unservedOf.priority.toFixed(2) }}</strong>
-          <span>{{ unservedOf.reason }}</span>
-        </div>
-        <p v-else class="muted">이번 계획에 들어가지 않았다</p>
-      </section>
-    </aside>
-  </div>
-
-  <div class="grid lower">
     <section class="card">
       <h2>트럭별 경로</h2>
-      <div v-for="r in plan.routes" :key="r.truckId" class="truck-row">
+      <div v-for="{ route: r, live } in truckRows" :key="r.truckId" class="truck-row">
         <div class="truck-meta">
           <span class="truck-dot" :style="{ background: colors[r.truckId] }" />
           <div>
             <strong>{{ r.truckId }}</strong>
-            <span class="hint">
-              {{ trucks.find((t) => t.truckId === r.truckId)?.driver }} ·
-              {{ trucks.find((t) => t.truckId === r.truckId)?.moving ? '운행 중' : '정차' }} ·
-              {{ trucks.find((t) => t.truckId === r.truckId)?.updatedSec }}초 전
-            </span>
+            <span v-if="live" class="hint">{{ live.driver }} · {{ live.moving ? '운행 중' : '정차' }} · {{ live.updatedSec }}초 전</span>
           </div>
+          <span v-if="live" class="load-pill" :title="`지금 실린 자전거 ${live.load}대 / 적재 한도 ${live.capacity}대`">
+            <span>적재 <strong>{{ live.load }}</strong>/{{ live.capacity }}대</span>
+            <span class="load-gauge"><span :style="{ width: `${(live.load / live.capacity) * 100}%`, background: colors[r.truckId] }" /></span>
+          </span>
           <div class="progress"><span :style="{ width: `${progress(r)}%`, background: colors[r.truckId] }" /></div>
           <span class="hint">{{ progress(r) }}%</span>
         </div>
@@ -187,7 +236,7 @@ function ask() {
             v-for="s in r.stops"
             :key="s.seq"
             :class="['stop', s.action, s.status, { sel: s.stationId === selected }]"
-            @click="selected = s.stationId"
+            @click="selectStation(s.stationId)"
           >
             <span class="seq">{{ s.seq }}</span>
             <span class="stop-name">{{ s.stationName }}</span>
@@ -199,53 +248,214 @@ function ask() {
         </ol>
       </div>
     </section>
-
+    </div>
     <aside class="side">
-      <section class="card">
-        <h2>포기 거점 <span class="count-pill gray">{{ plan.unserved.length }}</span></h2>
-        <ul class="dropped-list">
-          <li v-for="u in plan.unserved" :key="u.stationId" @click="selected = u.stationId">
-            <div>
-              <strong>{{ u.stationName }}</strong>
-              <span class="hint">{{ u.reason }}</span>
+      <section class="card context-card">
+        <template v-if="panel === 'PENDING'">
+          <h2>대기 중 변경안 <span class="count-pill">{{ pending.length }}</span></h2>
+          <p v-if="!pending.length" class="empty-state">승인할 변경안이 없다</p>
+          <div v-for="p in pending" :key="p.approvalId" class="pending">
+            <div class="pending-row" @click="openCard = openCard === p.approvalId ? null : p.approvalId">
+              <div>
+                <span class="badge WAITING_APPROVAL">{{ kindLabel[p.kind] }}</span>
+                <span v-if="p.grade === 'MAJOR'" class="badge FAILED">큰 변경</span>
+                <p class="pending-title">{{ p.summary }}</p>
+                <span class="hint">{{ p.createdMin }}분 전<template v-if="p.truckId"> · {{ p.truckId }}</template></span>
+              </div>
+              <span class="chev" :class="{ open: openCard === p.approvalId }">›</span>
             </div>
-            <span class="prio">{{ u.priority.toFixed(2) }}</span>
-          </li>
-        </ul>
-      </section>
+            <ApprovalCard v-if="openCard === p.approvalId" :card="p" @decide="decide" />
+          </div>
+        </template>
 
-      <section class="card">
-        <h2>에이전트에게 묻기</h2>
-        <form class="ask" @submit.prevent="ask">
-          <input v-model="question" placeholder="오늘 성수 쪽 회수가 왜 많지?" />
-          <button>질의</button>
-        </form>
-        <p v-if="answer" class="answer-box">{{ answer }}<span class="hint">근거: 예측 재고 (forecast), 계획 v3</span></p>
+        <template v-else-if="panel === 'EMPTY' || panel === 'OVERFLOW'">
+          <h2>
+            {{ panel === 'EMPTY' ? '빈 대여소 위험' : '과적재 위험' }}
+            <span :class="['count-pill', panel === 'EMPTY' ? 'red' : '']">{{ panelStations.length }}</span>
+          </h2>
+          <ul class="context-list">
+            <li v-for="s in panelStations" :key="s.stationId">
+              <button :class="{ open: expandedItem === s.stationId }" :aria-expanded="expandedItem === s.stationId" @click="toggleStation(s.stationId)">
+                <span class="station-index">
+                  <strong>{{ s.name }}</strong>
+                  <span class="hint">{{ s.stationId }} · {{ s.role ? roleLabel[s.role] : '역할 없음' }}</span>
+                </span>
+                <span class="summary-tail">
+                  <span class="forecast">
+                    <small>현재</small> {{ s.bikes }}대
+                    <small>3시간 뒤</small> <strong>{{ s.forecastBikes }}대</strong>
+                  </span>
+                  <span class="chev" :class="{ open: expandedItem === s.stationId }">›</span>
+                </span>
+              </button>
+              <div :class="['expand-grid', { open: expandedItem === s.stationId }]">
+                <div class="expand-inner">
+                  <div class="context-expand">
+                    <div class="stock">
+                      <div class="stock-bar"><span :style="{ width: `${Math.min(100, (s.bikes / s.docks) * 100)}%` }" :class="s.risk" /></div>
+                      <span class="muted">재고 {{ s.bikes }} / 거치대 {{ s.docks }}</span>
+                    </div>
+                    <dl class="facts">
+                      <dt>3시간 뒤 예측</dt><dd>{{ s.forecastBikes }}대</dd>
+                      <dt>역할</dt><dd>{{ s.role ? roleLabel[s.role] : '-' }}</dd>
+                      <dt>고도</dt><dd>{{ s.elevationM }}m</dd>
+                    </dl>
+                    <div v-if="stopOf" class="plan-note" :style="{ '--c': colors[stopOf.truckId] }">
+                      <strong>{{ stopOf.truckId }} · {{ stopOf.seq }}번째 · {{ actionLabel[stopOf.action] }} {{ stopOf.bikes }}대</strong>
+                      <span>{{ stopOf.reason }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </template>
+
+        <template v-else-if="panel === 'PROGRESS'">
+          <h2>진행 정류장 <span class="count-pill blue">{{ allStops.filter((s) => s.status === 'DONE').length }}/{{ allStops.length }}</span></h2>
+          <div v-for="{ route: r, live } in truckRows" :key="r.truckId" class="panel-truck">
+            <button class="panel-truck-head" :aria-expanded="expandedItem === r.truckId" @click="toggleTruck(r.truckId)">
+              <span class="panel-truck-title">
+                <span class="truck-dot" :style="{ background: colors[r.truckId] }" />
+                <strong>{{ r.truckId }}</strong>
+                <span class="hint">{{ live?.driver }}</span>
+                <strong class="panel-percent">{{ progress(r) }}%</strong>
+                <span class="chev" :class="{ open: expandedItem === r.truckId }">›</span>
+              </span>
+              <span class="progress"><span :style="{ width: `${progress(r)}%`, background: colors[r.truckId] }" /></span>
+              <span class="hint">
+                {{ r.stops.filter((s) => s.status === 'DONE').length }}/{{ r.stops.length }}곳 완료
+                <template v-if="live"> · 적재 {{ live.load }}/{{ live.capacity }}대</template>
+              </span>
+            </button>
+            <div :class="['expand-grid', { open: expandedItem === r.truckId }]">
+              <div class="expand-inner">
+                <ol class="mini-stops">
+                  <li v-for="s in r.stops" :key="s.seq" :class="s.status" @click="selectStation(s.stationId)">
+                    <span class="seq">{{ s.status === 'DONE' ? '✓' : s.seq }}</span>
+                    <span><strong>{{ s.stationName }}</strong><small>{{ actionLabel[s.action] }} {{ s.bikes }}대</small></span>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="panel === 'UNAUTHORIZED'">
+          <h2>무승인 변경 <span class="count-pill green">0</span></h2>
+          <div class="empty-state success">
+            <strong>확인된 무승인 변경이 없다</strong>
+            <span>모든 계획과 경로 변경에 승인 기록이 있다.</span>
+          </div>
+        </template>
+
+        <template v-else-if="panel === 'UNSERVED'">
+          <h2>포기 거점 <span class="count-pill gray">{{ plan.unserved.length }}</span></h2>
+          <ul class="dropped-list">
+            <li v-for="u in plan.unserved" :key="u.stationId">
+              <button :class="{ open: expandedItem === u.stationId }" :aria-expanded="expandedItem === u.stationId" @click="toggleStation(u.stationId)">
+                <span>
+                  <strong>{{ u.stationName }}</strong>
+                  <span class="hint">{{ u.stationId }}</span>
+                </span>
+                <span class="summary-tail">
+                  <span class="prio">{{ u.priority.toFixed(2) }}</span>
+                  <span class="chev" :class="{ open: expandedItem === u.stationId }">›</span>
+                </span>
+              </button>
+              <div :class="['expand-grid', { open: expandedItem === u.stationId }]">
+                <div class="expand-inner">
+                  <div class="context-expand">
+                    <dl v-if="stationById(u.stationId)" class="facts">
+                      <dt>현재 재고</dt><dd>{{ stationById(u.stationId)?.bikes }}대</dd>
+                      <dt>3시간 뒤 예측</dt><dd>{{ stationById(u.stationId)?.forecastBikes }}대</dd>
+                      <dt>우선순위</dt><dd>{{ u.priority.toFixed(2) }}</dd>
+                    </dl>
+                    <div class="plan-note dropped">
+                      <strong>계획에서 제외한 이유</strong>
+                      <span>{{ u.reason }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </template>
+
+        <template v-else-if="station">
+          <h2>{{ station.name }} <span class="muted">{{ station.stationId }}</span></h2>
+          <div class="stock">
+            <div class="stock-bar">
+              <span :style="{ width: `${Math.min(100, (station.bikes / station.docks) * 100)}%` }" :class="station.risk" />
+            </div>
+            <span class="muted">재고 {{ station.bikes }} / 거치대 {{ station.docks }}</span>
+          </div>
+          <dl class="facts">
+            <dt>3시간 뒤 예측</dt><dd>{{ station.forecastBikes }}대</dd>
+            <dt>위험</dt><dd><span :class="['risk', station.risk]">{{ riskLabel[station.risk] }}</span></dd>
+            <dt>역할</dt><dd>{{ station.role ? roleLabel[station.role] : '-' }}</dd>
+            <dt>고도</dt><dd>{{ station.elevationM }}m</dd>
+          </dl>
+          <div v-if="stopOf" class="plan-note" :style="{ '--c': colors[stopOf.truckId] }">
+            <strong>{{ stopOf.truckId }} · {{ stopOf.seq }}번째 · {{ actionLabel[stopOf.action] }} {{ stopOf.bikes }}대</strong>
+            <span>{{ stopOf.reason }}</span>
+          </div>
+          <div v-else-if="unservedOf" class="plan-note dropped">
+            <strong>포기 거점 · 우선순위 {{ unservedOf.priority.toFixed(2) }}</strong>
+            <span>{{ unservedOf.reason }}</span>
+          </div>
+          <p v-else class="muted">이번 계획에 들어가지 않았다</p>
+        </template>
       </section>
     </aside>
   </div>
+
 
   <Transition name="toast"><div v-if="toast" class="toast">{{ toast }}</div></Transition>
 </template>
 
 <style scoped>
-.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
-.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
-.kpi::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--ink-3); }
-.kpi.empty::before { background: var(--empty); }
-.kpi.overflow::before { background: var(--overflow); }
-.kpi.info::before { background: var(--info); }
-.kpi.ok::before { background: var(--ok); }
-.kpi-label { font-size: 12px; color: var(--ink-3); font-weight: 600; }
-.kpi strong { font-size: 26px; letter-spacing: -0.02em; }
-.kpi small { font-size: 13px; color: var(--ink-3); margin-left: 2px; font-weight: 600; }
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 16px; }
+.kpi { --tone: var(--ink-3); --tone-ink: #fff; min-height: 70px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 9px 14px; display: flex; flex-direction: column; justify-content: center; align-items: stretch; text-align: left; gap: 2px; box-shadow: var(--shadow); position: relative; isolation: isolate; overflow: hidden; font-weight: inherit; transition: color 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease, transform 0.18s ease; }
+.kpi > * { position: relative; z-index: 1; }
+.kpi::before { content: ''; position: absolute; z-index: 0; inset: 0 auto 0 0; width: 4px; background: var(--tone); transition: width 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
+.kpi:hover:not(:disabled) { background: #fff; border-color: color-mix(in srgb, var(--tone) 55%, var(--line)); transform: translateY(-1px); }
+.kpi:hover:not(:disabled)::before { width: 20%; }
+.kpi.active { color: var(--tone-ink); border-color: var(--tone); box-shadow: 0 5px 18px color-mix(in srgb, var(--tone) 28%, transparent); transform: translateY(-1px); }
+.kpi.active::before { width: 100%; }
+.kpi.active:hover:not(:disabled)::before { width: 100%; }
+.kpi.empty { --tone: var(--empty); }
+.kpi.overflow { --tone: var(--overflow); --tone-ink: #3b2500; }
+.kpi.info { --tone: var(--info); }
+.kpi.ok { --tone: var(--ok); }
+.kpi.neutral { --tone: var(--ink-3); }
+.kpi-label { color: var(--ink-3); font-size: 12px; font-weight: 600; transition: color 0.28s ease; }
+.kpi.active .kpi-label { color: var(--tone-ink); opacity: 0.8; }
+.kpi strong { font-size: 22px; line-height: 1.1; letter-spacing: -0.02em; transition: color 0.28s ease; }
+.kpi small { font-size: 12px; color: inherit; margin-left: 2px; font-weight: 600; opacity: 0.72; }
 
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
-.grid.lower { margin-top: 18px; }
-.side { display: flex; flex-direction: column; gap: 18px; }
+.main-column { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.side { position: sticky; top: 74px; }
+.context-card { max-height: calc(100vh - 98px); overflow-y: auto; }
 .map-card { padding: 16px; }
 .map-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .map-head h2 { margin: 0; }
+.map-card.previewing { border-color: var(--overflow); box-shadow: 0 0 0 3px var(--overflow-soft), var(--shadow); }
+.preview-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-top: 10px; border-radius: 10px; background: #fffbeb; border: 1px solid #fde68a; font-size: 13px; }
+.preview-title { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.preview-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--ink-2); font-size: 12px; }
+.preview-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ln { width: 22px; height: 0; display: inline-block; }
+.ln.before { border-top: 3px dashed #64748b; }
+.ln.after { height: 4px; border-radius: 2px; }
+.ring { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 2.5px solid; }
+.ring.removed { border-color: var(--empty); border-style: dashed; }
+.ring.added { border-color: #10b981; }
+.ring.changed { border-color: var(--overflow); }
+.ring.focus { border-color: #7c3aed; }
+.plus-min { font-weight: 700; color: #92400e; }
+.close { padding: 3px 10px; font-size: 12px; }
 .legend { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--ink-2); flex-wrap: wrap; }
 .legend span { display: inline-flex; align-items: center; gap: 5px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
@@ -259,6 +469,9 @@ function ask() {
 .explain { margin: 10px 4px 0; }
 
 .count-pill { background: var(--overflow); color: #fff; border-radius: 999px; font-size: 12px; padding: 1px 8px; }
+.count-pill.red { background: var(--empty); }
+.count-pill.blue { background: var(--info); }
+.count-pill.green { background: var(--ok); }
 .count-pill.gray { background: var(--ink-3); }
 .pending { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
 .pending-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px; cursor: pointer; }
@@ -267,6 +480,35 @@ function ask() {
 .chev { font-size: 22px; color: var(--ink-3); transition: transform 0.15s; }
 .chev.open { transform: rotate(90deg); }
 .pending :deep(.approval) { margin: 0; border-radius: 0; border-width: 2px 0 0; }
+.context-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.context-list li button, .dropped-list li button { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 11px 12px; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; text-align: left; font-weight: inherit; }
+.context-list li button:hover:not(:disabled), .dropped-list li button:hover:not(:disabled) { background: #f8fafc; border-color: var(--line-2); }
+.context-list li button.open, .dropped-list li button.open { border-radius: 10px 10px 0 0; border-color: var(--line-2); background: #f8fafc; }
+.summary-tail { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.expand-grid { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease; }
+.expand-grid.open { grid-template-rows: 1fr; opacity: 1; }
+.expand-inner { min-height: 0; overflow: hidden; }
+.context-expand { padding: 12px; border: 1px solid var(--line-2); border-top: 0; border-radius: 0 0 10px 10px; background: #fff; }
+.context-expand .facts:last-child, .context-expand .stock:last-child { margin-bottom: 0; }
+.station-index, .dropped-list li button > span:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.forecast { flex: 0 0 auto; display: grid; grid-template-columns: auto auto; gap: 0 4px; text-align: right; font-size: 12px; }
+.forecast small { color: var(--ink-3); }
+.forecast > span { display: none; }
+.panel-truck { padding: 8px 0; border-top: 1px solid var(--line); }
+.panel-truck:first-of-type { border-top: 0; padding-top: 0; }
+.panel-truck-head { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 7px; padding: 8px; border: 0; border-radius: 9px; background: #fff; color: var(--ink); text-align: left; font-weight: inherit; }
+.panel-truck-head:hover:not(:disabled) { background: #f8fafc; }
+.panel-truck-title { display: flex; align-items: center; gap: 7px; }
+.panel-percent { margin-left: auto; font-size: 13px; }
+.panel-truck-title .chev { line-height: 1; }
+.mini-stops { list-style: none; padding: 4px 8px 8px; margin: 0; display: flex; flex-direction: column; gap: 5px; }
+.mini-stops li { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; background: #f8fafc; cursor: pointer; font-size: 12px; }
+.mini-stops li:hover { background: #f1f5f9; }
+.mini-stops li > span:last-child { display: flex; flex-direction: column; }
+.mini-stops small { color: var(--ink-3); }
+.mini-stops li.DONE { opacity: 0.6; }
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 28px 14px; border-radius: 10px; background: #f8fafc; color: var(--ink-3); text-align: center; font-size: 13px; }
+.empty-state.success { background: var(--brand-soft); color: var(--brand-strong); }
 
 .stock { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .stock-bar { height: 10px; background: #eef2f6; border-radius: 999px; overflow: hidden; }
@@ -288,7 +530,11 @@ function ask() {
 .truck-dot { width: 12px; height: 12px; border-radius: 4px; }
 .progress { flex: 1; height: 6px; background: #eef2f6; border-radius: 999px; overflow: hidden; }
 .progress span { display: block; height: 100%; border-radius: 999px; }
-.stops { list-style: none; display: flex; gap: 8px; padding: 0; margin: 0; overflow-x: auto; padding-bottom: 4px; }
+.load-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #f1f5f9; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.load-pill strong { font-size: 14px; color: var(--ink); }
+.load-gauge { width: 44px; height: 5px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+.load-gauge span { display: block; height: 100%; border-radius: 999px; }
+.stops { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 0; }
 .stop { flex: 0 0 auto; display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'seq name' 'seq act'; gap: 0 8px; padding: 8px 12px 8px 8px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; cursor: pointer; background: #fff; }
 .stop:hover { border-color: var(--line-2); }
 .stop.sel { border-color: var(--ink); }
@@ -302,12 +548,17 @@ function ask() {
 .eta { color: var(--ink-3); margin-left: 4px; font-size: 11px; }
 
 .dropped-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.dropped-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; border: 1px dashed var(--line-2); border-radius: 10px; cursor: pointer; }
-.dropped-list li div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
-.prio { font-weight: 700; font-size: 13px; color: var(--ink-2); background: #eef2f6; padding: 2px 8px; border-radius: 6px; }
-.ask { flex-direction: row; margin: 0; }
-.ask input { flex: 1; }
-.answer-box { margin: 12px 0 0; padding: 12px; background: var(--brand-soft); border-radius: 10px; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 6px; }
+.dropped-list li button { border-style: dashed; }
+.prio { flex: 0 0 auto; font-weight: 700; font-size: 13px; color: var(--ink-2); background: #eef2f6; padding: 2px 8px; border-radius: 6px; }
+.head-actions { display: flex; align-items: center; gap: 8px; }
+.ask-wrap { position: relative; }
+.ask { flex-direction: row; margin: 0; gap: 0; }
+.ask input { width: 280px; border-radius: 10px 0 0 10px; border-right: 0; }
+.ask-btn { display: grid; place-items: center; padding: 0 14px; border-radius: 0 10px 10px 0; }
+.answer-pop { position: absolute; top: calc(100% + 8px); right: 0; width: 420px; z-index: 6; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 32px rgb(15 23 42 / 0.14); font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 6px; }
+.answer-pop p { margin: 0; }
+.answer-q { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.answer-close { padding: 2px 10px; font-size: 12px; flex: 0 0 auto; }
 
 .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 14px; box-shadow: var(--shadow); }
 .toast-enter-active, .toast-leave-active { transition: all 0.2s; }

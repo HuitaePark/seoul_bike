@@ -146,7 +146,7 @@ export const DUMMY_PENDING: (Schemas['ApprovalRequest'] & { createdMin: number }
     kind: 'ADD_CONSTRAINT',
     approver: 'MANAGER',
     summary: '뚝섬유원지역 10:00~22:00 대여·반납 중지 (한강 행사)',
-    reasons: ['관리자 요청 "뚝섬 한강공원 행사로 대여소 운영 중지"를 제약으로 해석'],
+    reasons: ['관리자 요청 "뚝섬 한강공원 행사로 대여소 운영 중지"를 제약으로 해석', '대상 대여소 ST-575, 행사 시간 동안 수요 0으로 보고 배치 대상에서 뺀다'],
     createdMin: 9,
   },
 ]

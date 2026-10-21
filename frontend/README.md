@@ -18,9 +18,9 @@ BACKEND_URL=https://baki-macbookpro.tail3286a4.ts.net npm run dev   # 배포 서
 | `src/shared/api/schema.d.ts` | `docs/specs/openapi.yaml`에서 생성. **손으로 고치지 않는다.** 계약을 바꾸면 `npm run gen:api` |
 | `src/shared/auth/store.ts` | `useAuth()` → `login`, `logout`, `user`, `token` |
 | `src/shared/composables/useTaskStream.ts` | `useTaskStream(taskIdRef)` → `answer`, `activeTool`, `pendingApproval`, `sources`, `error`, `state`. 끊기면 `Last-Event-ID`로 다시 붙는다 |
-| `src/features/task-console/` | 관제 작업 화면 (1): 작업 만들기 → 진행 이벤트 로그 → 승인 카드 → 근거 |
+| `src/features/task-console/` | 관제 작업 화면 (1): 작업 종류·권역·날짜·근무조 선택 → 작업 만들기 → 진행 이벤트 로그 → 승인 카드 → 근거. 권역 선택기는 현재 광진·성동만 활성화한다 |
 | `src/features/approval/` | 승인 카드 (1). 기사 화면도 `<ApprovalCard :card :error @decide>`로 쓴다. 버튼은 늘 보이고, 승인 주체가 아니면 backend의 403 `NOT_APPROVER`를 `error`로 보여 준다 |
-| `src/features/dashboard/` | 관제 대시보드 (`/dashboard`, MANAGER 첫 화면): KPI, 위험 거점 지도(SVG 개략도), 대기 중 변경안, 거점 근거, 트럭별 경로, 포기 거점, 질의. **더미 데이터** |
+| `src/features/dashboard/` | 관제 대시보드 (`/dashboard`, MANAGER 첫 화면): 선택형 KPI와 오른쪽 상세 아코디언, 위험 거점 지도(SVG 개략도), 변경안 전후 경로 미리보기, 지도 아래 트럭별 경로·적재량, 포기 거점, 질의. **더미 데이터** |
 | `src/features/driver/` | 기사 앱 (`/driver`, DRIVER 첫 화면, 모바일 틀): 다음 정류장, 길안내, 수량 +/- 보고 시트, 현장 사정, 변경 제안(운행 중엔 배지만). **더미 데이터** |
 | `src/features/report/` | 성과 리포트 (`/report`, EXECUTIVE 첫 화면): 날짜별 정책 4종 지표 비교. **더미 데이터** |
 | `src/shared/dummy.ts` | 대시보드·기사 앱이 같이 쓰는 더미 근무조 (계약 타입 그대로). API를 붙이면 지운다 |
