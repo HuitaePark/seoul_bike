@@ -1,5 +1,6 @@
 <!--
 위험 거점 지도 (FR-01, FR-06). 지도 타일 없이 위경도를 SVG에 투영한 개략도다.
+실제 거리 비율로 그린다: 동서·남북을 같은 m/px로 맞추고, 격자 한 칸이 몇 m인지 오른쪽 위에 적는다 (가로·세로를 따로 늘이면 거리가 틀어진다).
 대여소 색은 위험 종류, 크기는 거치대 수, 선은 트럭별 경로(지난 구간 실선, 남은 구간 점선, 트럭 위치에서 나뉜다)다.
 트럭을 고르거나 승인 대기 변경안을 미리 보면(preview) 관련 없는 대여소·경로를 흐리게 한다.
 -->
@@ -17,6 +18,8 @@ const props = defineProps<{
   selected?: string | null
   focusTruck?: string | null
   preview?: RoutePreview | null
+  /** 이 위험 종류의 대여소만 그린다 (권역 상태 색 버튼). 축척·배치는 그대로다 */
+  only?: Schemas['RiskKind'] | null
 }>()
 const emit = defineEmits<{ select: [stationId: string] }>()
 
@@ -30,13 +33,34 @@ const bounds = computed(() => {
   return { minLat: Math.min(...lats), maxLat: Math.max(...lats), minLon: Math.min(...lons), maxLon: Math.max(...lons) }
 })
 
-function xy(lat: number, lon: number) {
+/** 위도 1도, 적도에서 경도 1도의 m */
+const M_PER_LAT = 110_570
+const M_PER_LON = 111_320
+/** 격자 한 칸 후보(m). 한 칸이 GRID_MIN_PX 이상인 가장 작은 것을 쓴다 */
+const GRID_STEPS_M = [100, 200, 250, 500, 1000, 2000]
+const GRID_MIN_PX = 36
+
+// 동서·남북을 같은 m/px로 맞춰 구역 전체를 담고 가운데 둔다
+const proj = computed(() => {
   const b = bounds.value
+  const cos = Math.cos((((b.minLat + b.maxLat) / 2) * Math.PI) / 180)
+  const wM = Math.max((b.maxLon - b.minLon) * M_PER_LON * cos, 500)
+  const hM = Math.max((b.maxLat - b.minLat) * M_PER_LAT, 500)
+  const pxPerM = Math.min((W - PAD * 2) / wM, (H - PAD * 2) / hM)
+  return { b, cos, pxPerM, ox: (W - wM * pxPerM) / 2, oy: (H - hM * pxPerM) / 2 }
+})
+function xy(lat: number, lon: number) {
+  const p = proj.value
   return {
-    x: PAD + ((lon - b.minLon) / (b.maxLon - b.minLon)) * (W - PAD * 2),
-    y: PAD + ((b.maxLat - lat) / (b.maxLat - b.minLat)) * (H - PAD * 2),
+    x: p.ox + (lon - p.b.minLon) * M_PER_LON * p.cos * p.pxPerM,
+    y: p.oy + (p.b.maxLat - lat) * M_PER_LAT * p.pxPerM,
   }
 }
+const gridStep = computed(() => GRID_STEPS_M.find((m) => m * proj.value.pxPerM >= GRID_MIN_PX) ?? GRID_STEPS_M.at(-1)!)
+const cell = computed(() => gridStep.value * proj.value.pxPerM)
+/** 대여소 원 반지름(px): 거치대 수에 따라 조금 커진다. 실제 거리가 보이게 원이 서로 덮지 않을 만큼 작게 둔다 */
+const stationR = (docks: number) => 5 + Math.min(docks, 40) / 8
+const gridLabel = computed(() => (gridStep.value >= 1000 ? `${gridStep.value / 1000}km` : `${gridStep.value}m`))
 
 const byId = computed(() => new Map(props.stations.map((s) => [s.stationId, s])))
 
@@ -50,7 +74,7 @@ const lit = computed<Set<string> | null>(() => {
 })
 
 const points = computed(() =>
-  props.stations.map((s) => ({ ...s, ...xy(s.lat, s.lon), r: 6 + s.docks / 5, dim: !!lit.value && !lit.value.has(s.stationId) })),
+  props.stations.filter((s) => !props.only || s.risk === props.only).map((s) => ({ ...s, ...xy(s.lat, s.lon), r: stationR(s.docks), dim: !!lit.value && !lit.value.has(s.stationId) })),
 )
 
 const path = (p: [number, number][]) => p.map((q, i) => `${i ? 'L' : 'M'}${q[0].toFixed(1)},${q[1].toFixed(1)}`).join(' ')
@@ -92,7 +116,7 @@ const previewLine = computed(() => {
 const marks = computed(() =>
   previewMarks(props.preview).flatMap((m) => {
     const s = byId.value.get(m.id)
-    return s ? [{ ...m, ...xy(s.lat, s.lon), r: 6 + s.docks / 5 }] : []
+    return s ? [{ ...m, ...xy(s.lat, s.lon), r: stationR(s.docks) }] : []
   }),
 )
 
@@ -102,8 +126,9 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
 <template>
   <svg :viewBox="`0 0 ${W} ${H}`" class="map" role="img" aria-label="위험 거점 지도">
     <defs>
-      <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-        <path d="M40 0H0V40" fill="none" stroke="#e8edf3" stroke-width="1" />
+      <!-- 격자 한 칸 = gridStep m. 구역 왼쪽 위(대여소가 있는 범위의 북서쪽)에 맞춘다 -->
+      <pattern id="grid" :width="cell" :height="cell" patternUnits="userSpaceOnUse" :patternTransform="`translate(${proj.ox} ${proj.oy})`">
+        <path :d="`M${cell} 0H0V${cell}`" fill="none" stroke="#d3dce7" stroke-width="1" />
       </pattern>
       <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
         <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.18" />
@@ -111,10 +136,12 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
     </defs>
     <rect :width="W" :height="H" fill="#f7fafc" />
     <rect :width="W" :height="H" fill="url(#grid)" />
-    <!-- 한강·중랑천 (장식) -->
-    <path :d="`M0 ${H - 30} C 250 ${H - 70}, 520 ${H - 10}, 760 ${H - 40} S ${W} ${H - 70}, ${W} ${H - 80} V ${H} H 0 Z`" fill="#d4ebf8" />
-    <path d="M70 0 C 90 120, 40 260, 120 420 S 180 520, 160 560" fill="none" stroke="#d4ebf8" stroke-width="18" stroke-linecap="round" />
-    <text :x="W - 140" :y="H - 22" class="river">한강</text>
+    <!-- 축척: 격자 한 칸 -->
+    <g class="scale" :transform="`translate(${W - 20 - Math.max(cell, 84) / 2 - cell / 2} 26)`" :data-grid-m="gridStep">
+      <rect :x="cell / 2 - Math.max(cell + 20, 104) / 2" y="-18" :width="Math.max(cell + 20, 104)" height="30" rx="8" fill="#fff" opacity="0.9" />
+      <path :d="`M0 4V8H${cell}V4`" fill="none" stroke="#475569" stroke-width="1.6" />
+      <text :x="cell / 2" y="-3">한 칸 = {{ gridLabel }}</text>
+    </g>
 
     <g v-for="l in lines" :key="l.truckId" :opacity="l.dim ? 0.1 : preview ? 0.55 : 1">
       <path :d="l.done" :stroke="colors[l.truckId]" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.45" />
@@ -135,7 +162,7 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
       @click="emit('select', p.stationId)"
       @keydown.enter="emit('select', p.stationId)"
     >
-      <circle v-if="p.risk !== 'NONE'" :cx="p.x" :cy="p.y" :r="p.r + 8" :fill="riskColor[p.risk]" opacity="0.16" class="pulse" />
+      <circle v-if="p.risk !== 'NONE'" :cx="p.x" :cy="p.y" :r="p.r + 4" :fill="riskColor[p.risk]" opacity="0.16" class="pulse" />
       <circle :cx="p.x" :cy="p.y" :r="p.r" :fill="riskColor[p.risk]" stroke="#fff" stroke-width="2.5" />
       <text :x="p.x" :y="p.y + 4" class="count">{{ p.bikes }}</text>
       <text :x="p.x" :y="p.y - p.r - 7" class="name">{{ p.name }}</text>
@@ -158,12 +185,12 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
 
 <style scoped>
 .map { width: 100%; height: auto; display: block; border-radius: 12px; }
-.river { font-size: 13px; fill: #4a9fd6; font-weight: 600; }
+.scale text { font-size: 12px; font-weight: 700; fill: #334155; text-anchor: middle; }
 .station { cursor: pointer; outline: none; }
 .station .name { font-size: 11px; fill: #334155; text-anchor: middle; font-weight: 600; paint-order: stroke; stroke: #f8fafc; stroke-width: 4px; opacity: 0; transition: opacity 0.15s; }
 .station:hover .name, .station:focus .name, .station.selected .name { opacity: 1; }
 .station.selected > circle:nth-last-of-type(1) { stroke: var(--ink); stroke-width: 3.5; }
-.count { font-size: 10px; font-weight: 700; fill: #fff; text-anchor: middle; pointer-events: none; }
+.count { font-size: 8.5px; font-weight: 700; fill: #fff; text-anchor: middle; pointer-events: none; }
 .truck-label { font-size: 11px; font-weight: 700; fill: #fff; text-anchor: middle; }
 .station { transition: opacity 0.2s; }
 .mark { pointer-events: none; }
