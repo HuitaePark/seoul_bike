@@ -1,6 +1,5 @@
 package com.seoulbike.backend.devagent;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -21,6 +20,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 import com.seoulbike.backend.auth.Role;
 import com.seoulbike.backend.common.ApiException;
+import com.seoulbike.backend.common.SeoulTime;
 import com.seoulbike.backend.route.RouteChangeGrade;
 import com.seoulbike.backend.route.RouteChangeGrader;
 import com.seoulbike.backend.route.RouteDiff;
@@ -234,7 +234,7 @@ class FakeAgent {
 		ObjectNode e = json.createObjectNode();
 		e.put("eventId", UUID.randomUUID().toString());
 		e.put("schemaVersion", 1);
-		e.put("occurredAt", Instant.now().toString());
+		e.put("occurredAt", SeoulTime.now());
 		e.put("shiftId", cmd.path("shiftId").asString());
 		e.put("traceId", cmd.path("traceId").asString(null));
 		e.put("taskId", cmd.path("taskId").asString());
