@@ -5,7 +5,7 @@
 | 현재 MCP 소스·테스트·근거 문서 | main, 94d86d18021996b9dc5a50dc6893ae63a1e4ad3f | business-mcp/, rag-mcp/, docs/MCP.md, docs/evidence/ |
 | 최초 MCP 참조 스냅샷 | 유은/mcp, 4dd5305c32a4ebf22423e06965ae6cac947af4a1 | 당시 business-mcp/, rag-mcp/, docs/MCP.md, 근거 문서(현재 docs/evidence/로 통합) |
 | S05 참조 데이터 | junyeop, ad17528dcc0bf6a946642d678c53ab992f3bd683 | ref_regions.csv 중 S05 1행, ref_stations.csv 중 S05 196행 |
-| 공통 명세 기준 | main, 94d86d18021996b9dc5a50dc6893ae63a1e4ad3f | 공개 API 0.5, Kafka 0.4, 내부 API 0.5 |
+| 공통 명세 기준 | main, 6290ec594ed0fafd839b8743d2b792d3998b5ec1 | 공개 API 0.8, Kafka 0.4, 내부 API 0.5 |
 
 2026-10-21 main 병합에서 겹친 MCP 소스·테스트·문서는 최신 main 내용으로 맞췄다.
 근거 문서는 docs/evidence/로 통합했으며 이전 참조 사본은 제거했다. 실행·검증에도 docs/evidence/를 사용한다.

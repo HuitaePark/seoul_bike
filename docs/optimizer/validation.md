@@ -306,6 +306,12 @@ backend/·frontend/ 폴더와 CI 변경은 main에서 가져왔다. 이번 후�
   공통 YAML·공유 모듈·backend·agent·MCP 업무 소스는 main b591daa와 같다. PR 기준 diff 검사도 통과했다.
   기존 OR-Tools SWIG 경고 3건과 지연 로딩된 MapLibre 청크 크기 경고는 남아 있다.
 
+- 0b2ab82에서 작업 중 추가된 main 6290ec5(PR #30)를 병합했다. 아이디+접속 IP 로그인 제한,
+  서버 로컬 frontend 포트와 공개 API v0.8·생성 타입을 main 그대로 반영했다.
+  Java 21·Testcontainers의 backend **32개 통과**, 실패·오류·생략 없음.
+  v0.8에서 임시 생성한 API 타입 일치·프론트 빌드와 최신 운영 Compose 검사를 다시 통과했다.
+  v0.8은 로그인 제한 설명 변경으로 solve·Route·Stop·Unserved 구조는 유지한다.
+
 GitHub 호스팅 러너의 최신 실행 결과는 [PR #29 Checks](https://github.com/HuitaePark/skala_seoul_bike/pull/29/checks)에서 확인한다.
 이 검증은 실제 OSRM 도로 경로나 운영 backend의 solve 연결·배포 완료를 의미하지 않는다.
 

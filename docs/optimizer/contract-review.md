@@ -1,6 +1,6 @@
 # 공통 solve 명세 대응 기록
 
-기준 main: 94d86d1. 공개 API 0.5.0-draft, 내부 API 0.5.0-draft·Kafka 0.4.0-draft를 따른다.
+기준 main: 6290ec5. 공개 API 0.8.0-draft, 내부 API 0.5.0-draft·Kafka 0.4.0-draft를 따른다.
 공유 YAML을 유지하고 개인 브랜치의 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
@@ -35,5 +35,5 @@ ai.events 재시도/DLQ는 backend 변경이며 solve.* 실행기에 재시도/D
 새 TaskEvent.code를 SolveResult에 추가하지 않는다.
 작업 이벤트 seq도 backend가 부여하므로 SolveResult에 추가하지 않는다.
 
-명세·예시만 먼저 PR로 제출할 수 있도록 optimizer.md에 구현 브랜치·미병합 상태를 표시하고,
-main에 없는 실행 코드·인프라 안내는 해당 브랜치 링크로 연결했다.
+최신 공개 API v0.8의 로그인 제한 설명 변경은 solve·Route·Stop·Unserved 구조를 바꾸지 않는다.
+명세·예시와 역할 5 구현·인프라는 PR #29에서 함께 검토하며, 실행 안내는 구현 브랜치로 연결한다.

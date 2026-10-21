@@ -1,17 +1,17 @@
 # 최적화 · 인프라 명세
 
 상태: **명세 검토용, 계산·Kafka 실행기는 개인 브랜치에 있으며 운영 backend 미연결**. 담당: 역할 5.
-기준 main: `ea1059a`.
+기준 main: `6290ec5`.
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.7.0-draft |
+| 공개 API (OpenAPI) | 0.8.0-draft |
 | 내부 API (OpenAPI) | 0.5.0-draft |
 | Kafka (AsyncAPI) | 0.4.0-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
 아래 구현 설명은 [feat/optimizer-core의 계산 코드](https://github.com/HuitaePark/skala_seoul_bike/tree/feat/optimizer-core/or-tools/rebalancing)를 기준으로 한다.
-이 명세와 예시만 main에 반영해도 계산 코드가 함께 반영되는 것은 아니다. 구현은 별도 PR에서 검토한다.
+명세·예시와 계산·실행기·독립 인프라·지도 구현은 [PR #29](https://github.com/HuitaePark/skala_seoul_bike/pull/29)에서 함께 검토한다.
 
 외부 형식은 [asyncapi.yaml](asyncapi.yaml)의 SolveRequest·SolveResult와
 [openapi.yaml](openapi.yaml)의 Route·Stop·Unserved가 원본이다.
@@ -144,7 +144,7 @@ nearest-rank p95·행렬/공급자/나머지 엔진 시간·표본·입력/계�
 
 ## MCP 개발 환경·S05 참조 시드
 
-역할 3의 MCP 소스를 최신 main ea1059a에 맞춰 독립 컨테이너에서 조회·가짜 계산·승인 차단과
+역할 3의 MCP 소스를 최신 main 6290ec5에 맞춰 독립 컨테이너에서 조회·가짜 계산·승인 차단과
 docs/evidence/의 RAG 검색·원문 Resource를 검증한다. 기본 메모리 모드와 테스트용 pgvector overlay를
 제공하며, overlay는 일회용 DB·hash 임베딩으로 색인·검색 연결을 검사한다. 실제 의미 검색 품질과
 운영 backend·Kafka 계산 연결 검증은 별도다.
