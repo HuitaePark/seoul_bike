@@ -89,11 +89,11 @@ TRUCK_POSITIONS = {"TR-01": (37.5395, 127.0712, 0), "TR-02": (37.5370, 127.0857,
 
 def _initial_reports() -> list[Json]:
     return [
-        {"reportId": "FR-883", "truckId": "TR-01", "driver": "기사 A", "stationId": "ST-1031", "actualBikes": 1,
+        {"reportId": "FR-883", "truckId": "TR-01", "driver": "TR-01 기사", "stationId": "ST-1031", "actualBikes": 1,
          "issue": None, "memo": None, "reportedAt": "2026-10-21T07:57:00+09:00"},
-        {"reportId": "FR-881", "truckId": "TR-01", "driver": "기사 A", "stationId": "ST-1023", "actualBikes": 0,
+        {"reportId": "FR-881", "truckId": "TR-01", "driver": "TR-01 기사", "stationId": "ST-1023", "actualBikes": 0,
          "issue": "INVENTORY_MISMATCH", "memo": "앱 3대, 실제 0대", "reportedAt": "2026-10-21T07:41:00+09:00"},
-        {"reportId": "FR-880", "truckId": "TR-02", "driver": "기사 B", "stationId": "ST-2302", "actualBikes": 17,
+        {"reportId": "FR-880", "truckId": "TR-02", "driver": "TR-02 기사", "stationId": "ST-2302", "actualBikes": 17,
          "issue": None, "memo": None, "reportedAt": "2026-10-21T07:22:00+09:00"},
     ]
 
@@ -101,10 +101,10 @@ def _initial_reports() -> list[Json]:
 def _initial_audit() -> list[Json]:
     return [
         {"auditId": "AU-5501", "occurredAt": "2026-10-21T06:52:00+09:00", "type": "PLAN_ACTIVATED",
-         "actor": {"role": "MANAGER", "display": "관리자 A"}, "targetId": _plan_id(3),
+         "actor": {"role": "MANAGER", "display": "관리자"}, "targetId": _plan_id(3),
          "detail": "오전 계획 v3 승인. 회수 3곳, 배치 4곳, 포기 1곳(ST-1188, 시간 한계)"},
         {"auditId": "AU-5502", "occurredAt": "2026-10-21T07:41:00+09:00", "type": "FIELD_REPORT",
-         "actor": {"role": "DRIVER", "display": "기사 A"}, "targetId": "FR-881",
+         "actor": {"role": "DRIVER", "display": "TR-01 기사"}, "targetId": "FR-881",
          "detail": "ST-1023 실제 재고 0대 (앱 3대)"},
     ]
 
@@ -142,6 +142,11 @@ class FakeInternalApi:
                 candidate_id: str | None = None) -> None:
         """사람이 카드를 승인한 기록. task_id가 None이면 어느 작업에서든 통한다 (시험 편의)."""
         self._approved[approval_id] = {"role": role, "taskId": task_id, "candidateId": candidate_id}
+        # backend는 승인 결정도 감사 기록에 남긴다 (internal-api 0.5.0 AuditEvent APPROVAL_APPROVED).
+        self._audit.append({"auditId": f"AU-{5502 + len(self._audit)}", "occurredAt": _iso(self._now),
+                            "type": "APPROVAL_APPROVED",
+                            "actor": {"role": role, "display": "관리자" if role == "MANAGER" else "기사"},
+                            "targetId": approval_id, "detail": f"{role} 승인"})
 
     # ── 공통 ─────────────────────────────────────────────
     def _next(self, key: str) -> int:
@@ -194,7 +199,7 @@ class FakeInternalApi:
         role = self._approved[approval_id]["role"]
         self._audit.append({"auditId": f"AU-{5502 + len(self._audit)}", "occurredAt": _iso(self._now),
                             "type": audit_type,
-                            "actor": {"role": role, "display": "관리자 A" if role == "MANAGER" else "기사 A"},
+                            "actor": {"role": role, "display": "관리자" if role == "MANAGER" else "기사"},
                             "targetId": target, "detail": detail})
         return result
 
@@ -252,10 +257,10 @@ class FakeInternalApi:
 
     async def field_reports(self, shift_id, since):
         self._shift(shift_id)
-        rows = self._reports
+        rows = sorted(self._reports, key=lambda r: r["reportedAt"])  # 계약처럼 보고 순서대로
         if since:
             since_dt = datetime.fromisoformat(since)
-            rows = [r for r in rows if datetime.fromisoformat(r["reportedAt"]) >= since_dt]
+            rows = [r for r in rows if datetime.fromisoformat(r["reportedAt"]) > since_dt]  # 그 시각은 뺀다 (계약 0.5.0)
         return copy.deepcopy(rows)
 
     async def audit_events(self, shift_id, since):
@@ -263,7 +268,7 @@ class FakeInternalApi:
         rows = self._audit
         if since:
             since_dt = datetime.fromisoformat(since)
-            rows = [r for r in rows if datetime.fromisoformat(r["occurredAt"]) >= since_dt]
+            rows = [r for r in rows if datetime.fromisoformat(r["occurredAt"]) > since_dt]  # 그 시각은 뺀다 (계약 0.5.0)
         return copy.deepcopy(rows)
 
     # ── 계산 ─────────────────────────────────────────────
@@ -379,5 +384,5 @@ class FakeInternalApi:
             trucks = [r["truckId"] for r in candidate["plan"]["routes"]]
             raise _problem(404, "TRUCK_NOT_FOUND", f"'{truck_id}' 트럭이 후보에 없습니다. 후보의 트럭: {', '.join(trucks)}",
                            trucks)
-        return self._use_approval(request["approvalId"], op, copy.deepcopy(route), "ROUTE_APPLIED", truck_id,
+        return self._use_approval(request["approvalId"], op, copy.deepcopy(route), "ROUTE_CHANGED", truck_id,
                                   f"{truck_id} 경로 변경 적용 ({request['candidateId']})")

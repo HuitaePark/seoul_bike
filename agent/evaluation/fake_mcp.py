@@ -92,6 +92,12 @@ DOCS: dict[str, dict[str, str]] = {
 
 NEARBY = {"ST-9999": ["ST-2003", "ST-2005"]}
 
+AUDIT: list[dict[str, Any]] = [
+    {"auditId": "AU-0001", "occurredAt": "2026-10-24T12:31:00+09:00", "type": "PLAN_ACTIVATED",
+     "actor": {"role": "MANAGER", "display": "관리자"}, "targetId": "P-0",
+     "detail": "근무조 계획 활성화. 과적재 위험 ST-2001, ST-2002, ST-2006 회수 우선"},
+]
+
 
 def report(report_id: str, truck_id: str, station_id: str, actual: int, issue: str | None = None, memo: str | None = None) -> dict:
     """internal-api FieldReport as the backend stores it (`driver` is already masked by the backend)."""
@@ -116,6 +122,7 @@ class World:
     approved: set[str] = field(default_factory=set)  # approval ids the backend recorded as APPROVED
     candidate_approvals: dict[str, set[str]] = field(default_factory=dict)  # candidateId -> approvers who approved
     candidates: dict[str, dict[str, Any]] = field(default_factory=dict)
+    audit: list[dict[str, Any]] = field(default_factory=lambda: copy.deepcopy(AUDIT))
     active: dict[str, Any] = field(default_factory=dict)
     _seq: itertools.count = field(default_factory=itertools.count)
     _ids: itertools.count = field(default_factory=lambda: itertools.count(1))
@@ -310,14 +317,31 @@ def business_server(world: World) -> FastMCP:
         world.record("get_field_reports", {"shift_id": shift_id, "since": since})
         return dump(world.reports)
 
+    @mcp.tool(annotations=READ)
+    def get_audit(shift_id: str, since: str | None = None, limit: int = 20) -> str:
+        """근무조 감사 기록(최신순): 계획 활성화, 제약 추가, 경로 변경 적용, 현장 보고, 승인·거절.
+        반환: events[] (auditId, occurredAt, type, actor(role, display), targetId, detail), truncated, total."""
+        world.record("get_audit", {"shift_id": shift_id, "since": since, "limit": limit})
+        reports = [
+            {"auditId": f"AU-R{i}", "occurredAt": r["reportedAt"], "type": "FIELD_REPORT",
+             "actor": {"role": "DRIVER", "display": f"truck-{r['truckId'][-1]} 기사"}, "targetId": r["reportId"],
+             "detail": f"{r['stationId']} 실제 재고 {r['actualBikes']}대"}
+            for i, r in enumerate(world.reports, 1)
+        ]
+        rows = sorted(world.audit + reports, key=lambda e: e["occurredAt"], reverse=True)
+        return dump({"source": f"GET /internal/shifts/{shift_id}/audit", "events": rows[:limit],
+                     "truncated": len(rows) > limit, "total": len(rows)})
+
     @mcp.tool(annotations=COMPUTE)
     async def request_route_plan(
-        shift_id: str, kind: str, truck_ids: list[str] | None = None, exclude_station_ids: list[str] | None = None
+        shift_id: str, kind: str, truck_ids: list[str] | None = None, exclude_station_ids: list[str] | None = None,
+        task_id: str | None = None,
     ) -> str:
         """경로 계산 (활성화 전 후보). kind: PLAN(근무조 계획) | REPLAN(재경로, truck_ids만 다시 계산).
         현장 보고의 실제 재고와 진입 불가는 자동 반영된다.
         반환: candidateId, status, plan, grade(NONE|MINOR|MAJOR, REPLAN만), requiredApprovers(승인 순서), diffs."""
-        args = {"shift_id": shift_id, "kind": kind, "truck_ids": truck_ids or [], "exclude_station_ids": exclude_station_ids or []}
+        args = {"shift_id": shift_id, "kind": kind, "truck_ids": truck_ids or [], "exclude_station_ids": exclude_station_ids or [],
+                "task_id": task_id}
         world.record("request_route_plan", args)
         for sid in args["exclude_station_ids"]:
             world.station(sid)

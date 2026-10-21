@@ -1,0 +1,60 @@
+# Independent development broker. Does not join the server deployment network.
+name: seoul-bike-optimizer-kafka-dev
+
+services:
+  broker:
+    image: redpandadata/redpanda:v26.2.5
+    command:
+      - redpanda
+      - start
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://broker:9092,external://127.0.0.1:${OPTIMIZER_KAFKA_PORT:-19092}
+    ports: ["127.0.0.1:${OPTIMIZER_KAFKA_PORT:-19092}:19092"]
+    volumes: [broker-data:/var/lib/redpanda/data]
+    healthcheck:
+      test: [CMD-SHELL, "rpk cluster health -X brokers=127.0.0.1:9092 | grep -E 'Healthy:.+true'"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  topics-init:
+    build:
+      context: ../..
+      dockerfile: or-tools/Dockerfile
+    command: [python, -m, rebalancing.kafka_transport, --bootstrap-servers, broker:9092]
+    depends_on:
+      broker: {condition: service_healthy}
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: or-tools/Dockerfile
+    command:
+      - python
+      - -m
+      - rebalancing.worker
+      - --bootstrap-servers
+      - broker:9092
+      - --group-id
+      - optimizer-local-v1
+      - --contexts
+      - /runtime/contexts.json
+      - --state-dir
+      - /state
+      - --travel-source
+      - haversine
+    depends_on:
+      topics-init: {condition: service_completed_successfully}
+    volumes:
+      - ./runtime.example.json:/runtime/contexts.json:ro
+      - worker-state:/state
+
+volumes:
+  broker-data:
+  worker-state:

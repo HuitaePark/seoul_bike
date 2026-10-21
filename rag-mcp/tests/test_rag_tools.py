@@ -193,7 +193,7 @@ async def test_unknown_resource_errors(client):
 # ── pgvector 색인·검색 (실제 DB) ─────────────────────────
 
 DSN = os.environ.get("RAG_TEST_DSN")
-needs_pg = pytest.mark.skipif(not DSN, reason="RAG_TEST_DSN이 없으면 건너뛴다 (CI는 pgvector 서비스로 실행)")
+needs_pg = pytest.mark.skipif(not DSN, reason="RAG_TEST_DSN이 없으면 건너뛴다. 로컬은 pgvector 컨테이너로 실행 (rag-mcp/eval/README.md 4절), CI는 python (rag-mcp) 잡이 pgvector 서비스로 실행")
 
 
 @pytest.fixture

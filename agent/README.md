@@ -33,7 +33,7 @@ uv pip install -e ".[dev]"   # dev: 계약 스키마 검사(jsonschema)
 반드시 `agent/` 폴더에서, 이 폴더의 `.venv` Python으로 실행한다. `python`이 다른 버전(예: Homebrew 3.11)이나 다른 프로젝트 가상환경을 가리키면 테스트를 못 찾거나(`Ran 0 tests`) 다른 프로젝트 테스트가 실행된다.
 
 ```bash
-.venv/bin/python -m unittest discover tests -v      # 동작 테스트 (Harness 38 + 그래프 35), 키 불필요, 약 4초
+.venv/bin/python -m unittest discover tests -v      # 동작 테스트 (Harness 39 + 그래프 35), 키 불필요, 약 4초
 .venv/bin/python -m unittest tests.test_harness.RecoveryTest.test_fallback_model_after_retries   # 한 줄로 입력
 .venv/bin/python -m evaluation --out /tmp/eval.md   # 시나리오 15개, 키 불필요, 약 3초
 ```
@@ -75,6 +75,7 @@ LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 �
 | | `test_unknown_constraint_type_is_rejected` | 계약에 없는 제약 유형은 거부된다 |
 | | `test_only_computed_plans_can_be_submitted` | 계산 결과에 없는 계획 ID는 제출할 수 없다 |
 | 기사 범위 | `test_driver_sees_recomputes_and_changes_only_own_truck` | 기사 작업에서 모델은 자기 트럭만 보고, 계산하고, 바꾼다 (NFR-06) |
+| | `test_driver_question_never_reads_the_shift_audit` | 기사 질문에는 감사 기록 도구가 없다. 같은 프로세스에서 관리자 질문을 먼저 처리해도 마찬가지다 (NFR-06) |
 | | `test_field_report_has_its_own_time_limit` | 현장 보고는 작업 종류별 시간 한도(NFR-01 10초)를 따른다 |
 | Tools | `test_long_result_is_truncated_with_notice` | 긴 결과는 한도에서 잘리고 안내가 붙으며 이벤트에 기록된다 |
 | | `test_tool_error_goes_back_to_model_with_retry_hint` | 없는 대여소 오류가 가까운 대여소 정보와 함께 모델에게 돌아간다 |

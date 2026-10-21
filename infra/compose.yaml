@@ -1,5 +1,6 @@
 # 서버(Apple Silicon)와 로컬 개발이 함께 쓰는 Compose 파일.
-# 밖으로 여는 포트는 frontend(:3000)뿐이다. backend(:8080)는 서버 자신(127.0.0.1)에만 열고, 아래 인프라는 내부망에만 둔다.
+# 서버 포트는 모두 서버 자신(127.0.0.1)에만 연다. 밖에서는 공개 주소(Tailscale Funnel → 127.0.0.1:3000)로만 들어온다.
+# 아래 인프라는 내부망에만 둔다.
 # 비밀값은 저장소가 아니라 서버의 .env에 둔다 (infra/.env.example 참고).
 name: seoul-bike
 
@@ -8,8 +9,9 @@ services:
     build:
       context: ../frontend
     ports:
-      # 공개 포트. Tailscale Funnel(443)이 여기로 보낸다. 화면과 /api를 같은 출처로 묶는다.
-      - "3000:80"
+      # 서버 자신에게만 연다. Tailscale Funnel(443·8443)이 127.0.0.1:3000으로 보낸다. 화면과 /api를 같은 출처로 묶는다.
+      # 내부망에서 :3000에 바로 붙으면 X-Forwarded-For를 속일 수 있어(로그인 제한이 접속 IP를 쓴다) 열지 않는다.
+      - "127.0.0.1:3000:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -150,8 +152,10 @@ services:
     build:
       context: ../business-mcp
     environment:
-      # backend가 /internal/**를 열기 전(M3)까지는 계약 형식의 가짜 응답(fake)으로 돈다. 연결할 때 .env에서 http로 바꾼다.
+      # backend가 /internal/**를 다 열기 전(M3)까지는 계약 형식의 가짜 응답(fake)으로 돈다.
+      # hybrid는 backend가 연 것(현장 보고·제약 추가·감사 기록)만 http로 부른다. 다 열리면 http로 바꾼다.
       INTERNAL_MODE: ${MCP_INTERNAL_MODE:-fake}
+      INTERNAL_HTTP_METHODS: ${MCP_INTERNAL_HTTP_METHODS:-}
       BACKEND_URL: http://backend:8080
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
     healthcheck:

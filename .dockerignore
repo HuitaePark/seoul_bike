@@ -1,0 +1,13 @@
+.git
+.venv
+**/.venv*
+**/__pycache__
+**/.pytest_cache
+**/.env
+.cache
+infra/optimizer/data
+**/build
+**/.gradle
+# 6번 수집기가 쌓는 원본 데이터와 로그 (하루 수십 MB). 루트 context로 이미지를 빌드할 때 함께 보내지 않는다
+/data
+/logs

@@ -6,3 +6,6 @@ export const roleLabel: Record<Schemas['Role'], string> = {
   DRIVER: '트럭 기사',
   EXECUTIVE: '운영사 책임자',
 }
+
+/** 회사명. 아직 정하지 않아 자리만 잡아 둔다 (로그인·회원가입 화면이 쓴다). */
+export const companyName = '회사명'

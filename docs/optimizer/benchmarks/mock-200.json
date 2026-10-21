@@ -1,0 +1,24 @@
+{
+  "measurement": "local engine including matrix preparation; excludes Kafka, OSRM HTTP, backend and LLM",
+  "ortools_version": "9.14.6206",
+  "seed": 7,
+  "input_stations": 200,
+  "candidate_stations": 74,
+  "trucks": 5,
+  "scenario": "mock-forecast",
+  "solution_limit": 50,
+  "elapsed_s": [
+    0.02253424999071285,
+    0.020499792008195072,
+    0.020688084012363106
+  ],
+  "median_s": 0.020688084012363106,
+  "max_s": 0.02253424999071285,
+  "same_plan_each_run": true,
+  "plan_sha256": "cbdc8b135cf4d3b9b84f495ede76f67298f824de0c390ff5fcaf11d98d067bf2",
+  "used_trucks": 5,
+  "required_bikes": 454,
+  "handled_bikes": 288,
+  "unserved_bikes": 166,
+  "distance_m": 232369
+}

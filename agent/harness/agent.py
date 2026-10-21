@@ -65,6 +65,11 @@ class HarnessAgent:
         sleep: Sleep = asyncio.sleep,
     ) -> None:
         self.config = config
+        tools = list(tools)
+        # Tools whose MCP schema takes `task_id` (change tools and request_route_plan) get it from Harness.
+        self.task_id_tools = {
+            t.name for t in tools if isinstance(t.args_schema, dict) and "task_id" in t.args_schema.get("properties", {})
+        }
         self.tools = hide_injected_args(tools, config.guardrails.injected_args)
         self.sink = sink
         kwargs = config.models.kwargs
@@ -76,7 +81,7 @@ class HarnessAgent:
         self.project = project or config.observability.project
         self.clock = clock
         self.sleep = sleep
-        self._built: dict[str, tuple[Any, Prompt]] = {}
+        self._built: dict[tuple[str, str], tuple[Any, Prompt]] = {}  # (task_type, requester role) -> graph
         self._steps: dict[str, int] = {}  # task_id -> card step in the approval order (in memory, docs/ISSUES.md ISS-19)
         # One masker per process (aliases are name hashes); also the LangSmith anonymizer (tracing.langsmith_client).
         self.masker = Masker(config.guardrails.mask_keys)
@@ -87,22 +92,27 @@ class HarnessAgent:
         # Backstop only: LoopGuard stops first. One turn is at most ~6 graph steps (hooks, model, tools).
         return self.config.loop.max_turns * 6 + 10
 
-    def _agent(self, task_type: str) -> tuple[Any, Prompt]:
-        if task_type not in self._built:
+    def _agent(self, task: Task) -> tuple[Any, Prompt]:
+        # The tool list depends on the requester's role too (tools.driver_deny), so the role is part of the key.
+        key = (task.task_type, task.requester.role)
+        if key not in self._built:
             cfg = self.config
-            tools = select_tools(self.tools, task_type, cfg.tools)
+            tools = select_tools(self.tools, task.task_type, task.requester.role, cfg.tools)
             gated = destructive_tools(tools)
             if missing := [name for name in gated if name not in cfg.guardrails.approval]:
                 # Every destructive tool must have an approval card; never run one ungated.
                 raise ValueError(f"guardrails.approval has no rule for destructive tools {missing}")
-            prompt = load_prompt(cfg.prompts_dir, task_type)
+            prompt = load_prompt(cfg.prompts_dir, task.task_type)
             middleware = [
                 LoopGuardMiddleware(cfg.loop),
                 ArgumentValidationMiddleware({t.name for t in tools}, cfg.guardrails.id_pattern, gated),
                 UsageMiddleware(),
                 StateBriefMiddleware(),
                 RecoveryMiddleware(cfg.recovery, self.fallback_model, self.sleep),
-                ToolResultMiddleware(cfg.tools, cfg.observability.tool_labels, cfg.guardrails.approval, cfg.guardrails.injected_args),
+                ToolResultMiddleware(
+                    cfg.tools, cfg.observability.tool_labels, cfg.guardrails.approval, cfg.guardrails.injected_args,
+                    self.task_id_tools,
+                ),
                 summarization(self.model, cfg.context),
                 approval_middleware(gated, cfg.guardrails.approval),
             ]
@@ -113,17 +123,17 @@ class HarnessAgent:
                 middleware=middleware,
                 context_schema=HarnessContext,
                 checkpointer=self.checkpointer,
-                name=f"harness_{task_type}",
+                name=f"harness_{task.task_type}",
             )
-            self._built[task_type] = (graph, prompt)
-        return self._built[task_type]
+            self._built[key] = (graph, prompt)
+        return self._built[key]
 
     def _masker(self, task: Task) -> Masker:
         self.masker.add_names(task.driver_names)
         return self.masker
 
     async def _state(self, task: Task) -> Any:
-        graph, _ = self._agent(task.task_type)
+        graph, _ = self._agent(task)
         return await graph.aget_state({"configurable": {"thread_id": task.thread_id}})
 
     async def history(self, task: Task) -> list[BaseMessage]:
@@ -185,7 +195,7 @@ class HarnessAgent:
         return await self._run(task, Command(resume={"decisions": list(decisions)}), self._masker(task), rejected)
 
     async def _run(self, task: Task, payload: Any, masker: Masker, rejected: bool) -> Outcome:
-        graph, prompt = self._agent(task.task_type)
+        graph, prompt = self._agent(task)
         ctx = HarnessContext(task=task, sink=self.sink, masker=masker, clock=self.clock)
         config = run_config(
             task,
@@ -242,7 +252,7 @@ class HarnessAgent:
 
     def _failed(self, ctx: HarnessContext, run_id: str, code: FailureCode, message: str) -> Outcome:
         message = ctx.masker.text(message)
-        ctx.emit("FAILED", {"error": message}, {"code": str(code), **self._summary(ctx, run_id)})
+        ctx.emit("FAILED", {"error": message, "code": str(code)}, self._summary(ctx, run_id))
         t = ctx.task
         return Outcome("FAILED", t.task_id, t.trace_id, run_id, code=str(code), message=message, stats=ctx.stats)
 

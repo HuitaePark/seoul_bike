@@ -53,12 +53,15 @@ def mcp_client(servers: dict[str, str], trace_header: str) -> MultiServerMCPClie
     )
 
 
-def select_tools(tools: Iterable[BaseTool], task_type: str, settings: ToolSettings) -> list[BaseTool]:
-    """Tools the model may see for this task. Read-only tasks never get destructive tools, whatever the allow list says."""
+def select_tools(tools: Iterable[BaseTool], task_type: str, role: str, settings: ToolSettings) -> list[BaseTool]:
+    """Tools the model may see for this task. Read-only tasks never get destructive tools, and a driver's task never
+    gets `driver_deny` tools, whatever the allow list says."""
     tools = list(tools)
     allowed = set(settings.allow.get(task_type, ()))
     if task_type in settings.read_only_tasks:
         allowed -= set(destructive_tools(tools))
+    if role == "driver":
+        allowed -= settings.driver_deny
     return [t for t in tools if t.name in allowed]
 
 
@@ -116,13 +119,19 @@ class ToolResultMiddleware(AgentMiddleware):
     """
 
     def __init__(
-        self, settings: ToolSettings, labels: dict[str, str], rules: Mapping[str, ApprovalRule], injected: Iterable[str]
+        self,
+        settings: ToolSettings,
+        labels: dict[str, str],
+        rules: Mapping[str, ApprovalRule],
+        injected: Iterable[str],
+        task_id_tools: Iterable[str] = (),
     ):
         super().__init__()
         self.settings = settings
         self.labels = labels
         self.rules = rules
         self.injected = tuple(injected)
+        self.task_id_tools = frozenset(task_id_tools)
 
     @staticmethod
     def _prepare(text: str, ctx: HarnessContext) -> str:
@@ -141,6 +150,8 @@ class ToolResultMiddleware(AgentMiddleware):
             args["top_k"] = self.settings.rag_top_k
         if call["name"] in self.rules:
             args |= {"approval_id": final_approval_id(ctx.task, call, history, self.rules), "task_id": ctx.task.task_id}
+        elif call["name"] in self.task_id_tools:
+            args["task_id"] = ctx.task.task_id
         return {**call, "args": args}
 
     def _tool(self, name: str, ok: bool | None = None) -> dict[str, Any]:

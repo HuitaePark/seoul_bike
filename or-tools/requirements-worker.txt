@@ -1,0 +1,2 @@
+# Optional Kafka execution layer; the solver's dependencies remain at the repository root.
+confluent-kafka==2.16.0
