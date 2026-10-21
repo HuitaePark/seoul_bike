@@ -21,8 +21,8 @@ jobs:
       - run: python -m pytest -q
         working-directory: or-tools
 
-  # agent(그래프·Harness), business-mcp, rag-mcp의 pytest. 외부 서비스 없이 도는 테스트만 돈다
-  # (Postgres 체크포인터 테스트는 AGENT_TEST_PG_URL이 없으면 스스로 건너뛴다).
+  # agent(그래프·Harness), business-mcp, rag-mcp의 pytest. rag-mcp의 색인·검색 테스트는 pgvector 서비스로 돈다.
+  # agent의 Postgres 체크포인터 테스트(AGENT_TEST_PG_URL)와 rag-mcp의 임베딩 모델 테스트(RAG_TEST_FASTEMBED)는 건너뛴다.
   python-services:
     runs-on: ubuntu-latest
     strategy:
@@ -38,7 +38,19 @@ jobs:
             extra: test
           - module: rag-mcp
             extra: test
+            rag-dsn: postgresql://postgres:test@localhost:5432/rag
     name: python (${{ matrix.module }})
+    # 서버와 같은 이미지. 세 모듈 모두 뜨지만 rag-mcp만 RAG_TEST_DSN으로 쓴다.
+    services:
+      vectordb:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: rag
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -48,6 +60,8 @@ jobs:
         working-directory: ${{ matrix.module }}
       - run: python -m pytest -q ${{ matrix.pytest-args }}
         working-directory: ${{ matrix.module }}
+        env:
+          RAG_TEST_DSN: ${{ matrix.rag-dsn }}
 
   backend:
     runs-on: ubuntu-latest
