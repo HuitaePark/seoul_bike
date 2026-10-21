@@ -95,7 +95,8 @@ class StationApiTest {
 		assertThat(first.path("docks").asInt()).isEqualTo(10);
 		assertThat(first.has("lat") && first.has("lon") && first.has("elevationM") && first.has("observedAt")).isTrue();
 		assertThat(body.get(1).path("risk").asString()).isEqualTo("OVERFLOW");
-		assertThat(body.get(2).path("forecastBikes").asInt()).isEqualTo(1);
+		// 30분 전 시작한 구간을 5분 전 관측에 이어 붙인다: 지난 25분 몫은 빼고 5 − 4 × 155/180 ≈ 1.6 → 2대.
+		assertThat(body.get(2).path("forecastBikes").asInt()).isEqualTo(2);
 		assertThat(body.get(2).path("risk").asString()).isEqualTo("EMPTY");
 
 		// 1시간 예측이 없으면 현재 재고(5대)로만 본다.
@@ -133,9 +134,9 @@ class StationApiTest {
 		observe(over, 13, 10, 5); // 3대 넘음: 3대 회수, 1 × 3 = 3
 		observe(low, 2, 10, 5); // 지금 2대: 1대 배치, 2 × 1 = 2
 		observe(later, 8, 10, 5); // 3시간 뒤 2대: 2 × 1 / 4 = 0.5
-		forecastNow(later, 0, 3, 6, 0);
+		forecastNow(later, 5, 3, 6, 0); // 구간 시작 = 관측 시각
 		observe(hourly, 5, 10, 5); // 1시간 뒤 1대, 끝은 5대: 2 × 2 / 2 = 2
-		forecastNow(hourly, 0, 3, 4, 4, "{4,0,0}", "{0,2,2}");
+		forecastNow(hourly, 5, 3, 4, 4, "{4,0,0}", "{0,2,2}");
 		observe(fine, 5, 10, 5);
 
 		var res = call("/internal/stations/risk?regionId=" + REGION, null, TOKEN);

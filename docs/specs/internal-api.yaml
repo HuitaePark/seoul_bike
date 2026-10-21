@@ -417,18 +417,19 @@ components:
             neededBikes:
               type: integer
               description: |
-                양수 회수, 음수 배치. EMPTY는 재고 궤적(openapi `RiskKind`)의 최저점이 3대가 되게(최저점 − 3),
-                OVERFLOW는 최고점이 거치대 수가 되게(최고점 − 거치대 수) 옮길 대수
+                양수 회수, 음수 배치. EMPTY는 재고 궤적(openapi `RiskKind`)의 최저점이 3대가 되게(최저점 − 3) 배치하되 지금 빈 거치대
+                (거치대 수 − 재고, 음수면 0)를 넘지 않는다. OVERFLOW는 최고점이 거치대 수가 되게(최고점 − 거치대 수) 회수하되 지금 재고를
+                넘지 않는다. 그래서 EMPTY라도 거치대가 다 찼으면 0일 수 있다
             priority:
               type: number
               description: |
                 |neededBikes| × 유형 가중치(EMPTY 2, OVERFLOW 1) × 임박도 1/(1 + k), 소수 둘째 자리 반올림.
-                k는 궤적이 위험 기준에 처음 닿는 시간(지금이면 0, 시간별 예측이 없으면 구간 끝 `horizonH`).
+                k는 **관측 시각부터** 궤적이 위험 기준에 처음 닿는 점까지의 시간(시간 단위 소수, 지금이면 0).
                 빈 대여소가 과적재보다 급하다 (PRD 7.1-4). PRD의 수요 강도는 아직 곱하지 않는다
             emptyAt:
               type: [string, 'null']
               format: date-time
-              description: 예상 빈 시각. 궤적이 처음 0대 이하가 되는 점의 시각(예측 구간 시작 + k시간, 지금 0대면 관측 시각). 그런 점이 없으면 null
+              description: 예상 빈 시각. 궤적이 처음 0대 이하가 되는 점의 시각(구간 시작 + n시간 경계, 지금 0대면 관측 시각). 그런 점이 없으면 null
             reasons:
               type: array
               items: { type: string }

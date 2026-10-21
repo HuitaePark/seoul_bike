@@ -569,8 +569,10 @@ export interface components {
         /** @enum {string} */
         StationRole: "FIXED_PICKUP" | "FIXED_DROPOFF" | "VARIABLE";
         /**
-         * @description 재고 궤적으로 판단한다. 궤적은 현재 재고에서 시작해 예측 순유입(반납 − 대여)을 더한 점들이다: 시간별 예측이 있으면 매시,
-         *     없으면 구간 끝 한 점 (각 점은 반올림한 대수, 현재 재고를 구간 시작 재고로 본다). 예측이 없으면 현재 재고 한 점.
+         * @description 재고 궤적으로 판단한다. 궤적은 관측 시각의 재고에서 시작해, 예측 구간 가운데 **관측 시각 뒤에 남은 부분**의 순유입(반납 − 대여)만
+         *     더한 점들이다 (구간이 진행 중이면 지난 몫은 이미 관측 재고에 들어 있다). 시간별 예측이 있으면 매시 경계(구간 시작 + k시간)마다
+         *     점을 만들고 관측 시각이 걸친 시간은 남은 비율만큼만 더한다. 시간별 예측이 없으면 합계가 고르게 퍼진다고 보고 남은 비율만큼 더한
+         *     구간 끝 한 점. 각 점은 반올림한 대수. 예측이 없으면 현재 재고 한 점.
          *     `EMPTY`: 한 점이라도 **2대 이하** (빈 위험, 합의 27). `OVERFLOW`: EMPTY가 아니고 한 점이라도 **거치대 수를 넘음**
          *     (운영 상한 초기값 = 거치대 수, PRD 7.1). `NONE`: 둘 다 아님.
          * @enum {string}
@@ -590,7 +592,7 @@ export interface components {
              * @description 그 관측 시각
              */
             observedAt: string;
-            /** @description horizonH 뒤 예상 재고 = 재고 궤적의 끝 점 (0 밑으로 내려가지 않는다). 고를 예측이 없으면 null */
+            /** @description 예측 구간 끝의 예상 재고 = 재고 궤적의 끝 점 (0 밑으로 내려가지 않는다). 고를 예측이 없으면 null */
             forecastBikes?: number | null;
             risk: components["schemas"]["RiskKind"];
             role?: components["schemas"]["StationRole"];
@@ -706,6 +708,8 @@ export interface components {
             instance?: string;
             /** @description 화면 분기용 코드 (예 APPROVAL_SUPERSEDED, TRUCK_NOT_OWNED) */
             code?: string;
+            /** @description 다시 요청할 때 쓸 수 있는 후보 ID (예 REGION_NOT_FOUND면 구역 ID). 줄 후보가 있을 때만 있다 */
+            suggestions?: string[];
         };
     };
     responses: {

@@ -58,7 +58,7 @@ class StationRiskTest {
 		assertThat(a.risk()).isEqualTo(Kind.EMPTY);
 		assertThat(a.neededBikes()).isEqualTo(-1);
 		assertThat(a.priority()).isEqualTo(0.5); // 1대 × 2 / (1 + 3시간)
-		assertThat(a.reasons()).contains("3시간 예측: 대여 6.4 · 반납 0.5 → 2대", "빈 위험: 3시간 뒤 2대 (기준 2대 이하)");
+		assertThat(a.reasons()).contains("3시간 예측: 대여 6.4 · 반납 0.5 → 구간 끝 2대", "빈 위험: 3시간 뒤 2대 (기준 2대 이하)");
 
 		// 반올림해 3대면 위험이 아니다.
 		assertThat(StationRisk.assess(8, 10, OBSERVED, 3, new Window(START, 5.4, 0, null, null)).risk())
@@ -97,5 +97,51 @@ class StationRiskTest {
 		assertThat(a.neededBikes()).isEqualTo(3); // 1시간 뒤 13대
 		assertThat(a.priority()).isEqualTo(1.5);
 		assertThat(a.reasons()).contains("과적재: 1시간 뒤 13대로 거치대 10개를 넘음");
+	}
+
+	@Test
+	void 진행_중인_구간은_관측_시각_뒤에_남은_순유입만_더한다() {
+		Instant start = Instant.parse("2026-10-21T22:00:00Z"); // 07:00 KST
+		double[] none = { 0, 0, 0 };
+		// 09:50 관측 4대. 첫 시간의 대여 5대는 이미 지나 관측 재고에 들어 있다.
+		Assessment late = StationRisk.assess(4, 10, start.plus(Duration.ofMinutes(170)), 3,
+				new Window(start, 5, 0, new double[] { 5, 0, 0 }, none));
+		assertThat(late.risk()).isEqualTo(Kind.NONE);
+		assertThat(late.forecastBikes()).isEqualTo(4);
+
+		// 07:30 관측 4대: 첫 시간의 남은 절반(대여 2대)만 더해 08:00에 2대, 관측 30분 뒤.
+		Assessment half = StationRisk.assess(4, 10, start.plus(Duration.ofMinutes(30)), 3,
+				new Window(start, 4, 0, new double[] { 4, 0, 0 }, none));
+		assertThat(half.risk()).isEqualTo(Kind.EMPTY);
+		assertThat(half.forecastBikes()).isEqualTo(2);
+		assertThat(half.reasons()).contains("빈 위험: 30분 뒤 2대 (기준 2대 이하)");
+		assertThat(half.priority()).isEqualTo(1.33); // 1대 × 2 / (1 + 0.5시간)
+
+		// 합계만 있으면 고르게 퍼진다고 보고 남은 2/3만 더한다. 08:00 관측 4대, 대여 6 → 10:00에 0대.
+		Assessment sum = StationRisk.assess(4, 10, start.plus(Duration.ofHours(1)), 3, new Window(start, 6, 0, null, null));
+		assertThat(sum.forecastBikes()).isZero();
+		assertThat(sum.emptyAt()).isEqualTo(start.plus(Duration.ofHours(3)));
+		assertThat(sum.reasons()).contains("빈 위험: 2시간 뒤 0대 (기준 2대 이하)");
+	}
+
+	@Test
+	void 배치는_지금_빈_거치대를_회수는_지금_재고를_넘지_않는다() {
+		// 최저점 −12라 15대가 필요하지만 빈 거치대는 1개.
+		Assessment fill = StationRisk.assess(8, 9, OBSERVED, 3, new Window(START, 20, 0, null, null));
+		assertThat(fill.risk()).isEqualTo(Kind.EMPTY);
+		assertThat(fill.neededBikes()).isEqualTo(-1);
+		assertThat(StationRisk.assess(7, 9, OBSERVED, 3, new Window(START, 20, 0, null, null)).neededBikes())
+			.isEqualTo(-2);
+		// 거치대가 이미 다 찼으면 내려놓을 수 없다.
+		Assessment full = StationRisk.assess(2, 2, OBSERVED, 3, null);
+		assertThat(full.risk()).isEqualTo(Kind.EMPTY);
+		assertThat(full.neededBikes()).isZero();
+		assertThat(full.priority()).isZero();
+
+		// 최고점 24라 19대를 넘지만 지금 있는 것은 4대.
+		Assessment take = StationRisk.assess(4, 5, OBSERVED, 3, new Window(START, 0, 20, null, null));
+		assertThat(take.risk()).isEqualTo(Kind.OVERFLOW);
+		assertThat(take.neededBikes()).isEqualTo(4);
+		assertThat(StationRisk.assess(6, 5, OBSERVED, 3, null).neededBikes()).isEqualTo(1);
 	}
 }
