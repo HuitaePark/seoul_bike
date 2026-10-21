@@ -157,3 +157,43 @@ def test_provider_failure_is_not_replaced_by_an_estimate():
     case = build_case(args, HaversineTravelTime())
     with pytest.raises(TravelTimeError, match="test timeout"):
         measure(case, Unavailable(), repeats=1, cache_mode="warm", namespace="test")
+
+
+@pytest.mark.parametrize("scenario", ["plan", "replan"])
+def test_reference_n01_uses_every_station_and_correct_depot_with_synthetic_state(scenario):
+    from rebalancing.seeds import REFERENCE_REGIONS, REFERENCE_STATIONS, load_region_seed
+    args = parser().parse_args(["--region", "N01", "--all-candidates", "--scenario", scenario,
+                               "--solution-limit", "1"])
+    case = build_case(args, HaversineTravelTime())
+    seed = load_region_seed(REFERENCE_REGIONS, REFERENCE_STATIONS, "N01")
+    assert len(case.stations) == len(case.jobs) == 265
+    assert case.depot == seed.depot != DEPOT
+    assert {s.id: (s.name, s.lat, s.lon, s.capacity) for s in case.stations} == {
+        int(s.data_id): (s.name, *s.position, s.docks) for s in seed.stations}
+    assert case.reference["region_id"] == "N01" and case.reference["wire_id_field"] == "api_station_id"
+    assert case.reference["inventory"].startswith("synthetic")
+    assert all(0 <= s.bikes <= s.capacity for s in case.stations)
+    assert sum(s.bikes for s in case.stations) + sum(t.load for t in case.trucks) == 133 * 5
+    if scenario == "replan":
+        assert case.completed and case.blocked
+        assert all(t.position is not None and t.available_time_s == 10800 - case.snapshot_elapsed_s for t in case.trucks)
+        result = case.solve(HaversineTravelTime())
+        assert not {s.station_id for r in result.routes for s in r.stops} & (case.completed | case.blocked)
+
+
+def test_reference_cli_retains_provenance_and_reproducibility_across_cache_modes(capsys):
+    report = main(["--region", "S09", "--all-candidates", "--repeats", "2", "--solution-limit", "1",
+                   "--cache-mode", "compare"])
+    assert json.loads(capsys.readouterr().out) == report
+    assert report["input_stations"] == 56 and report["seed"] is None
+    assert report["same_plan_across_cache_modes"]
+    assert report["reference"]["depot_basis"].startswith("station-coordinate-mean")
+    assert all(len(report["reference"][key]) == 64 for key in ("id_map_sha256", "regions_sha256", "stations_sha256"))
+
+
+@pytest.mark.parametrize("args", [["--region", "N01"], ["--region", "N99", "--all-candidates"],
+                                  ["--region", "N01", "--stations", "200", "--all-candidates"]])
+def test_reference_inputs_reject_missing_workload_unknown_region_or_truncation(args):
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2
