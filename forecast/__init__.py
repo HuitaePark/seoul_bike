@@ -17,7 +17,8 @@ class Forecast:
     """한 대여소의 예측 구간(start부터 horizon_h시간) 동안의 예상 수요. 값은 1시간 단위로 나눠 담는다.
     rentals_h[i], returns_h[i]는 start + i시간부터 1시간 동안의 값이다(길이 = horizon_h). 기댓값이라 실수다.
     시간별로 담는 이유: 구간 합계만 보면 "아침에 비었다가 저녁에 다시 차는" 대여소를 정상으로 본다(PRD 7.1 궤적).
-    optimizer(or-tools)의 Forecast는 아직 구간 합계 하나다. 시간별로 바꾸는 제안은 따로 올렸다(docs/data/predict.md)."""
+    optimizer도 같은 시간별 필드를 받아 연결한다. 별도 Forecast 클래스는 유지하며, 필요 대수의 정수 변환은
+    optimizer가 맡는다(docs/data/predict.md)."""
 
     start: datetime  # 예측 구간 시작 시각(정시)
     rentals_h: tuple[float, ...]  # 시간별로 대여되어 대여소에서 나갈 것으로 예상되는 자전거 수

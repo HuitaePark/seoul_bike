@@ -1,23 +1,37 @@
 {
   "repository": "https://github.com/HuitaePark/skala_seoul_bike",
   "dataCommit": "ad17528dcc0bf6a946642d678c53ab992f3bd683",
-  "mcpCommit": "4dd5305c32a4ebf22423e06965ae6cac947af4a1",
-  "regionId": "S05",
-  "status": "proposal-reference",
+  "status": "reference-geography",
+  "wireIdField": "api_station_id",
+  "regionIds": [
+    "N01",
+    "N02",
+    "N03",
+    "N04",
+    "N05",
+    "N06",
+    "N07",
+    "N08",
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07",
+    "S08",
+    "S09"
+  ],
   "files": [
     {
       "sourcePath": "analysis/out/ref_regions.csv",
       "sourceSha256": "c41c519b8e1fcaf7cc519869ed6a5958a7b289b7246da109a1b33f4c3fe108e8",
-      "exportPath": "infra/optimizer/seeds/s05-region.csv",
-      "exportSha256": "8acba26f21e84fec3fa5ca1f0d1c607fedbb4e5da69f9f7e02ac71b239088f7a",
-      "rows": 1
+      "rows": 17
     },
     {
       "sourcePath": "analysis/out/ref_stations.csv",
       "sourceSha256": "70ebecfe6e60919b35726637aac5c2ad4189e0cee5b603060cf21540b0d94e81",
-      "exportPath": "infra/optimizer/seeds/s05-stations.csv",
-      "exportSha256": "713dc9704a7dcd8a8329fc480f49340ddd08cd2c127e1b0a144a11f9e5a9ebbd",
-      "rows": 196
+      "rows": 2716
     }
   ],
   "depotBasis": "station-coordinate-mean",

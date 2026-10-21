@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { label, numberText, reasonText, riskLabels, roleLabels, stationName, timeText, type Plan, type Station } from './model.ts'
-const props = defineProps<{ id: string; stations: Map<string, Station>; plan: Plan; horizon: number }>()
+const props = defineProps<{ id: string; stations: Map<string, Station>; plan: Plan | null; horizon: number }>()
 const station = computed(() => props.stations.get(props.id))
-const stop = computed(() => props.plan.routes.flatMap(r => r.stops).find(s => s.stationId === props.id))
-const unserved = computed(() => props.plan.unserved.find(s => s.stationId === props.id))
+const stop = computed(() => props.plan?.routes.flatMap(r => r.stops).find(s => s.stationId === props.id))
+const unserved = computed(() => props.plan?.unserved.find(s => s.stationId === props.id))
 </script>
 
 <template>

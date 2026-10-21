@@ -1,13 +1,13 @@
 # 최적화 · 인프라 명세
 
-상태: **계산·Kafka 실행기·지도 검토 구현, 운영 backend 연결 대기**. 담당: 역할 5.
+상태: **계산·Kafka 실행기·지도 검토 구현, 운영 Compose 편입, 실제 입력·도로 통합 대기**. 담당: 역할 5.
 공통 기준은 아래 문서 버전을 따른다.
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.9.0-draft |
-| 내부 API (OpenAPI) | 0.5.0-draft |
-| Kafka (AsyncAPI) | 0.5.0-draft |
+| 공개 API (OpenAPI) | 0.13.1-draft |
+| 내부 API (OpenAPI) | 0.8.1-draft |
+| Kafka (AsyncAPI) | 0.5.1-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
 아래 구현 설명은 [계산 코드](../../or-tools/rebalancing/)와 같은 저장소의 실행기·화면을 기준으로 한다.
@@ -32,7 +32,8 @@ TaskEventMessage의 seq는 backend가 부여하는 작업 이벤트 정보이며
 `contract.solve_request()`는 변환·계산·결과 생성 함수이며 자체 저장·전송은 하지 않는다.
 별도 worker가 Kafka 소비·발행, 결과 파일 저장·중복 제거, offset commit을 맡는다.
 독립 개발용 solve·requests.retry·requests.dlq 토픽 초기화와 제한 재시도를 제공한다.
-main의 backend SolveGateway·SolveResultConsumer 구현과 실제 worker를 잇는 운영 연결은 후속 범위다.
+PR #46으로 운영 Compose에 worker·상태 볼륨·backend healthy 이후 기동·소비자 그룹 헬스체크가 추가됐다.
+이동 시간은 하버사인 추정치다. 실제 수요·트럭 입력을 만드는 `/internal/plans/solve`와 전체 업무 연결은 후속 범위다.
 
 ## 공통 요청 대응
 
@@ -60,8 +61,35 @@ main의 backend SolveGateway·SolveResultConsumer 구현과 실제 worker를 잇
 SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재고·거치대 수를 만들거나 요구하지 않는다.
 관측 재고에 대한 neededBikes 산출·타당성 검증은 생산자가 담당한다.
 기존 예측 데모의 Station 스냅샷 입력은 재고·거치대와 회수 가능량 검증을 계속 수행한다.
-완료·관리자 제외 거점은 backend가 남은 후보를 구성할 때 제거한다.
+완료 거점은 backend가 남은 후보를 구성할 때 제거한다. 관리자 제외·현장 차단은 `stations`에 남기고
+`blockedStationIds`로 지정해야 `BLOCKED` 미처리로 반환된다. stations에 없는 차단 ID는 거부한다.
 현재 wire에 없는 completedStationIds·excludeStationIds를 새로 정의하지 않는다.
+
+## 로컬 수요 예측 연결
+
+`DemandPredictor.predict(station, start, horizon_h)`는 `start`, `rentals_h`, `returns_h`,
+`model_version`을 제공한다. `forecast/`의 별도 Forecast 클래스도 같은 필드로 직접 받을 수 있으며,
+공통 모델 파일이나 학습 의존성을 optimizer 이미지에 합치지 않는다. 호출자가 미리 준비한 예측기를 주입한다.
+
+- `start`는 명시적인 정시다. 시간대 없는 값은 데이터 파일과 같은 KST이며, 시간대 있는 값은 KST로 변환한 뒤
+  시간대를 제거해 데이터 예측기를 호출한다. 날짜를 현재 시각에서 만들거나 비정시 입력을 임의로 내리지 않는다.
+- `horizon_h`는 1~5 정수다. 기본은 합의 16의 3시간이며 1~5시간 명시 입력도 유지한다.
+- 두 시간별 배열의 길이·시작 시각·모델 버전과 비음수 유한 실수 값을 검사한다. NumPy 실수 출력도 수용한다.
+- 합계는 시간별 값의 Decimal 표현으로 더한다. 대여·반납을 각각 먼저 반올림하지 않는다.
+  구간 끝 목표 하한 `max(0, rentals - returns + safety)`는 올림하고,
+  상한 `max(0, operating_limit + rentals - returns)`은 내림해 정수 필요량을 만든다.
+  목표 상한보다 안전 하한이 크면 기존처럼 하한을 우선하며, 거치대 수로 재고나 필요량을 잘라내지 않는다.
+- 이 단계는 기존 **구간 끝 재고 정책**이다. 시간별 배열을 받더라도 중간의 빈 시각·재고 궤적 안전을 보장하지 않는다.
+  기본 3시간 전환은 반영했다. 시간별 중간 검사는 합의 16의 M4 후속이다.
+  backend 내부 API 0.8의 StationRisk는 관측 시각 기준 궤적으로 별도 계산한다. wire의 neededBikes/priority를
+  로컬 구간 끝 정책으로 덮어쓰지 않는다. 비정시 로컬 예측 정렬은 생산자와 확인한다.
+
+데이터 예측기의 Station.id는 대여소번호를 사용한다. API·Kafka의 stationId는 ADR 0001의 `ST-` ID이며
+서로 숫자가 다르므로, 내보내는 생산자가 ref.stations/CSV 대응표로 변환한다. 접두사를 붙이거나 잘라 변환하지 않는다.
+
+이는 로컬 예측·시뮬레이션 연결이며 Kafka worker의 역할을 확장하지 않는다.
+worker는 계속 이미 계산된 `neededBikes`를 받는다. 운영 수요·우선순위·재고 입력 생성과 예측 DB 적재는
+역할 4·6의 경계에서 연결하며 공개 API·Kafka 메시지 필드는 추가하지 않는다.
 
 ## 메시지의 계산 기준과 이동 공급자
 
@@ -118,13 +146,15 @@ OSRM 도로 거리·시간을 조회하며 중복 제거·요청 분할·순서 
 정적 car 프로필은 실시간 교통·트럭 높이/중량을 보장하지 않는다.
 
 [독립 개발 환경](../../infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
-운영 Compose·backend 연결·운영 retry/DLQ 토픽·관제·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
+운영 worker는 Compose에 편입됐고, OSRM의 운영 연결·실제 수요 입력·retry/DLQ 관제·서버 부하·전체 10초 검증은 후속 작업이다.
 CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
 
 ## Kafka 실행기
 
 [Kafka 실행 안내](../../infra/optimizer/KAFKA.md)를 따른다.
 키 shiftId 검증, traceId·traceparent 전달, 발행 ACK 후 해당 입력 offset의 동기 commit을 수행한다.
+결과·retry·DLQ 발행은 Java producer와 같은 `murmur2_random`을 사용한다. 같은 키·같은 파티션 수에서
+파티션 번호를 맞추며 토픽 사이의 전체 순서나 기존 레코드의 재배치를 보장하지 않는다.
 eventId와 requestId의 저장 기록을 확인하며, 같은 requestId의 완료 결과를 새로 생성하지 않는다.
 계산 입력이 달라진 ID 재사용은 해당 메시지를 DLQ로 보낸다. 결과 파일은 업무 DB와 별개인 실행기 전용 상태다.
 
@@ -138,7 +168,7 @@ solve.requests.retry에서 기본 추가 3회·처리 전 2초 대기 후 재시
 상태 손상·기록 실패, 원본 commit·retry/DLQ 발행·수신 실패는 미완료로 두고 중단한다.
 FAILED·TIMEOUT도 같은 requestId의 최종 계산 결과이며, 새 계산은 새 requestId를 쓴다.
 retry/DLQ도 ACK와 commit 사이의 장애로 중복될 수 있고 원본과 retry 사이의 전체 순서는 보장하지 않는다.
-운영 6파티션 토픽·보존/관제·재처리 절차와 backend 시간 초과 정책은 역할 4와 연결한다.
+backend가 요청 retry/DLQ 토픽도 app.kafka.partitions(기본 6)로 생성한다. 운영 보존/관제·재처리 절차와 backend 시간 초과 정책은 역할 4와 연결한다.
 인자 범위·헤더·운영 한계는 [Kafka 실행 안내](../../infra/optimizer/KAFKA.md#제한-재시도--dlq)를 따른다.
 
 실행기 로그는 요청 상관관계·UTC 기록 시각·실패 단계·처리 시간과 결과 재사용 여부를 JSON으로 남긴다.
@@ -155,15 +185,28 @@ nearest-rank p95·행렬/공급자/나머지 엔진 시간·표본·입력/계�
 재경로는 초기 계획의 차량별 첫 작업을 마친 뒤 대기하는 가상 스냅샷이며, 위치·적재량·남은 근무시간과
 완료·진입 불가 거점을 반영한다. 기본 측정은 하버사인 추정치이며 실제 운영 10초 완료 기준을 대체하지 않는다.
 
-## S05 참조 시드
+## 서울 17개 구역 참조 시드
 
 MCP 소스·실행 환경·검증은 역할 3이 담당하며 [MCP 명세](../MCP.md)를 따른다.
 별도 MCP 이미지·고정 의존성·HTTP 검증 환경은 이 최적화 구현에 포함하지 않는다.
 
-역할 6의 ad17528에서 S05 대여소 196곳과 차고지 후보를 추출했다. seeds 모듈은 좌표·중복·거점 수와
-대여소 번호/API ID 대응을 검사하며, 재고·필요량·우선순위·기준 시각을 만들지 않는다.
-ID와 정책의 팀 확정을 대체하지 않으며, wire 형식도 변경하지 않는다.
+역할 6의 기준 CSV를 직접 읽어 서울 17개 구역·2,716곳을 검증한다. 구역 간 ID 중복·미등록 구역 참조·
+구역별 대여소 수·좌표·거치대·역할과 대여소번호/API ID 대응을 검사한다.
+wire ID는 ADR-0001에 따라 `api_station_id`(`ST-`)이며 대여소번호에 접두사를 붙여 만들지 않는다.
+재고·필요량·우선순위·기준 시각을 만들거나 참조 중심점을 운영 차고지로 자동 적용하지 않는다.
 [참조 시드 안내](../../infra/optimizer/seeds/README.md)에 원본 커밋·해시·제한을 기록한다.
+가장 큰 N01(265곳)의 가상 작업량 성능은 [별도 기록](../optimizer/benchmarks/n01-265.md)에 둔다.
+합의 18에서 NFR-01은 300곳으로 확정됐고 PRD 반영은 기획 리드가 맡는다. 이 기록은 265곳이며
+확정 운행 설정의 N01·가상 300곳 검사는 [후속 기록](../optimizer/benchmarks/agreed-policy-300.md)에 둔다.
+실제 도로·전체 흐름의 10초 검증은 후속이다.
+
+## 확정 기본값 적용
+
+`Station.docks`는 거치대 수이며 `Truck.capacity`는 적재 용량이다. 대여소의 이전 `capacity=` 키워드는
+`docks=`로 바꾼다. 위치 인자 순서는 같고 운영 상한은 별도 `operating_limit`이다. 시뮬레이터 소비처도 함께 바꿨다.
+하버사인 추정은 거리 ×1.3·시속 20km이며 거리와 시간을 각각 올림한다. OSRM의 도로 거리·시간은 그대로 사용한다.
+구역 참조 benchmark는 `--trucks` 생략 시 `trucks_min`을 쓴다. 가용 차량을 운영 메시지에 만드는 책임은 생산자에게 있다.
+합의 30의 운영 트럭 ID는 ref.trucks의 TR-NN이다. 코어는 내부 숫자 ID를 쓰고 wire에서는 생산자가 준 문자열을 그대로 복원한다.
 
 ## 지도·계획 검토 화면
 

@@ -2,7 +2,8 @@
 
 역할 5가 도로 이동 행렬과 솔버를 단독 검증하기 위한 구성이다.
 운영용 `infra/compose.yaml`과 별도 프로젝트·볼륨을 사용한다.
-실행 파일을 마련한 상태이며 **이번 작업에서 실제 컨테이너를 띄우지는 않았다**.
+OSRM 실행 파일을 마련한 상태이며 **실제 도로 PBF 전처리·OSRM 컨테이너 검증은 아직 전**이다.
+Kafka worker는 별도로 PR #46에서 운영 Compose에 편입됐다 ([운영 안내](../README.md#optimizer-경로-계산-worker)).
 
 ## 준비 및 실행
 
@@ -59,7 +60,7 @@ Docker 실행은 별도 `matrix-cache` 볼륨을 사용하므로 호스트 캐�
 - 도로망 단절, 지도 밖 좌표, HTTP 실패는 오류로 종료한다. 추정치로 자동 대체하지 않는다.
 - 원본·전처리 파일과 캐시는 Git에서 제외한다. 지도 출처·라이선스·취득일은 권역 확정 후 별도 기록한다.
 - Kafka 실행기와 개발용 solve 토픽 초기화는 [독립 Kafka 환경](KAFKA.md)에 있다.
-  운영 Compose·backend·retry/DLQ 연결은 후속 작업이다.
+  운영 Compose의 worker·상태 볼륨·기동 순서는 PR #46에 반영됐다. 실제 수요 입력·OSRM 운영 연결과 retry/DLQ 관제는 후속이다.
 - 실제 200곳·5대의 도로 데이터 성능과 전체 재경로 10초 기준은 아직 측정하지 않았다.
 
 공식 참고: [OSRM v26.10.0 HTTP API](https://github.com/Project-OSRM/osrm-backend/blob/v26.10.0/docs/http.md),

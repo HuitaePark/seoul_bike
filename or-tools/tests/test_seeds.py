@@ -6,14 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from rebalancing.seeds import load_region_seed, main
+from rebalancing.seeds import load_region_seed, load_region_seeds, main
 
 ROOT = Path(__file__).resolve().parents[2]
 SEEDS = ROOT / "infra/optimizer/seeds"
+REGIONS = ROOT / "analysis/out/ref_regions.csv"
+STATIONS = ROOT / "analysis/out/ref_stations.csv"
 
 
 def load(regions=None, stations=None, region="S05"):
-    return load_region_seed(regions or SEEDS / "s05-region.csv", stations or SEEDS / "s05-stations.csv", region)
+    return load_region_seed(regions or REGIONS, stations or STATIONS, region)
 
 
 def rewrite(source, target, change):
@@ -31,10 +33,10 @@ def rewrite(source, target, change):
 
 def test_s05_reference_matches_source_and_preserves_both_ids():
     metadata = json.loads((SEEDS / "source.json").read_text())
-    assert metadata["status"] == "proposal-reference"
+    assert metadata["status"] == "reference-geography"
     for file in metadata["files"]:
-        content = (ROOT / file["exportPath"]).read_bytes()
-        assert hashlib.sha256(content).hexdigest() == file["exportSha256"]
+        content = (ROOT / file["sourcePath"]).read_bytes()
+        assert hashlib.sha256(content).hexdigest() == file["sourceSha256"]
     seed = load()
     assert len(seed.stations) == 196 and seed.trucks_min == 3
     assert seed.depot == (37.52006, 126.903308)
@@ -57,10 +59,11 @@ def test_id_mapping_requires_an_explicit_direction():
 @pytest.mark.parametrize("field,value", [
     ("lat", "nan"), ("lon", "181"), ("lat", "invalid"),
     ("docks", "0"), ("docks", "2.5"), ("role", "UNKNOWN"), ("name", " "),
-    ("station_id", ""), ("api_station_id", ""),
+    ("station_id", ""), ("api_station_id", ""), ("station_id", "ST-4"),
+    ("api_station_id", "102"), ("api_station_id", "ST-４"), ("region_id", "N99"),
 ])
 def test_bad_station_rows_are_rejected(tmp_path, field, value):
-    path = rewrite(SEEDS / "s05-stations.csv", tmp_path / "stations.csv",
+    path = rewrite(STATIONS, tmp_path / "stations.csv",
                    lambda rows: rows[0].__setitem__(field, value))
     with pytest.raises(ValueError):
         load(stations=path)
@@ -68,7 +71,7 @@ def test_bad_station_rows_are_rejected(tmp_path, field, value):
 
 @pytest.mark.parametrize("field", ["station_id", "api_station_id"])
 def test_duplicate_ids_never_collapse_to_one_station(tmp_path, field):
-    path = rewrite(SEEDS / "s05-stations.csv", tmp_path / "stations.csv",
+    path = rewrite(STATIONS, tmp_path / "stations.csv",
                    lambda rows: rows[1].__setitem__(field, rows[0][field]))
     with pytest.raises(ValueError, match="unique"):
         load(stations=path)
@@ -76,7 +79,7 @@ def test_duplicate_ids_never_collapse_to_one_station(tmp_path, field):
 
 @pytest.mark.parametrize("field,value", [("stations", "195"), ("depot_lat", "91"), ("trucks_min", "0")])
 def test_bad_region_metadata_is_rejected(tmp_path, field, value):
-    path = rewrite(SEEDS / "s05-region.csv", tmp_path / "region.csv",
+    path = rewrite(REGIONS, tmp_path / "region.csv",
                    lambda rows: rows[0].__setitem__(field, value))
     with pytest.raises(ValueError):
         load(regions=path)
@@ -84,7 +87,7 @@ def test_bad_region_metadata_is_rejected(tmp_path, field, value):
 
 def test_unknown_region_and_missing_columns_are_reported(tmp_path):
     with pytest.raises(ValueError, match="unknown region_id"):
-        load(region="N01")
+        load(region="N99")
     path = tmp_path / "stations.csv"
     path.write_text("station_id,name\n200,test\n")
     with pytest.raises(ValueError, match="columns"):
@@ -92,7 +95,7 @@ def test_unknown_region_and_missing_columns_are_reported(tmp_path):
 
 
 def test_duplicate_region_and_inconsistent_row_width_are_rejected(tmp_path):
-    regions = rewrite(SEEDS / "s05-region.csv", tmp_path / "regions.csv",
+    regions = rewrite(REGIONS, tmp_path / "regions.csv",
                       lambda rows: rows.append(dict(rows[0])))
     with pytest.raises(ValueError, match="duplicate region"):
         load(regions=regions)
@@ -103,7 +106,61 @@ def test_duplicate_region_and_inconsistent_row_width_are_rejected(tmp_path):
 
 
 def test_cli_exports_reference_geography_only(capsys):
-    main(["--regions", str(SEEDS / "s05-region.csv"), "--stations", str(SEEDS / "s05-stations.csv"),
+    main(["--regions", str(REGIONS), "--stations", str(STATIONS),
           "--region", "S05"])
     summary = json.loads(capsys.readouterr().out)
     assert summary["stationCount"] == 196 and len(summary["stations"]) == 196
+
+
+EXPECTED_COUNTS = {"N01": 265, "N02": 175, "N03": 165, "N04": 160, "N05": 145, "N06": 137,
+                   "N07": 130, "N08": 99, "S01": 250, "S02": 236, "S03": 226, "S04": 193,
+                   "S05": 196, "S06": 134, "S07": 80, "S08": 69, "S09": 56}
+
+
+def test_all_17_regions_preserve_global_identity_counts_and_source_rows():
+    metadata = json.loads((SEEDS / "source.json").read_text())
+    regions = load_region_seeds(REGIONS, STATIONS)
+    assert list(regions) == metadata["regionIds"] == list(EXPECTED_COUNTS)
+    assert {rid: len(seed.stations) for rid, seed in regions.items()} == EXPECTED_COUNTS
+    stations = [station for seed in regions.values() for station in seed.stations]
+    assert len(stations) == len({s.data_id for s in stations}) == len({s.api_id for s in stations}) == 2716
+    for file in metadata["files"]:
+        with (ROOT / file["sourcePath"]).open(newline="", encoding="utf-8-sig") as stream:
+            assert len(list(csv.DictReader(stream))) == file["rows"]
+    assert regions["N04"].id_map(source="data")["102"] == "ST-4"
+    assert regions["N01"].depot == (37.582815, 127.026664)
+    assert metadata["wireIdField"] == "api_station_id"
+    assert not metadata["inventoryIncluded"] and not metadata["roadDataIncluded"]
+
+
+@pytest.mark.parametrize("region_id", EXPECTED_COUNTS)
+def test_each_region_is_selectable_without_changing_the_reference(region_id):
+    seed = load(region=region_id)
+    assert len(seed.stations) == EXPECTED_COUNTS[region_id]
+    assert all(s.region_id == region_id for s in seed.stations)
+    assert len(seed.id_map(source="data")) == len(seed.id_map(source="api")) == len(seed.stations)
+
+
+def test_invalid_other_region_is_not_silently_skipped(tmp_path):
+    path = rewrite(STATIONS, tmp_path / "stations.csv", lambda rows: rows[0].__setitem__("lat", "nan"))
+    # First station is N04; even an S05 request validates it.
+    with pytest.raises(ValueError):
+        load(stations=path, region="S05")
+    path = rewrite(REGIONS, tmp_path / "regions.csv", lambda rows: rows[0].__setitem__("stations", "264"))
+    with pytest.raises(ValueError, match="N01 region station count mismatch"):
+        load(regions=path, region="S05")
+
+
+def test_cross_region_duplicate_api_id_is_rejected(tmp_path):
+    def duplicate(rows):
+        other = next(row for row in rows if row["region_id"] != rows[0]["region_id"])
+        other["api_station_id"] = rows[0]["api_station_id"]
+    path = rewrite(STATIONS, tmp_path / "stations.csv", duplicate)
+    with pytest.raises(ValueError, match="unique"):
+        load(stations=path)
+
+
+def test_cli_can_validate_all_regions(capsys):
+    main(["--regions", str(REGIONS), "--stations", str(STATIONS), "--all-regions"])
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["referenceOnly"] and summary["regionCount"] == 17 and summary["stationCount"] == 2716
