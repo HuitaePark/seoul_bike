@@ -3,6 +3,16 @@
 
 공유자전거 재배치 에이전트: Agent가 재배치 계획을 트럭 경로까지 세우고, 기사의 현장 보고로 남은 경로를 다시 짜며, 최종 결정은 사람이 내리는 운영 도구.
 
+## 바로 보기
+
+| 무엇 | 어디 |
+| --- | --- |
+| 서비스 (화면·API) | https://baki-macbookpro.tail3286a4.ts.net (인터넷 공개) |
+| API 문서 | [Swagger](https://baki-macbookpro.tail3286a4.ts.net/swagger) · 서버 상태 `/status` |
+| 시연 구역 | `N02` (광진·성동), 트럭 `TR-03`~`TR-05`. 시연 계정은 [frontend/README](frontend/README.md#시연-계정) |
+| 실시간 재고 | 서울 따릉이 대여소 약 2,700곳을 5분마다 수집 (`collector` → `live.station_status`, 90일 보관) |
+| 배포 | main에 머지하면 서버에 자동 배포, 배포 중에도 끊기지 않는다 ([infra/README](infra/README.md)) |
+
 ## 아키텍처
 
 ![아키텍처 구성도](docs/images/architecture.png)
@@ -12,10 +22,10 @@ Docker Compose로 운영하며, 서버 포트는 모두 서버 자신에게만 �
 | 계층 | 스택 |
 | --- | --- |
 | 화면 | Vue 3 (관제 대시보드, 기사 PWA, 성과 리포트) |
-| 업무·작업 API | Spring Boot 3 (업무 API, 작업 API 202, SSE 중계, 인증 JWT, `/internal/**`) |
+| 업무·작업 API | Spring Boot 4.1, Java 25 (업무 API, 작업 API 202, SSE 중계, 인증 JWT, `/internal/**`) |
 | Agent | FastAPI, LangGraph 1.x, LangChain 1.x, Harness, LangSmith |
 | Tool | FastMCP (`business-mcp`, `rag-mcp`) |
-| 계산 | OR-Tools, 수요 예측 (Python `optimizer`), OSRM |
+| 계산 | OR-Tools, 수요 예측 (Python `optimizer`). 이동 시간은 직선거리 추정이고 OSRM 도로 자료는 선택 구성 |
 | 대기열 | Kafka (Redpanda): `ai.*`, `solve.*`, 재시도·DLQ |
 | 저장 | PostgreSQL 16 + PostGIS (업무 데이터, checkpointer), pgvector (문서 임베딩), Parquet + DuckDB |
 
@@ -34,6 +44,8 @@ Docker Compose로 운영하며, 서버 포트는 모두 서버 자신에게만 �
 
 - [계약 (API · Kafka)](docs/specs/README.md): OpenAPI·AsyncAPI 초안, [Swagger](https://baki-macbookpro.tail3286a4.ts.net/swagger)
 - [역할 분담 (6인)](docs/ROLES.md): 역할별 작업, 완료 기준, 1주차 계약, 단계
+- [배포·인프라](infra/README.md): 서버 구성, 공개 주소, 무중단 배포, 비밀값, 문제 해결
+- [용어](CONTEXT.md) · [합의 표](docs/data/agreements.md) · [ADR 0001 대여소 ID](docs/adr/0001-station-id-is-realtime-api-id.md): 대여소·구역·트럭·근무조 ID와 팀 결정
 - [PRD](docs/PRD.md): 문제 정의, 요구사항, 에이전트 설계
 - [아키텍처](docs/ARCHITECTURE.md): 스택, 모듈 구조, 메시징, 컨테이너 구성
 - [에이전트 그래프 설계](docs/AGENT-GRAPH.md): 근무조 그래프 State·노드, 승인 카드 대응 (초안)
