@@ -58,6 +58,9 @@ def one_day(args) -> None:
     print(f"{'정책':12} {'실패(보정 전)':>11} {'실패(보정 후)':>11} {'그중 억눌린':>9} {'빈 대여소-분':>12} {'과적재-분':>10} {'옮긴 대수':>8} {'시간당 대수':>10}")
     for name, (r0, r) in res.items():
         print(f"{name:12} {r0.failed:11,} {r.failed:11,} {r.failed_latent:9,} {r.empty_min:12,.0f} {r.over_min:10,.0f} {r.moved:8,} {r.moved_per_truck_h:10.1f}")
+    if day.closures:
+        print(f"\n일시 운영 중단 {len(day.closures)}곳: 닫혀 못 한 대여(보정 후, 실패와 따로) " + ", ".join(f"{n} {r.closed_rentals:,}" for n, (_, r) in res.items())
+              + " / 옮긴 반납 " + ", ".join(f"{n} {r.diverted_returns:,}" for n, (_, r) in res.items()))
 
     # 검증: 현행 운영 재현으로 하루를 돌린 끝 재고는 다음 날 0시에 복원한 재고와 같아야 한다(같은 역산 기준을 쓰므로)
     nxt = load_day(args.terr, args.date + timedelta(days=1), latent=False).stations
@@ -83,13 +86,15 @@ def many_days(args) -> None:
         for name, (r0, r) in res.items():
             rows.append(dict(date=d, region=args.terr, world="recorded", policy=name, failed_rentals=r0.failed, failed_rentals_adjusted=r.failed,
                              empty_station_minutes=round(r.empty_min), overflow_station_minutes=round(r.over_min),
-                             bikes_moved=r.moved, bikes_moved_per_truck_hour=round(r.moved_per_truck_h, 1)))
+                             bikes_moved=r.moved, bikes_moved_per_truck_hour=round(r.moved_per_truck_h, 1),
+                             closed_rentals=r.closed_rentals, diverted_returns=r.diverted_returns))
         for k, w in enumerate(worlds):  # 다시 뽑은 하루: 억눌린 수요 포함 값만 낸다(failed_rentals는 그중 다시 뽑은 대여의 실패)
             for name, r in w.items():
                 rows.append(dict(date=d, region=args.terr, world=f"resample{k}", policy=name, failed_rentals=r.failed - r.failed_latent,
                                  failed_rentals_adjusted=r.failed, empty_station_minutes=round(r.empty_min),
                                  overflow_station_minutes=round(r.over_min), bikes_moved=r.moved,
-                                 bikes_moved_per_truck_hour=round(r.moved_per_truck_h, 1)))
+                                 bikes_moved_per_truck_hour=round(r.moved_per_truck_h, 1),
+                                 closed_rentals=r.closed_rentals, diverted_returns=r.diverted_returns))
         print(f"{d} " + "  ".join(f"{n} {r0.failed}/{r.failed}" for n, (r0, r) in res.items()), flush=True)
         d += timedelta(days=1)
     with open(out, "w", newline="") as f:

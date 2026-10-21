@@ -34,7 +34,9 @@ def depot_trucks(n: int, capacity: int) -> list[Truck]:
 class Policy:
     """정책의 기본 모양. 근무조 시작마다 plan()을 부르고, events()의 대여소 사건은 그 시각에 그대로 반영한다."""
 
-    def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int) -> Plan:
+    def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int,
+             blocked: frozenset[int] = frozenset()) -> Plan:
+        # blocked: 이 계획이 도는 동안 운영을 멈추는 대여소(엔진의 Day.closures). 트럭이 들르지 않게 최적화기에 넘긴다
         return Plan(routes=[], unserved=[], solver="none")
 
     def events(self, day) -> list[tuple[datetime, int, int]]:
@@ -52,7 +54,8 @@ class SimpleRule(Policy):
     def __init__(self, fixed_pickup: frozenset[int]):
         self.fixed_pickup = fixed_pickup
 
-    def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int) -> Plan:
+    def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int,
+             blocked: frozenset[int] = frozenset()) -> Plan:
         todo = []
         for s in stations:
             if s.bikes <= LOW:
@@ -63,7 +66,7 @@ class SimpleRule(Policy):
                 continue
             # 한 번에 트럭 용량을 넘게는 못 옮긴다(plan_greedy는 용량보다 큰 불균형을 아예 건너뛴다)
             todo.append(Imbalance(s.id, max(-truck_capacity, min(truck_capacity, delta))))
-        return plan_greedy(depot, stations, todo, depot_trucks(trucks, truck_capacity))
+        return plan_greedy(depot, stations, todo, depot_trucks(trucks, truck_capacity), blocked_station_ids=blocked)
 
 
 class CurrentOps(Policy):
@@ -106,7 +109,8 @@ class Agent(Policy):
         self.carry_trucks = carry_trucks
         self.travel_time = SimTravelTime() if sim_travel else None
 
-    def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int) -> Plan:
+    def plan(self, now: datetime, stations: list[Station], depot, trucks: int, truck_capacity: int,
+             blocked: frozenset[int] = frozenset()) -> Plan:
         h0, h1 = next((a, b) for a, b in self.shifts if a <= now.hour < b)
         horizon = self.horizon or h1 - now.hour  # 기본은 근무조 끝까지
         if self.bridge and now.hour + (self.replan_h or h1 - h0) >= h1:  # 이 근무조의 마지막 계획
@@ -128,4 +132,5 @@ class Agent(Policy):
             if delta:  # 회수량을 내림하면 0이 될 수 있다
                 todo.append(Imbalance(s.id, max(-truck_capacity, min(truck_capacity, delta))))
         fleet = trucks if isinstance(trucks, list) else depot_trucks(trucks, truck_capacity)  # carry_trucks면 엔진이 Truck 목록을 준다
-        return plan_routes(depot, stations, todo, fleet, time_limit_s=self.time_limit_s, travel_time=self.travel_time)
+        return plan_routes(depot, stations, todo, fleet, time_limit_s=self.time_limit_s, travel_time=self.travel_time,
+                           blocked_station_ids=blocked)

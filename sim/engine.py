@@ -14,11 +14,15 @@
       도착할 때 실제 재고·적재량에 맞춰 싣고 내린다. 근무조가 끝나면 남은 정류장은 버리고 거점으로 돌아간다.
       정책에 carry_trucks가 있으면 근무조 안에서 다시 계획할 때 트럭을 거점으로 되돌리지 않고, 마지막으로 들른 곳·적재량·
       남은 근무 시간을 rebalancing.models.Truck으로 넘긴다(PRD v0.2 재경로). 거점에서 싣는 것은 근무조 시작 때 한 번이다.
+대여소 일시 운영 중단(Day.closures, load_closures): 닫힌 동안의 대여는 실패 대여와 따로 closed_rentals로 세고 그 반납도 지운다.
+      반납은 가장 가까운 열린 대여소로 옮긴다. 트럭은 닫힌 대여소에 도착하면 건너뛰고, 정책은 계획할 때 닫힌 대여소를 받는다(blocked).
 """
 from __future__ import annotations
 
+import csv
 import heapq
 import math
+import warnings
 import random
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
@@ -48,6 +52,7 @@ class Day:
     visits: list[tuple[datetime, int, int]] = field(default_factory=list)  # 역산 트럭 방문 (시각, 대여소, ±대수). 회수는 음수
     visits_prev_week: list[tuple[datetime, int, int]] = field(default_factory=list)  # 지난주 같은 요일의 역산 방문을 이날로 옮긴 것
     n_recorded: int | None = None  # trips 중 앞의 n개가 기록된 대여, 나머지는 억눌린 수요(latent.py). None이면 모두 기록
+    closures: dict[int, list[tuple[datetime, datetime, str]]] = field(default_factory=dict)  # 일시 운영 중단: 대여소 → [(시작, 끝, 'rent'·'return'·'both')]
 
 
 @dataclass
@@ -63,6 +68,9 @@ class Result:
     moved: int = 0  # 트럭이 실제로 옮긴 대수(회수 기준)
     pick_short: int = 0  # 회수하러 갔는데 재고가 모자라 덜 실은 대수
     truck_h: float = 0.0  # 트럭 운행 시간
+    closed_rentals: int = 0  # 대여소가 닫혀 못 한 대여(판단 지표인 failed와 따로 센다)
+    diverted_returns: int = 0  # 반납소가 닫혀 가장 가까운 열린 대여소로 옮긴 반납
+    skipped_stops: int = 0  # 대여소가 닫혀 트럭이 건너뛴 정류장
     stock: dict[int, int] = field(default_factory=dict)  # 하루가 끝났을 때 재고
 
     @property
@@ -94,6 +102,11 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
     since = {s: day.start for s in stock}  # 재고가 마지막으로 바뀐 시각(지표 적분용)
     res = Result()
     depot_bikes = trucks * truck_capacity // 2  # 거점 예비 자전거. 트럭이 반쯤 싣고 나가게(plan_greedy 가정)
+
+    def closed(s: int, now: datetime, what: str) -> bool:  # what: 'rent' 또는 'return'
+        return any(a <= now < b and k in (what, "both") for a, b, k in day.closures.get(s, ()))
+
+    near: dict[int, list[int]] = {}  # 닫힌 반납소 → 다른 대여소를 가까운 순으로
 
     def change(s: int, now: datetime, dx: int) -> None:
         mins = (now - since[s]).total_seconds() / 60
@@ -134,7 +147,10 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
             is_latent = day.n_recorded is not None and v >= day.n_recorded
             res.rentals += 1
             res.latent += is_latent
-            if stock[s] > 0:
+            if closed(s, now, "rent"):
+                res.closed_rentals += 1
+                failed_trips.add(v)
+            elif stock[s] > 0:
                 change(s, now, -1)
             else:
                 res.failed += 1
@@ -143,11 +159,23 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
                 res.failed_hour[now.hour] += 1
                 failed_trips.add(v)
         elif kind == "return":
-            if v not in failed_trips:
-                change(day.trips[v][3], now, +1)
+            if v in failed_trips:
+                continue
+            s = day.trips[v][3]
+            if closed(s, now, "return"):
+                if s not in near:
+                    a = day.stations[s]
+                    near[s] = sorted((o for o in day.stations if o != s),
+                                     key=lambda o: haversine_m(a.lat, a.lon, day.stations[o].lat, day.stations[o].lon))
+                s = next((o for o in near[s] if not closed(o, now, "return")), None)
+                if s is None:  # 구역 전체가 닫혔으면 구역 밖에 반납한 것으로 본다
+                    continue
+                res.diverted_returns += 1
+            change(s, now, +1)
         elif kind == "plan":
             v, shift_end = v
             snapshot = [Station(s, st.name, st.lat, st.lon, st.capacity, stock[s]) for s, st in day.stations.items()]
+            blocked = frozenset(s for s, cl in day.closures.items() if any(a < v and b > now for a, b, _ in cl))  # 이 계획이 도는 동안 닫히는 곳
             if carry:
                 for i in range(trucks):
                     if i not in fleet:  # 근무조 시작: 거점에서 예비 자전거를 반쯤 싣고 나간다
@@ -158,9 +186,9 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
                 avail = [Truck(i, truck_capacity, load=load[rk], position=pos,
                                available_time_s=max(0, int((shift_end - max(now, ready)).total_seconds())))
                          for i, (rk, pos, ready) in sorted(fleet.items())]
-                plan: Plan = policy.plan(now, snapshot, day.depot, avail, truck_capacity)
+                plan: Plan = policy.plan(now, snapshot, day.depot, avail, truck_capacity, blocked=blocked)
             else:
-                plan = policy.plan(now, snapshot, day.depot, trucks, truck_capacity)
+                plan = policy.plan(now, snapshot, day.depot, trucks, truck_capacity, blocked=blocked)
             for r in plan.routes:
                 if carry:
                     old, pos, t = fleet[r.truck_id]
@@ -197,7 +225,9 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
                     fleet.pop(i)
         elif kind == "stop":
             rk, s, action, bikes = v
-            if action == "pickup":
+            if closed(s, now, "rent") or closed(s, now, "return"):  # 닫힌 대여소에는 트럭도 일하지 않는다
+                res.skipped_stops += 1
+            elif action == "pickup":
                 n = min(bikes, stock[s], truck_capacity - load[rk])
                 load[rk] += n
                 res.moved += n
@@ -254,27 +284,88 @@ def resample_demand(day: Day, seed: int) -> Day:
     return replace(day, trips=trips + day.trips[n:], n_recorded=len(trips))
 
 
+SCOPES = {"대여 중단": "rent", "반납 중단": "return", "대여·반납 중단": "both", "대여소 폐쇄": "both", "전체 운영 중단": "both"}
+
+
+def load_closures(path: Path, d: date, stations: dict[int, Station], names: dict[str, int], near: dict[str, list[int]]) -> dict:
+    """d일의 대여소 일시 운영 중단을 읽는다. 파일 형식: date,start,end,scope,area,stations,station_count,reason,source
+    (데스크톱이 공지에서 모은 표, analysis/in/closures.csv). 반환: Day.closures (구역 대여소만).
+    가정: stations 열(대여소 이름 또는 번호, ;로 구분)이 있으면 그 대여소.
+          stations가 비고 station_count만 있으면 area 행사장 700m 안 대여소 중 행사장에서 가까운 순으로 station_count곳
+          (보신각: 700m 안 39곳, 공지는 14~16곳이고 대여 기록에서도 닫힌 곳이 종각 쪽에 몰려 있다).
+          둘 다 없으면 700m 안 전부. 공지 하나의 수가 여러 지역 합이면(탄핵 선고 71곳 = 안국역·광화문·국회·한남동)
+          지역마다 min(수, 그 지역 대여소 수)라 사실상 전부 닫히는데, 합 76곳 ≈ 71곳이라 그대로 둔다.
+          area가 '서울 전체'이거나 scope가 '전체 운영 중단'이면 구역 모든 대여소. start·end가 비면 하루 종일,
+          끝이 시작보다 이르거나 같으면 자정까지. 이름은 공백을 빼고 대여소 마스터 이름(names)과 맞춘다.
+          station_count가 적힌 이름 수보다 많으면 지역 전체가 닫힌 것으로 보고 area 행사장 700m 안 대여소를 더한다.
+          station_count는 같은 날·같은 reason의 줄을 합친 수와 비교해, 다르면 경고만 낸다(공지 하나가 여러 지역에 걸칠 때).
+          같은 대여소에 여러 줄이 겹쳐도 그대로 모두 적용한다.
+    names: 공백을 뺀 대여소 이름 → 대여소번호(서울 전체), near: 행사장 → 700m 안 대여소번호(가까운 순)"""
+    if not path.exists():
+        return {}
+    t0 = datetime.combine(d, time())
+    out: dict[int, list] = defaultdict(list)
+    groups: dict[str, tuple[set, int]] = {}  # reason → (닫은 대여소 합, 공지의 대여소 수)
+    with open(path, encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    for i, r in enumerate(rows, start=2):
+        if r["date"] != d.isoformat():
+            continue
+        if r["scope"] not in SCOPES:  # 손으로 모은 표라 모르는 값은 조용히 넘기지 않는다
+            raise ValueError(f"{path} {i}행: scope는 {list(SCOPES)} 중 하나 ({r['scope']!r})")
+        hm = lambda x: timedelta(hours=int(x[:2]), minutes=int(x[3:5])) if x else None  # noqa: E731
+        a, b = hm(r["start"]) or timedelta(0), hm(r["end"]) or timedelta(days=1)
+        b = b if b > a else timedelta(days=1)
+        if r["area"] == "서울 전체" or r["scope"] == "전체 운영 중단":
+            sts = set(stations)
+        elif r["stations"].strip():
+            toks = [x.strip() for x in r["stations"].split(";") if x.strip()]
+            sts = set()
+            for tok in toks:
+                no = int(tok) if tok.isdigit() else names.get("".join(tok.split()))
+                if no is None:
+                    warnings.warn(f"{path} {i}행: 대여소 마스터에 없는 이름 {tok!r}")
+                else:
+                    sts.add(no)
+            if r["station_count"].strip().isdigit() and int(r["station_count"]) > len(toks):  # 공지가 일부 이름만 적었다: 지역 전체가 닫혔다
+                sts |= set(near.get(r["area"], []))
+        else:
+            n = int(r["station_count"]) if r["station_count"].strip().isdigit() else None
+            sts = set(near.get(r["area"], [])[:n])
+        if r["station_count"].strip().isdigit():
+            g, n = groups.get(r["reason"], (set(), 0))
+            groups[r["reason"]] = (g | sts, max(n, int(r["station_count"])))
+        for st in sts & stations.keys():
+            out[st].append((t0 + a, t0 + b, SCOPES[r["scope"]]))
+    for reason, (g, n) in groups.items():
+        if len(g) != n:
+            warnings.warn(f"{path} {d} {reason}: 닫은 대여소 {len(g)}곳(적힌 곳 + 행사장 700m 안)이 공지의 {n}곳과 다르다")
+    return dict(out)
+
+
 def load_day(terr: str, d: date, latent: bool = True, sources_weeks: int | None = None) -> Day:
     """구역 terr의 d일 하루를 파일에서 만든다. latent이면 실제로 비어 있던 시간의 억눌린 수요를 trips 뒤에 더한다.
     sources_weeks를 주면 공급처를 전해 4~10월 대신 그날 전 그 주 수만큼의 역산 방문으로 고른다(그날 0시 전에 끝난 방문만).
 
     입력: analysis/out/stations.csv, data/shared/<구역>/trips.parquet (export_region.py),
-          analysis/rebal/out/gaps_2025.parquet·bike_pick·bike_drop (초기 재고 복원. 2025년만 있다)
+          analysis/rebal/out/gaps_<해>.parquet·bike_pick·bike_drop (초기 재고 복원. 2024·2025년),
+          analysis/in/closures.csv (대여소 일시 운영 중단, load_closures)
     """
     import duckdb  # 시험(test_engine)은 파일 없이 돌도록 여기서만 쓴다
 
     t0 = datetime.combine(d, time())
     t1 = t0 + timedelta(days=1)
     reb = ROOT / "analysis/rebal/out"
+    yr = "" if d.year == 2025 else f"_{d.year}"  # 역산 파일 이름: 2025년은 해 표시가 없다(bike_pick.parquet)
     c = duckdb.connect()
     c.execute(f"CREATE TABLE zs AS SELECT * FROM '{ROOT}/analysis/out/stations.csv' WHERE terr = ?", [terr])
     c.execute(f"""CREATE VIEW tr AS SELECT rent_dt, rent_st, rtn_dt, rtn_st FROM '{ROOT}/data/shared/{terr}/trips.parquet'
                   WHERE rtn_st IS NOT NULL""")
     # 초기 재고: 하루 시작 시각에 서 있는 자전거. 트럭이 옮긴 자전거는 회수 창 중간 전에는 원래 대여소, 배치 창 중간 뒤에는 새 대여소
     stock0 = dict(c.execute(f"""
-    WITH g AS (SELECT * FROM '{reb}/gaps_2025.parquet' WHERE t_from <= $t0 AND t_to > $t0),
-    p AS (SELECT bike_id, t_to, lo + (hi - lo) / 2 AS m FROM '{reb}/bike_pick.parquet'),
-    d AS (SELECT bike_id, t_to, lo + (hi - lo) / 2 AS m FROM '{reb}/bike_drop.parquet')
+    WITH g AS (SELECT * FROM '{reb}/gaps_{d.year}.parquet' WHERE t_from <= $t0 AND t_to > $t0),
+    p AS (SELECT bike_id, t_to, lo + (hi - lo) / 2 AS m FROM '{reb}/bike_pick{yr}.parquet'),
+    d AS (SELECT bike_id, t_to, lo + (hi - lo) / 2 AS m FROM '{reb}/bike_drop{yr}.parquet')
     SELECT st, count(*)::INT FROM (
       SELECT from_st AS st FROM g WHERE NOT moved
       UNION ALL SELECT g.from_st FROM g JOIN p USING (bike_id, t_to) WHERE $t0 < p.m
@@ -316,4 +407,9 @@ def load_day(terr: str, d: date, latent: bool = True, sources_weeks: int | None 
     sources = frozenset(r[0] for r in c.execute(f"""
         SELECT st FROM '{ROOT}/data/shared/{terr}/rebal_visits.parquet' WHERE {where}
         GROUP BY st HAVING sum(CASE WHEN kind = 'pick' THEN n ELSE -n END) / {days}.0 >= 2""").fetchall()) & stations.keys()
-    return Day(t0, stations, trips, (lat, lon), fixed, sources, visits, visits_prev_week, n_recorded)
+    names = {"".join(str(n).split()): no for no, n in c.execute(f"SELECT st_no, st_name FROM '{ROOT}/analysis/out/stations.csv'").fetchall()}
+    near: dict[str, list[int]] = defaultdict(list)
+    for v, no in c.execute(f"SELECT venue, st_no FROM '{ROOT}/analysis/out/event_stations.csv' ORDER BY venue, dist_m, st_no").fetchall():
+        near[v].append(no)
+    closures = load_closures(ROOT / "analysis/in/closures.csv", d, stations, names, near)
+    return Day(t0, stations, trips, (lat, lon), fixed, sources, visits, visits_prev_week, n_recorded, closures)

@@ -95,9 +95,9 @@ class ReplayTest(unittest.TestCase):
         class Seen(SimpleRule):
             replan_h = 1
 
-            def plan(self, now, *a):
+            def plan(self, now, *a, **k):
                 self.at.append(now.hour)
-                return super().plan(now, *a)
+                return super().plan(now, *a, **k)
 
         stations = {1: Station(1, "A", 37.500, 127.0, 10, 30), 2: Station(2, "B", 37.501, 127.0, 10, 3)}
         trips = [(at(10, 30 + 5 * i), 2, None, None) for i in range(3)]
@@ -116,7 +116,7 @@ class ReplayTest(unittest.TestCase):
             def __init__(self):
                 self.seen = []
 
-            def plan(self, now, stations, depot, trucks, cap):
+            def plan(self, now, stations, depot, trucks, cap, blocked=frozenset()):
                 self.seen.append([(t.load, t.position, t.available_time_s) for t in trucks])
                 if now.hour == 7:
                     return Plan([Route(0, trucks[0].load, [Stop(1, "pickup", 5, trucks[0].load + 5)])], [], "test")
@@ -128,6 +128,97 @@ class ReplayTest(unittest.TestCase):
         self.assertEqual(p.seen[0], [(7, None, 2 * 3600)])
         self.assertEqual(p.seen[1], [(12, (37.505, 127.0), 3600)])
         self.assertEqual((r.stock[1], r.moved), (15, 5))
+
+    def test_closed_station_blocks_rentals_diverts_returns_and_skips_trucks(self):
+        # A는 08~10시 닫힘(대여·반납). 08:30 A 대여는 closed_rentals(그 반납도 없음), 09시 B→A 반납은 가장 가까운 열린 C로.
+        # 08시 계획: 단순 규칙은 빈 A(재고 0)를 채우려 하지만 blocked로 받아 A에 가지 않는다
+        stations = {1: Station(1, "A", 37.500, 127.000, 10, 0), 2: Station(2, "B", 37.520, 127.000, 10, 5),
+                    3: Station(3, "C", 37.501, 127.000, 10, 0)}
+        trips = [(at(8, 30), 1, at(8, 50), 2), (at(9), 2, at(9, 10), 1)]
+        seen = []
+
+        class Watch(SimpleRule):
+            def plan(self, now, *a, blocked=frozenset(), **k):
+                p = super().plan(now, *a, blocked=blocked, **k)
+                seen.append((now.hour, blocked, {s.station_id for r in p.routes for s in r.stops}))
+                return p
+
+        day = Day(T0, stations, trips, (37.510, 127.0), closures={1: [(at(8), at(10), "both")]})
+        r = replay(day, Watch(frozenset()), trucks=1)
+        self.assertEqual((r.closed_rentals, r.failed, r.diverted_returns), (1, 0, 1))
+        self.assertEqual(r.stock[2], 4)  # B: 09시 대여 하나만 나가고, A에서 빌리지 못한 자전거는 오지 않는다
+        self.assertEqual(seen[0][:2], (7, frozenset({1})))  # 07~10시 근무조 계획이 도는 동안 A가 닫힌다
+        self.assertNotIn(1, seen[0][2])  # 그래서 비어 있는 A를 채우러 가지 않는다
+        self.assertEqual(seen[1][1], frozenset())  # 13시에는 다시 열려 있다
+
+    def test_truck_skips_stop_at_closed_station(self):
+        # 고정 회수 A(재고 22)에서 빼는 경로를 짰지만 A가 07시부터 닫혀 트럭이 건너뛴다
+        stations = {1: Station(1, "A", 37.500, 127.000, 10, 22), 2: Station(2, "B", 37.501, 127.001, 10, 0)}
+
+        class Blind(SimpleRule):  # 닫힘을 모르는 정책: 엔진이 정류장에서 막아야 한다
+            def plan(self, now, *a, blocked=frozenset(), **k):
+                return super().plan(now, *a, **k)
+
+        day = Day(T0, stations, [], (37.5005, 127.0005), closures={1: [(at(7), at(12), "both")]})
+        r = replay(day, Blind(frozenset({1})), trucks=1)
+        self.assertEqual(r.stock[1], 22)
+        self.assertGreater(r.skipped_stops, 0)
+
+    def test_load_closures_reads_names_numbers_and_venue_defaults(self):
+        import tempfile
+        from datetime import date
+        from sim.engine import load_closures
+        stations = {1: Station(1, "여의나루역 1번출구 앞", 37.5, 127.0, 10, 0), 2: Station(2, "B", 37.5, 127.0, 10, 0),
+                    3: Station(3, "C", 37.5, 127.0, 10, 0)}
+        rows = ["date,start,end,scope,area,stations,station_count,reason,source",
+                "2025-06-11,13:00,23:00,대여·반납 중단,여의도,여의나루역 1번출구앞;2;없는곳,3,불꽃,x",
+                "2025-06-11,,,반납 중단,상암,,,행사,x",
+                "2025-06-12,,,대여 중단,서울 전체,,,다른 날,x"]
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
+            f.write("\n".join(rows) + "\n")
+        with self.assertWarns(UserWarning):
+            cl = load_closures(Path(f.name), date(2025, 6, 11), stations, {"여의나루역1번출구앞": 1, "B": 2}, {"상암": [3, 99]})
+        self.assertEqual(cl[1], [(at(13), at(23), "both")])
+        self.assertEqual(cl[2], [(at(13), at(23), "both")])
+        self.assertEqual(cl[3], [(at(0), at(24), "return")])
+
+    def test_load_closures_adds_venue_stations_when_count_exceeds_named(self):
+        import tempfile
+        from datetime import date
+        from sim.engine import load_closures
+        stations = {1: Station(1, "A", 37.5, 127.0, 10, 0), 2: Station(2, "B", 37.5, 127.0, 10, 0)}
+        rows = ["date,start,end,scope,area,stations,station_count,reason,source",
+                "2025-06-11,08:00,23:59,대여소 폐쇄,여의도,A,3,불꽃,x",
+                "2025-06-11,19:00,,대여·반납 중단,여의도,,,불꽃,x"]  # 같은 대여소에 두 줄이 겹친다
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
+            f.write("\n".join(rows) + "\n")
+        with self.assertWarns(UserWarning):  # 1 + 700m 안 1곳 = 2곳, 공지는 3곳
+            cl = load_closures(Path(f.name), date(2025, 6, 11), stations, {"A": 1}, {"여의도": [2]})
+        self.assertEqual(cl[1], [(at(8), at(23, 59), "both")])
+        self.assertEqual(cl[2], [(at(8), at(23, 59), "both"), (at(19), at(24), "both")])
+
+    def test_load_closures_takes_nearest_stations_when_only_count_given(self):
+        import tempfile
+        from datetime import date
+        from sim.engine import load_closures
+        stations = {s: Station(s, str(s), 37.5, 127.0, 10, 0) for s in (4, 5, 6)}
+        rows = ["date,start,end,scope,area,stations,station_count,reason,source",
+                "2025-06-11,12:00,23:59,대여소 폐쇄,보신각,,2,타종,x"]
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
+            f.write("\n".join(rows) + "\n")
+        cl = load_closures(Path(f.name), date(2025, 6, 11), stations, {}, {"보신각": [5, 4, 6]})  # 가까운 순
+        self.assertEqual(sorted(cl), [4, 5])
+
+    def test_agent_passes_closed_stations_to_optimizer(self):
+        class Fake:
+            def predict(self, st, start, horizon_h):
+                return Forecast(start, (4.0,) * horizon_h, (0.0,) * horizon_h, "fake")
+
+        stations = [Station(1, "A", 37.500, 127.000, 10, 1), Station(2, "B", 37.501, 127.001, 10, 1)]
+        plan = Agent(Fake(), frozenset(), z=0).plan(at(7), stations, (37.5005, 127.0005), 1, 30, blocked=frozenset({1}))
+        stops = {s.station_id for r in plan.routes for s in r.stops}
+        self.assertNotIn(1, stops)
+        self.assertIn(1, {u.station_id for u in plan.unserved})
 
     def test_resampled_day_keeps_hour_and_level_and_leaves_latent_alone(self):
         stations = {1: Station(1, "A", 37.50, 127.00, 10, 50), 2: Station(2, "B", 37.51, 127.01, 10, 0)}
