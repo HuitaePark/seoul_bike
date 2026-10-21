@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | `analysis/out/stations.csv` | 대여소 마스터: 대여소번호, 위치, 거치대, 고도, 역할, 구역, 운영 여부 (1절) | 데이터 → backend 시드(`ref.stations`), optimizer, MCP | 데이터 |
 | `DemandPredictor.predict()` ([predict.md](predict.md)) | 대여소별 시간별 예상 대여·반납 | forecast → optimizer, 내부 API `/internal/forecasts` | 데이터 + 최적화 |
-| 실시간 재고 `data/realtime/bikelist/` | 5분 간격 대여소 재고 (3절) | 수집기 → 데이터(역산 검증). M4부터 backend 수집으로 넘김 | 데이터 → 백엔드 |
+| 실시간 재고 `data/realtime/bikelist/` | 5분 간격 대여소 재고 (3절) | 수집기 → 데이터(역산 검증). M4부터 수집기를 서버에 올려 업무 DB 표에 쓰고 backend는 읽기만 (합의 12) | 데이터 → 백엔드 |
 | 시뮬레이터 결과 → `PolicyKpi` (`/api/kpi`) | 정책별 지표 (7절) | sim → backend → 성과 리포트 화면 | 데이터 + 백엔드 |
 | `analysis/out/ref_stations.csv`, `ref_regions.csv` | `ref.stations`·`ref.regions` 시드. API 이름을 snake_case로 (agreements.md 6·7번) | 데이터 → backend | 데이터 + 백엔드 |
 | [docs/evidence/rebal-summary.md](../evidence/rebal-summary.md) | 역산 분석 요약 (RAG 근거 문서) | 데이터 → rag-indexer | 데이터 + MCP |
