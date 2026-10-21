@@ -1,11 +1,13 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.8.2-draft
+  version: 0.8.3-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
     **초안 v0.8.** MCP·에이전트 담당 확인 전이다.
 
+    - v0.8.3: 트럭 상태(`get_truck_status`) 구현 규칙. 활성 계획이 있으면 그 계획의 트럭, 없으면 구역 트럭이 차고지에 빈 채로.
+      재경로(REPLAN) 입력의 트럭 상태와 같은 계산이다. 선택 쿼리 `truckId`, 400 `INVALID_REQUEST`·404 `SHIFT_NOT_FOUND`·`TRUCK_NOT_FOUND`.
     - v0.8.2: 경로 계산(`request_route_plan`) 구현 규칙. 계산 입력(대여소·트럭·차고지·제약)을 만드는 규칙, 시간 초과·실패 때 backend 탐욕 임시안,
       400 `INVALID_REQUEST`·404 `SHIFT_NOT_FOUND`·`TRUCK_NOT_FOUND`·`STATION_NOT_FOUND`·409 `SHIFT_ENDED`·`PLAN_CHANGED`·503 `QUEUE_UNAVAILABLE`.
     - v0.8.1: 트럭 ID는 서울 전체에서 이어 매기는 `TR-NN`(TR-01~TR-35, 합의 30)이다. 예시를 `truck-1`에서 `TR-01`로 바꿨다. 하네스 TRUCK_ID 규칙(`^TR-\d+$`)과 같다.
@@ -158,8 +160,20 @@ paths:
     get:
       operationId: getTruckStatus
       summary: 트럭 현재 위치·적재량·남은 정류장
+      description: |
+        근무조 `{구역 ID}:{yyyy-MM-dd}:{AM|PM|EVE}`의 트럭 상태. 형식이 틀리면 400, 구역이 없으면 404 `SHIFT_NOT_FOUND`.
+        - 활성(ACTIVE) 계획이 있으면 그 계획의 트럭(계획 순서). 위치는 마지막으로 끝낸(`DONE`) 정류장의 대여소 좌표, 없으면 구역 차고지.
+          `load`는 그 정류장의 `loadAfter`, 없으면 경로의 `startLoad`. `remainingStops`는 남은(`PENDING`) 정류장(계획의 Stop 그대로).
+        - 활성 계획이 없으면 구역의 운영 중인 트럭(트럭 ID 순)이 차고지에 빈 채로(`load` 0, `remainingStops` 없음) 있다.
+          계획 초안(`request_route_plan` kind=PLAN)의 출발 상태와 같다. 근무조가 아직 없다고 404를 주지 않는다.
+        - 재경로(`request_route_plan` kind=REPLAN)가 쓰는 트럭 위치·적재·남은 정류장과 **같은 계산**이다.
+        - `shiftEnd`는 근무조 끝(AM 10시, PM 16시, EVE 21시, 서울)이다. `lat`·`lon`은 늘 있다.
       parameters:
         - $ref: '#/components/parameters/ShiftId'
+        - name: truckId
+          in: query
+          description: 있으면 그 트럭만 (원소 하나인 배열). 근무조에 없는 트럭이면 404 `TRUCK_NOT_FOUND`, `suggestions`에 근무조 트럭
+          schema: { type: string, examples: [TR-01] }
       responses:
         '200':
           description: 트럭 상태
@@ -168,7 +182,12 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/TruckState' }
-        '404': { $ref: '#/components/responses/ShiftNotFound' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '404':
+          description: 없는 구역(SHIFT_NOT_FOUND), `truckId`가 근무조에 없음(TRUCK_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ToolProblem' }
 
   /internal/shifts/{shiftId}/reports:
     get:
