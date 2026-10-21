@@ -14,7 +14,7 @@ import com.seoulbike.backend.auth.Role;
 
 /**
  * 감사 기록 (FR-18, FR-08). append-only 표(V6)에 쓴다. 바뀐 일과 같은 트랜잭션에서 부르면 둘이 함께 남거나 함께 없어진다.
- * 사람 이름은 남기지 않는다. 표시는 "관리자", "truck-1 기사"처럼 역할로 가린다.
+ * 사람 이름은 남기지 않는다. 표시는 "관리자", "TR-01 기사"처럼 역할로 가린다.
  */
 @Component
 public class AuditLog {

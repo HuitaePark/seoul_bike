@@ -71,7 +71,7 @@ class SolveRoundTripTest {
 	@Test
 	void okResultBecomesProposedCandidateAndSeqGrows() throws Exception {
 		String shift = shift();
-		ArrayNode routes = routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-2", "DROPOFF", 5, 20)));
+		ArrayNode routes = routes(route("TR-01", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-2", "DROPOFF", 5, 20)));
 		optimizer.answers.put(shift, r -> List.of(result(r, "OK", routes, null, false, null)));
 
 		SolveOutcome first = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, "trace-a");
@@ -118,8 +118,8 @@ class SolveRoundTripTest {
 	void candidateAgainstActivePlanIsGraded() throws Exception {
 		String shift = shift();
 		ArrayNode active = routes(
-				route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-2", "PICKUP", 3, 20), stop(3, "ST-3", "DROPOFF", 8, 30)),
-				route("truck-2", stop(1, "ST-9", "PICKUP", 2, 15)));
+				route("TR-01", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-2", "PICKUP", 3, 20), stop(3, "ST-3", "DROPOFF", 8, 30)),
+				route("TR-02", stop(1, "ST-9", "PICKUP", 2, 15)));
 		jdbc.sql("""
 				insert into plans (plan_id, shift_id, version, status, routes, unserved)
 				values (:id, :shift, 1, 'ACTIVE', cast(:routes as jsonb), '[]')
@@ -128,8 +128,8 @@ class SolveRoundTripTest {
 			.param("shift", shift)
 			.param("routes", json.writeValueAsString(inSeoul(active)))
 			.update();
-		ArrayNode replanned = routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-3", "DROPOFF", 5, 24)),
-				route("truck-2", stop(1, "ST-9", "PICKUP", 2, 15)));
+		ArrayNode replanned = routes(route("TR-01", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-3", "DROPOFF", 5, 24)),
+				route("TR-02", stop(1, "ST-9", "PICKUP", 2, 15)));
 		optimizer.answers.put(shift, r -> List.of(result(r, "OK", replanned, null, false, null)));
 		UUID fieldReportTask = UUID.randomUUID();
 		jdbc.sql("""
@@ -148,7 +148,7 @@ class SolveRoundTripTest {
 		assertThat(candidate.path("grade").asString()).isEqualTo("MINOR");
 		assertThat(candidate.path("requiredApprovers")).isEqualTo(json.createArrayNode().add("DRIVER"));
 		JsonNode diffs = candidate.path("diffs");
-		assertThat(diffs.valueStream().map(d -> d.path("truckId").asString())).containsExactly("truck-1", "truck-2");
+		assertThat(diffs.valueStream().map(d -> d.path("truckId").asString())).containsExactly("TR-01", "TR-02");
 		JsonNode truck1 = diffs.get(0);
 		assertThat(truck1.path("before")).isEqualTo(inSeoul(active).get(0).path("stops"));
 		assertThat(truck1.path("after")).isEqualTo(inSeoul(replanned).get(0).path("stops"));
@@ -165,7 +165,7 @@ class SolveRoundTripTest {
 	@Test
 	void duplicateResultMakesOneCandidate() throws Exception {
 		String shift = shift();
-		ArrayNode routes = routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10)));
+		ArrayNode routes = routes(route("TR-01", stop(1, "ST-1", "PICKUP", 5, 10)));
 		optimizer.answers.put(shift, r -> {
 			String once = result(r, "OK", routes, null, false, null);
 			return List.of(once, once);
@@ -222,7 +222,7 @@ class SolveRoundTripTest {
 
 		JsonNode request = optimizer.lastRequest(shift);
 		kafka.send(SolveTopics.SOLVE_RESULTS, shift,
-				result(request, "OK", routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10))), null, false, null))
+				result(request, "OK", routes(route("TR-01", stop(1, "ST-1", "PICKUP", 5, 10))), null, false, null))
 			.get(10, TimeUnit.SECONDS);
 		Instant deadline = Instant.now().plusSeconds(15);
 		while (!"OK".equals(requestStatus(outcome.requestId()))) {
