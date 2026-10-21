@@ -61,7 +61,8 @@ PR #46으로 운영 Compose에 worker·상태 볼륨·backend healthy 이후 기
 SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재고·거치대 수를 만들거나 요구하지 않는다.
 관측 재고에 대한 neededBikes 산출·타당성 검증은 생산자가 담당한다.
 기존 예측 데모의 Station 스냅샷 입력은 재고·거치대와 회수 가능량 검증을 계속 수행한다.
-완료·관리자 제외 거점은 backend가 남은 후보를 구성할 때 제거한다.
+완료 거점은 backend가 남은 후보를 구성할 때 제거한다. 관리자 제외·현장 차단은 `stations`에 남기고
+`blockedStationIds`로 지정해야 `BLOCKED` 미처리로 반환된다. stations에 없는 차단 ID는 거부한다.
 현재 wire에 없는 completedStationIds·excludeStationIds를 새로 정의하지 않는다.
 
 ## 로컬 수요 예측 연결
