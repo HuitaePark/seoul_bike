@@ -14,6 +14,11 @@ set -euo pipefail
 
 env_file=${1:?사용법: bash infra/deploy.sh <env 파일>}
 project=${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME이 필요하다}
+# Configure every Compose invocation before any container change. Bad/missing
+# road data must fail before replacing a running backend.
+checkout=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+. "$checkout/infra/optimizer/deploy-settings.sh"
+configure_optimizer_deployment "$checkout" "$env_file"
 # 옛 컨테이너를 내릴 때 기다리는 최대 시간 (roll의 두 번째 인자).
 # backend: Spring 그레이스풀 종료(75초, 경로 계산이 60초까지 기다린다) + 여유. compose의 backend stop_grace_period와 같다.
 # 보통은 진행 중 요청이 없어 1~2초에 끝난다.
@@ -108,6 +113,11 @@ roll() {
 
 # 1) 상태를 가진 기반 서비스. 이미지를 고정해 두어 바뀐 게 없으면 그대로 둔다.
 dc up -d --no-deps --wait --wait-timeout "$health_timeout" postgres redpanda vectordb
+
+# OSRM must be healthy before backend replacement and worker startup.
+if [ "$OSRM_ENABLED" = true ]; then
+  dc up -d --no-deps --wait --wait-timeout "$health_timeout" osrm
+fi
 
 # 2) backend 순차 교체 (마이그레이션은 새 컨테이너가 시작할 때)
 roll backend "$backend_stop"

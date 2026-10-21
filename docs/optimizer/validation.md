@@ -1,3 +1,24 @@
+# #107 배포 연결·#108 입력 호환 검증 (2026-10-21, hyunmoo)
+
+main `aece814`를 병합했다. 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft, payload schemaVersion 1 기준이다.
+
+| 검사 | 결과 / 범위 |
+| --- | --- |
+| 최적화 전체 | Python 3.12.13·OR-Tools 9.14.6206, **428 passed·24 subtests**, 실제 Kafka 브로커 3개 skipped. CI와 같은 or-tools 작업 폴더에서 실행 |
+| OSRM 배포 설정 | 새 15개. 기본 false, dotenv와 셸 우선순위, 공백·한글 외부 경로, 없는/상대/checkout 내부/심볼릭 링크 경로, 잘못된 해시·CH 누락을 검사. 비밀값을 출력하지 않음 |
+| 배포 순서·사전 실패 | Compose config는 실제 CLI 사용. Docker 변경은 모의 실행하여 true에서 OSRM healthy 대기가 backend보다 앞서고 모든 up이 같은 구성을 쓰는지 확인. 잘못된 자료면 Docker 변경 전 실패 |
+| #108 REPLAN | 새 6개(OR-Tools·탐욕). 보고 후의 실제 load·마지막 DONE 좌표·남은 고정 작업을 사용하고 완료 거점을 되살리지 않음. SKIPPED 차단은 BLOCKED. 생산자 형태의 합성 입력이며 Java/DB 왕복은 아님 |
+| 프론트 | 단위 **42개**, Chromium **37개** 통과. 타입 검사·배포 빌드 통과. 최신 main의 실제 API 연결과 기존 계획 검토 화면 회귀 포함 |
+| 구성·구문 | 기본 운영·독립 OSRM·독립 Kafka·운영 overlay Compose config 통과. macOS /bin/bash 3.2 배포/설정 스크립트와 전처리 스크립트 구문 검사 통과 |
+
+기존 SWIG 경고 3개와 프론트 번들 크기 안내가 있으며 실패는 없다.
+
+production 변수 전달·overlay 선택은 이 브랜치에 구현했다. 서버 변수 등록·실제 PBF 준비/전처리·OSRM 기동·운영 데이터 왕복·
+현장 보고부터 변경안까지 10초 측정은 미실행이다. 새 PR 없이 hyunmoo에 커밋·push한다.
+이전 구성 검사·실제 Kafka 실행 기록은 아래 이력이다.
+
+---
+
 # OSRM 영속 경로 후속 검증 (2026-10-21, hyunmoo)
 
 main 9ea362f를 반영한 뒤 OSRM_INPUT_DIR/OSRM_DATA_DIR를 준비용·운영용 Compose에 연결했다.

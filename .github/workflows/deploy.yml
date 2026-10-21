@@ -41,6 +41,9 @@ jobs:
     timeout-minutes: 30
     env:
       COMPOSE_FILE: infra/compose.yaml
+      OSRM_ENABLED: ${{ vars.OSRM_ENABLED || 'false' }}
+      OSRM_DATA_DIR: ${{ vars.OSRM_DATA_DIR }}
+      OSRM_INPUT_DIR: ${{ vars.OSRM_INPUT_DIR }}
       COMPOSE_PROJECT_NAME: seoul-bike
       GIT_SHA: ${{ github.sha }}
       # 빌드 증명(provenance)을 붙이지 않는다. 붙이면 바뀐 게 없어도 빌드할 때마다 이미지 ID가 달라져서
@@ -78,7 +81,8 @@ jobs:
         run: |
           required="POSTGRES_PASSWORD VECTOR_PASSWORD JWT_SECRET"
           optional="SEED_USER_PASSWORD INTERNAL_TOKEN OPENAI_API_KEY OLLAMA_API_KEY SEOUL_API_KEY POSTGRES_DB POSTGRES_USER VECTOR_DB VECTOR_USER
-                    FAKE_AGENT_ENABLED MCP_INTERNAL_MODE AGENT_LLM MCP_FAKE OLLAMA_HOST COLLECTOR_RETENTION_DAYS"
+                    FAKE_AGENT_ENABLED MCP_INTERNAL_MODE AGENT_LLM MCP_FAKE OLLAMA_HOST COLLECTOR_RETENTION_DAYS
+                    OSRM_ENABLED OSRM_DATA_DIR OSRM_INPUT_DIR"
           for k in $required; do
             if [ -z "${!k}" ]; then
               echo "::error::production 환경 secret $k가 없다 (Settings → Environments → production)"
@@ -94,6 +98,17 @@ jobs:
           done
           mv "$out" "$HOME/seoul-bike/.env"
           echo "서버 .env를 production 환경 값 $(wc -l < "$HOME/seoul-bike/.env" | tr -d ' ')개로 새로 썼다"
+
+      # Use the same checked configuration for pull/build/deploy/status/logs.
+      # Only optimizer settings are exported; the dotenv contents are never logged.
+      - name: 최적화 이동 방식과 도로 자료 확인
+        shell: bash
+        run: |
+          . infra/optimizer/deploy-settings.sh
+          configure_optimizer_deployment "$GITHUB_WORKSPACE" "$HOME/seoul-bike/.env"
+          for key in COMPOSE_FILE OSRM_ENABLED OSRM_DATA_DIR OSRM_INPUT_DIR; do
+            printf '%s=%s\n' "$key" "${!key}" >> "$GITHUB_ENV"
+          done
 
       - name: 이미지 받기·빌드
         run: |

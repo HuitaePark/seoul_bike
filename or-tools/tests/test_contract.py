@@ -420,3 +420,50 @@ def test_result_timestamps_use_seoul_offset_without_changing_instants(request_da
         for stop in route["stops"]:
             assert stop["eta"].endswith("+09:00")
             assert datetime.fromisoformat(stop["eta"]) >= DEMO_TIME
+
+
+@pytest.mark.parametrize("policy", ["ortools", "greedy"])
+@pytest.mark.parametrize("report", ["actual_pickup", "actual_dropoff", "blocked_skip"])
+def test_backend108_replan_uses_reported_load_and_only_pending_work(backend89_request, validators, policy, report):
+    """PR #108-like producer input, not a Java/DB round trip.
+
+    DONE pickup: start 1 + actual 2 = 3 (planned pickup was 6).
+    DONE dropoff: previous 6 - actual 4 = 2 (planned dropoff was 6).
+    SKIPPED does not change that last DONE position/load; its blocked job stays
+    in stations so the worker can return BLOCKED without visiting it.
+    """
+    from datetime import timedelta
+    payload = backend89_request
+    done, target, other = payload["stations"]
+    done_id = done["stationId"]
+    target.update(neededBikes=-3, priority=6.5, kind="EMPTY")
+    other.update(neededBikes=2, priority=12.5, kind="OVERFLOW")
+    payload.update(kind="REPLAN", requestId="N02:2026-10-21:AM:3:1",
+                   asOf="2026-10-21T07:23:45+09:00", occurredAt="2026-10-21T07:23:45+09:00",
+                   stations=[target], blockedStationIds=[])
+    load = 2 if report == "actual_dropoff" else 3
+    if report == "actual_dropoff":
+        target["neededBikes"] = -2
+    elif report == "blocked_skip":
+        payload["stations"] = [target, other]
+        payload["blockedStationIds"] = [other["stationId"]]
+    truck = payload["trucks"][0]
+    truck.update(load=load, lat=done["lat"], lon=done["lon"], fixedStationIds=[target["stationId"]])
+    payload["trucks"] = [truck]
+    original = copy.deepcopy(payload)
+    validators["SolveRequest"].validate(payload)
+    result = run(payload, policy=policy)
+    validators["SolveResult"].validate(result)
+    assert result["status"] == "OK" and len(result["routes"]) == 1
+    route = result["routes"][0]
+    assert (route["truckId"], route["startLoad"]) == ("TR-03", load)
+    stops = route["stops"]
+    expected = [(target["stationId"], "DROPOFF", load, 0)]
+    assert [(s["stationId"], s["action"], s["bikes"], s["loadAfter"]) for s in stops] == expected
+    assert done_id not in {s["stationId"] for s in stops} | {s["stationId"] for s in result["unserved"]}
+    first = next(s for s in payload["stations"] if s["stationId"] == stops[0]["stationId"])
+    duration = HaversineTravelTime().matrix([(truck["lat"], truck["lon"]), (first["lat"], first["lon"])]).durations_s[0][1]
+    assert datetime.fromisoformat(stops[0]["eta"]) == datetime.fromisoformat(payload["asOf"]) + timedelta(seconds=duration)
+    assert result["unserved"] == ([{"stationId": other["stationId"], "priority": 12.5, "reason": "BLOCKED"}]
+                                  if report == "blocked_skip" else [])
+    assert payload == original

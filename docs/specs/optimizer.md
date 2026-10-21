@@ -5,7 +5,7 @@
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.14.0-draft |
+| 공개 API (OpenAPI) | 0.15.0-draft |
 | 내부 API (OpenAPI) | 0.8.5-draft |
 | Kafka (AsyncAPI) | 0.5.1-draft |
 
@@ -84,6 +84,9 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
   REPLAN `stations`와 `fixedStationIds`에서 함께 빠진다. 계약 필드는 같고, 정류장이 모두 빠지면 빈 `stations`로 온다.
   optimizer는 받은 대여소만 방문·미처리로 돌려주고 빠진 정류장을 되살리지 않는다. 빈 입력은 경로 없는 OK이며
   적재가 남은 트럭의 이전 정류장·startLoad는 backend가 보존한다.
+- PR #108부터 DONE 현장 보고의 실은·내린 대수가 이전 적재에 반영된다. REPLAN은 마지막 DONE 위치와
+  이 실제 적재를 받는다. SKIPPED는 마지막 DONE 위치·적재를 바꾸지 않는다. 역할 5는 이미 반영된 load를
+  그대로 시작 적재로 사용하고 보고 대수를 다시 더하거나 빼지 않는다. 현장 보고 저장 자체는 backend 책임이다.
 
 ## 로컬 수요 예측 연결
 
@@ -278,4 +281,7 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 준비용과 운영용 Compose는 `OSRM_DATA_DIR`의 같은 전처리 결과를 사용한다. 원본 PBF는
 준비용 `OSRM_INPUT_DIR`로 지정한다. 미지정 시 기존 개발 경로이며 서버에서는 checkout 밖 절대 경로를 쓴다.
 운영 서버와 worker는 전처리 결과를 읽기 전용으로 공유하고, 중복 방지 상태와 행렬 캐시는 기존 named volume을 유지한다.
-production 변수 전달·OSRM 배포 선택은 별도 연결이 필요하다. [경로 설정](../../infra/optimizer/README.md#저장소-밖에-도로-자료-보관)을 따른다.
+hyunmoo는 production 변수 `OSRM_ENABLED`(기본 false)로 배포 구성을 선택하도록 연결했다. true이면
+checkout 밖의 기존 `OSRM_DATA_DIR`, 완료 해시(data-version)와 CH 자료를 컨테이너 변경 전에 검사한다.
+`OSRM_INPUT_DIR`는 전처리용 선택 변수다. OSRM healthy 이후 backend·worker를 갱신하며 기존 상태 볼륨은 유지한다.
+실제 도로 준비·서버 변수 등록·운영 검증은 별도다. [배포 설정](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)을 따른다.

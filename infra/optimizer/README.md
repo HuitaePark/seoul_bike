@@ -112,16 +112,24 @@ OSRM 서버와 optimizer는 같은 결과 폴더를 읽기 전용으로 사용�
 호스트에서 버전을 확인할 때는 `cat "$OSRM_DATA_DIR/data-version"`을 사용한다.
 기존 `optimizer-state`·행렬 캐시 볼륨은 도로 폴더를 바꿔도 보존된다.
 
-이는 Compose의 경로 지정 기능이다. production 변수에서 실제 배포로 값을 전달하고 OSRM overlay를
-선택하는 작업은 아직 필요하다. 경로를 지정한 것만으로 기본 배포가 OSRM으로 바뀌지는 않는다.
-[PR #107](https://github.com/HuitaePark/skala_seoul_bike/pull/107)은 무중단 배포를 준비 중이며,
-그 배포 경로에도 이 두 변수와 overlay 선택을 연결해야 한다. 서버 변수는 값이 비어 있거나 상대 경로인 경우를 검증해야 한다.
+hyunmoo는 main의 [PR #107](https://github.com/HuitaePark/skala_seoul_bike/pull/107) 순차 배포에 이 경로와
+OSRM 선택을 연결했다. 경로만 지정하면 기본 배포는 여전히 하버사인이다. 아래 `OSRM_ENABLED=true` 설정이 필요하다.
 실제 도로 복사·PBF 전처리·서버 자원 확인은 이 변경에서 수행하지 않았다.
 
 ## 운영 Compose에 선택적으로 연결
 
 `compose.osrm.yaml`은 도로 자료와 서버 자원 확인 후 명시적으로 선택하는 추가 구성이다.
-현재 `deploy.yml`과 기본 운영 Compose의 하버사인 worker는 유지한다. 자료가 없어 자동 전환하지 않는다.
+`deploy.yml`은 production 환경 variable로 다음을 받는다. 기본값은 하버사인이다.
+
+| 변수 | 기본값 / 조건 |
+| --- | --- |
+| `OSRM_ENABLED` | `false`. `true`일 때만 기본 Compose와 OSRM overlay를 함께 사용한다. 그 외 값은 실패 |
+| `OSRM_DATA_DIR` | true일 때 필수. checkout 밖의 기존 절대 경로(심볼릭 링크의 실제 위치도 확인), 읽을 수 있는 비어 있지 않은 `region.osrm.hsgr`와 64자리 소문자 SHA-256 `data-version` 필요 |
+| `OSRM_INPUT_DIR` | 선택. 준비 작업에서 원본 PBF를 읽는 경로. 지정하면 checkout 밖 기존 절대 경로여야 함. 운영 OSRM/worker는 이 원본 폴더를 사용하지 않음 |
+
+`deploy-settings.sh`는 Compose의 dotenv 해석으로 값을 읽고 env 파일을 실행하지 않는다. 자료가 없거나 설정이 잘못되면
+이미지 pull/build와 컨테이너 변경 전에 실패한다. 이후 pull/build/deploy/status/logs는 같은 Compose 구성을 사용하며,
+배포 중 OSRM healthy를 먼저 확인한 뒤 backend·worker를 갱신한다. 직접 `deploy.sh`를 실행할 때도 같은 사전 검사를 한다.
 
 1. 서울 17구역·차고지/연결도로가 포함된 PBF를 준비하고 출처·취득일·SHA-256·서버 RAM/디스크 예산을 기록한다.
 2. 앞의 독립 구성에서 로컬 osrm을 중지하고 `osrm-prepare`로 CH 자료를 만든다. 운영 overlay 사용 중 자료를 바꿀 때에는
@@ -144,13 +152,13 @@ docker compose -p seoul-bike --env-file ~/seoul-bike/.env -f infra/compose.yaml 
 
 - 서버의 env 파일은 `infra/.env`가 아니라 `~/seoul-bike/.env`이다. `deploy.yml`이 배포할 때마다 production 환경 값으로
   새로 쓰므로 이 파일을 손으로 고친 값은 다음 배포에서 사라진다. 바꿀 값은 production 환경 변수에 넣는다.
-- `deploy.yml`은 `infra/compose.yaml`만으로 `up -d --remove-orphans`를 실행한다. 그래서 overlay로 OSRM을 켜 두어도
-  다음 main 배포에서 osrm 컨테이너는 orphan으로 지워지고 optimizer는 하버사인 worker로 다시 만들어진다.
-  배포에 overlay를 넣는 스위치(production 변수)가 생기기 전까지 서버의 OSRM 연결은 다음 배포 전까지만 유지된다고 본다.
-  배포 뒤에는 optimizer가 어느 거리 계산을 쓰는지 다시 확인한다.
-- `OSRM_DATA_DIR`를 지정하지 않으면 overlay는 기존 개발 경로 `infra/optimizer/data/processed`(저장소 안 bind mount)에서 읽는다. 배포 runner의 작업 폴더는
-  `actions/checkout`이 기본값(`clean: true`)으로 추적하지 않는 파일까지 지우므로, 그 안에 만든 전처리 결과도 배포 때 사라진다.
-  서버에서는 `OSRM_DATA_DIR`·`OSRM_INPUT_DIR`로 runner 작업 폴더 밖 절대 경로를 지정해 전처리하고 보관한다. 배포 스위치를 만들 때 변수 전달도 연결한다.
+- 수동 overlay 기동만으로 다음 자동 배포 설정이 바뀌지는 않는다. production variable에 `OSRM_ENABLED=true`와
+  준비된 `OSRM_DATA_DIR`를 등록해야 다음 배포도 같은 구성을 유지한다. false로 돌리면 worker는 하버사인으로 교체되고
+  OSRM은 orphan으로 정리된다. worker 상태/캐시 볼륨은 삭제하지 않는다.
+- 수동 Compose에는 기존 개발 경로 기본값이 있지만 배포 스위치 true는 checkout 밖 절대 경로를 필수로 검사한다.
+  `actions/checkout`은 runner 작업 폴더의 미추적 파일도 지우므로 그 안에 도로를 보관하지 않는다.
+  `OSRM_INPUT_DIR`도 외부 폴더로 전처리한 뒤 같은 `OSRM_DATA_DIR`를 production에 등록한다.
+- 배포 뒤 OSRM healthy·worker의 공급자/도로 버전·상태/캐시 보존을 실제 서버에서 확인한다. 이 브랜치에서는 서버 설정을 바꾸지 않았다.
 
 추가 osrm은 호스트 포트를 열지 않는다. worker는 같은 네트워크의 `http://osrm:5000`과 읽기 전용
 `OSRM_DATA_DIR`의 data-version을 사용한다. 원래 `optimizer-state:/state`는 결과 중복 방지 때문에 보존하고,
@@ -158,5 +166,5 @@ docker compose -p seoul-bike --env-file ~/seoul-bike/.env -f infra/compose.yaml 
 같은 requestId는 도로 버전 변경 뒤에도 저장된 eventId·결과를 재사용한다. 새 계산은 새 requestId로 요청한다.
 OSRM 실패를 하버사인으로 자동 대체하지 않는다. 기본 설정으로 되돌릴 때에도 상태 볼륨을 삭제하지 않는다.
 
-이 PR에서는 Compose 결합·경로·볼륨·의존성 검증만 수행했다. 실제 PBF 전처리·컨테이너 구동·전체 성능은 미검증이다.
+이 브랜치에서는 Compose 결합·경로·배포 사전 검사·기동 순서를 검증했다. 실제 PBF 전처리·OSRM 컨테이너 구동·전체 성능은 미검증이다.
 OSRM Table의 거리/시간을 연결하는 구성이며 지도 도로선 geometry를 공개 API에 추가하지 않는다.

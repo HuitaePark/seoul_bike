@@ -1,6 +1,15 @@
 # 역할 5 진행 정리 — 2026-10-21
 
-## 영속 도로 자료 경로 후속 (hyunmoo)
+## #107 배포 연결·#108 현장 보고 입력 후속 (hyunmoo)
+
+main `aece814`를 반영했다. 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft이며 wire 필드 변경은 없다.
+production `OSRM_ENABLED` 기본 false를 유지하고 true일 때 overlay를 모든 배포 단계에 적용한다.
+checkout 밖 기존 도로 폴더·완료 SHA-256·CH 파일을 사전 확인하고 OSRM healthy 이후 backend/worker를 갱신한다.
+배포 설정과 실패 시 컨테이너를 건드리지 않는 흐름은 15개 검사로 확인했다.
+#108의 실제 보고 적재·마지막 DONE 위치·완료 작업 제외·SKIPPED 차단을 두 정책에서 6개 검사로 확인했다.
+실제 PBF/서버 변수 등록·배포·실데이터 통합 측정은 남아 있다. 새 PR 없이 hyunmoo에 커밋·push한다.
+
+## 영속 도로 자료 경로 후속 (이전 이력, hyunmoo)
 
 main 9ea362f(#105 공개 트럭 상태·#103 화면 후속)를 반영했다. 계약 기준은 공개 API 0.14.0·내부 API 0.8.5다.
 OSRM_INPUT_DIR/OSRM_DATA_DIR로 준비용·운영용 구성 모두 checkout 밖 절대 경로를 쓸 수 있게 했다.

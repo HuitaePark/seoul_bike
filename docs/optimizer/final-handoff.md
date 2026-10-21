@@ -1,6 +1,6 @@
 # 역할 5 마무리 인계 — 합의사항 반영 후
 
-기준: main `1b33380`(#94·#98, #96·#97 병합), [합의사항](../data/agreements.md), 공개 API 0.13.2·내부 API 0.8.4·Kafka 0.5.1-draft.
+기준: main `aece814`(#107 순차 배포·#108 현장 보고 진행 포함), [합의사항](../data/agreements.md), 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft.
 처음 #94(main `b31fcec` 기준)로 제출했고, 리뷰 후속과 도로 자료 포함 범위 검사를 #98로 더했다.
 #96으로 현장 보고로 필요가 없어진 정류장이 REPLAN 입력에서 빠진다(계약 필드 변경 없음). 이 입력은 역할 5 계약 검사로 확인했다.
 이 문서는 다음 실행에 필요한 입력과 확인할 증거를 정리한다. 아래 준비 조건이 충족돼야 다음 작업에서 운영 마무리가 가능하다.
@@ -30,7 +30,7 @@ optimizer worker는 생산자의 neededBikes/priority를 덮어쓰거나 업무 
 | --- | --- | --- |
 | 실제 관측·시간별 예측 | 역할 6이 합의 12·13에 따라 live.station_status/forecast.station_forecasts에 적재, 역할 4가 내부 API로 제공 | 실행일의 ST-ID·관측 시각·재고·거치대와 같은 근무조의 start/horizonH/rentalsH/returnsH/modelVersion. 비밀 DB 접속 정보나 원본 대용량 파일을 PR에 넣지 않는다. 없으면 합성 입력 호환 검사까지만 가능 |
 | 실제 근무조·차고지·트럭 상태 | 역할 4의 solve 입력과 GET /internal/shifts/{shiftId}/trucks | 종료 전 근무조, depot, 가용 트럭·현재 위치/적재·남은 정류장·차단/고정 ID. CSV의 평균 좌표는 참조 차고지이므로 실제 운영 차고지 여부 확인 |
-| 도로 파일·출처 | 역할 5/서버 담당. 공급처 예: [Geofabrik 대한민국 PBF](https://download.geofabrik.de/asia/south-korea.html) | 17구역·차고지와 연결 경로를 포함하는 추출물, 취득일·원본 URL·SHA-256·추출 범위. `infra/optimizer/data/input/region.osm.pbf`로 제공. 전국 자료가 곧 서버 처리 가능 규모라는 뜻은 아니므로 서버 담당과 범위를 정한다 |
+| 도로 파일·출처 | 역할 5/서버 담당. 공급처 예: [Geofabrik 대한민국 PBF](https://download.geofabrik.de/asia/south-korea.html) | 17구역·차고지와 연결 경로를 포함하는 추출물, 취득일·원본 URL·SHA-256·추출 범위. 서버에서는 checkout 밖 `OSRM_INPUT_DIR/region.osm.pbf`로 제공(개발 기본값은 `infra/optimizer/data/input/region.osm.pbf`). 전국 자료가 곧 서버 처리 가능 규모라는 뜻은 아니므로 서버 담당과 범위를 정한다 |
 | 도로 데이터 라이선스 기록 | 자료 제공자/역할 5 | [OpenStreetMap 출처·라이선스 안내](https://www.openstreetmap.org/copyright)에 맞춰 출처를 기록한다. 지도 파일·가공 산출물은 Git에 넣지 않는다 |
 | 서버 자원·실행 환경 | 서버 담당·역할 4 | 전처리/실행 RAM·디스크·CPU 여유, Compose 버전, 내부 네트워크, 테스트 가능한 backend·브로커·계정/내부 토큰. 비밀값은 로컬 환경에만 전달. 예산 확인 전 배포·대형 전처리를 시작하지 않는다 |
 | 03a·03b 실행 시나리오 | 역할 1·2·4·6 | 초안→관리자 승인→활성화, 현장 보고→현재 상태 재계산→변경안→관리자/기사 승인→기사 경로 반영. 재고 불일치/진입 불가/트럭 지연의 예상 결과와 traceId |
@@ -50,10 +50,10 @@ optimizer worker는 생산자의 neededBikes/priority를 덮어쓰거나 업무 
    산출 data-version과 PBF/이미지 정보를 기록하고 N01 좌표·차고지의 Table 응답/단절 오류를 확인한다.
    [포함 범위 검사](../../infra/optimizer/README.md#도로-자료-포함-범위-검사) `rebalancing.roadcheck`를 실제 차고지(`--depot`)로 실행하고 JSON을 남긴다.
    배포 시에는 기존 optimizer 한 개를 overlay 구성으로 교체한다. 같은 상태 볼륨을 두 worker가 동시에 열지 않는다.
-   서버 env 파일은 배포마다 새로 쓰는 `~/seoul-bike/.env`이다. 현재 `deploy.yml`의 `up --remove-orphans`는 overlay를 모르므로
-   다음 main 배포에서 osrm을 지우고 optimizer를 하버사인으로 되돌린다. 배포 스위치가 생기기 전에는 측정을 배포 사이에 끝내고,
-   배포 뒤 거리 계산 방식을 다시 확인한다. runner 작업 폴더 안의 전처리 결과는 checkout이 지우므로
-   `OSRM_DATA_DIR`로 그 밖의 절대 경로를 지정한다. 준비용 `OSRM_INPUT_DIR`도 같은 외부 자료 폴더를 사용한다([OSRM 안내](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)).
+   서버 env 파일은 배포마다 새로 쓰는 `~/seoul-bike/.env`이다. hyunmoo의 배포 연결을 반영한 뒤 production variable에
+   `OSRM_ENABLED=true`와 준비된 `OSRM_DATA_DIR`를 등록한다. 자료 경로·완료 해시·CH 파일 검사와 OSRM healthy 확인을 거친다.
+   runner 작업 폴더 안의 결과는 checkout이 지우므로 그 밖의 절대 경로를 쓴다. 준비용 `OSRM_INPUT_DIR`도 외부 폴더를 사용한다.
+   다음 배포에도 OSRM 선택·도로 버전이 유지되는지 확인한다([OSRM 안내](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)).
 3. 같은 도로 버전으로 N01 265곳·5대 PLAN/REPLAN을 cold/warm 각각 반복 측정하고 원시 표본·p95·캐시·입력 해시를 남긴다.
    300곳은 기존 합성 좌표가 도로 추출물에 모두 포함되는지 `roadcheck --mock-stations 300`으로 먼저 확인하거나 같은 도로 범위의 명시적 300곳 입력을 준비한다.
    지역 참조 작업량은 여전히 합성이며 실제 업무 성능과 별도로 기록한다.
@@ -71,8 +71,9 @@ hyunmoo의 준비용/운영용 Compose는 `OSRM_DATA_DIR`를 공통 사용한다
 미지정 시 기존 개발 경로다. 운영에서는 둘 다 checkout 밖 절대 경로로 지정하고 원본/전처리 결과를 실제로 준비해야 한다.
 이 경로 지정 기능과 읽기 전용·상태 볼륨 보존은 구성 검사로 확인했다. 실제 PBF/서버 검증은 미실행이다.
 
-역할 4의 PR #107은 무중단 배포 변경이다. OSRM overlay 선택·production 변수 전달·절대 경로 필수 검증은
-그 배포 경로와 연결해야 한다. 현재 배포는 기본 Compose만 쓰므로 경로 기능을 준비했다고 OSRM 운영 전환이 끝난 것은 아니다.
+main에 병합된 역할 4의 PR #107 순차 배포에 OSRM 선택·production 변수 전달·외부 절대 경로 검증을 hyunmoo에서 연결했다.
+기본 false이며 true일 때만 준비된 자료를 확인하고 OSRM healthy 이후 worker를 갱신한다. 실제 서버 변수 등록·도로 배치·운영 검증은 남아 있다.
+#108 실제 현장 보고 이후 적재·위치·남은 작업은 두 정책의 계약 검사 6개로 확인했다. backend 저장/DB 왕복은 통합 실행에서 확인한다.
 03a 실제 LLM 모드의 승인 누락(#102)은 역할 1이 재검증해야 하며, 모델 없는 경로 통과와 구분한다.
 
 ## 마무리 완료 기준
@@ -83,4 +84,4 @@ hyunmoo의 준비용/운영용 Compose는 `OSRM_DATA_DIR`를 공통 사용한다
 - 지도는 현재 계약의 방문 순서·마커·미처리를 표시한다. 실제 도로선 geometry는 공개 API 계약에 없으므로
   역할 4와 계약을 정하는 별도 확장 항목이다. OSRM 행렬 연결만으로 도로선을 제공한다고 표시하지 않는다.
 
-독립 구현은 이번 PR에서 검토할 수 있다. 실제 운영 완료는 위 입력과 통합 실행 결과에 달려 있다.
+독립 구현과 배포 연결은 hyunmoo에 보관한다. 실제 운영 완료는 위 입력과 통합 실행 결과에 달려 있다.
