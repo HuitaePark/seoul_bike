@@ -32,7 +32,7 @@ SAMPLE = 0.3
 OBSERVED = ["temp", "rain_mm", "rain_prev3h"]
 FEATS_F = [f for f in FEATS if f not in OBSERVED] + ["lead", "f_temp", "f_pcp", "f_pop"]
 FEATS_N = FEATS_F + ["rent_rec1", "rent_rec3", "ret_rec1", "ret_rec3", "exp_rent3", "exp_ret3", "zone_ratio3"]
-EV_FEATS = ["ev_arrive", "ev_exit", "ev_type", "ev_closed"]  # --events: 행사장 700m 안 대여소의 행사 시간대 (analysis/events.py)
+EV_FEATS = ["ev_arrive", "ev_exit", "ev_type", "ev_closed", "ev_att"]  # --events: 행사장 700m 안 대여소의 행사 시간대 (analysis/events.py)
 
 
 def with_events(df: pd.DataFrame, ev: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -45,9 +45,12 @@ def with_events(df: pd.DataFrame, ev: pd.DataFrame | None = None) -> pd.DataFram
     m = df[["st", "h", "hh"]].assign(date=df.h.dt.normalize(), i=np.arange(len(df))).merge(ev, on=["st", "date"], how="left")
     f = pd.DataFrame({"i": m.i, "ev_arrive": (m.hh >= m.arrive_h0) & (m.hh < m.arrive_h1), "ev_exit": (m.hh >= m.exit_h0) & (m.hh < m.exit_h1),
                       "ev_type": m.type.fillna(0),  # analysis/events.py의 KINDS 순번(축구 1, 야구 2, 콘서트 3, ...)
-                      "ev_closed": m.closed.fillna(0)}).groupby("i").max()
+                      "ev_closed": m.closed.fillna(0),
+                      "ev_att": np.log1p(m["attendance"].fillna(0)) if "attendance" in m else 0.0}).groupby("i").max()  # 관객 수 모르면 0
     out = df.copy()
-    out[EV_FEATS] = f[EV_FEATS].astype("int8").to_numpy()
+    flags = EV_FEATS[:-1]
+    out[flags] = f[flags].astype("int8").to_numpy()
+    out["ev_att"] = f.ev_att.astype("float32").to_numpy()
     return out
 
 
@@ -221,13 +224,18 @@ def events_compare(terr: str) -> None:
     sv = at_shift_start(s_val)
     print("\n== 근무조에 빌 대여소 맞히기\n" + stockout(sv, shift_start_stock(sv), names).to_string())
     print("\n== 구역 전체 시간별 대여 수 가중 오차율\n" + zone_wape(sv, {k: v[1] for k, v in names.items()}).to_string())
-    e = s_val[(s_val.ev_arrive == 1) | (s_val.ev_exit == 1)]
-    print(f"\n== 행사 시간대만 (검증 {e.h.dt.date.nunique()}일, 대여소·시각·lead {len(e):,}행): 평균 절대 오차")
+    kinds = {i + 1: k for i, k in enumerate(("축구", "야구", "콘서트", "체육행사", "축제", "집회", "기타", "농구", "배구"))}  # analysis/events.py KINDS
+    e = s_val[(s_val.ev_arrive == 1) | (s_val.ev_exit == 1) | (s_val.ev_closed == 1)]
+    e = e.assign(group=np.where(e.ev_closed == 1, "운영 중단·통제", e.ev_type.map(kinds)),
+                 phase=np.where(e.ev_closed == 1, "하루", np.where(e.ev_exit == 1, "퇴장", "도착")))
+    print(f"\n== 행사 시간대만 (검증 {e.h.dt.date.nunique()}일, 대여소·시각·lead {len(e):,}행): 평균 절대 오차 (실제 평균)")
     rows = {}
-    for (d, phase), g in e.assign(phase=np.where(e.ev_exit == 1, "퇴장", "도착")).groupby([e.h.dt.date, "phase"]):
-        rows[f"{d} {phase}"] = {f"{k} {what}": (g[c] - g[what]).abs().mean() for k, (r, n) in names.items()
-                                for what, c in (("rent", n), ("ret", r))}
+    for (grp, phase), g in e.groupby(["group", "phase"]):
+        rows[(grp, phase)] = {"행": len(g), "실제 대여": g.rent.mean(), "실제 반납": g.ret.mean(),
+                              **{f"{k} {what}": (g[c] - g[what]).abs().mean() for k, (r, n) in names.items() for what, c in (("rent", n), ("ret", r))}}
     print(pd.DataFrame(rows).T.round(2).to_string())
+    imp = pd.Series(m_rent.feature_importance("gain"), index=feats)
+    print("\n== 대여 모형의 행사 피처 중요도 (gain 비율)\n" + (imp[EV_FEATS] / imp.sum()).round(4).to_string())
 
 
 
