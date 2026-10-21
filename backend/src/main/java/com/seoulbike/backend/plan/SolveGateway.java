@@ -13,8 +13,10 @@ import java.util.concurrent.TimeoutException;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -73,6 +75,11 @@ public class SolveGateway {
 	 * @throws ApiException 503 QUEUE_UNAVAILABLE: 브로커가 요청을 받았다고 확인하지 않았다
 	 */
 	public SolveOutcome solve(String shiftId, Kind kind, ObjectNode inputs, UUID taskId, String traceId) {
+		// 결과를 최대 60초 기다리므로 바깥 트랜잭션 안에서 부르면 안 된다. 요청 행이 커밋되기 전에 발행되고,
+		// 기다리는 동안 근무조 잠금과 DB 연결을 붙잡는다.
+		if (TransactionSynchronizationManager.isActualTransactionActive()) {
+			throw new IllegalStateException("SolveGateway.solve는 트랜잭션 밖에서 부른다");
+		}
 		for (String field : ENVELOPE) {
 			if (inputs.has(field)) {
 				throw new IllegalArgumentException("inputs에 봉투 필드 " + field + "를 넣을 수 없다. 봉투는 여기서 만든다");
@@ -92,7 +99,8 @@ public class SolveGateway {
 			Thread.currentThread().interrupt();
 			throw unsent(requestId);
 		}
-		catch (ExecutionException | TimeoutException e) {
+		catch (ExecutionException | TimeoutException | KafkaException e) {
+			// KafkaException: 브로커가 내려가 있으면 producer가 이미 실패한 결과를 바로 돌려주고 send가 그 자리에서 던진다.
 			throw unsent(requestId);
 		}
 
