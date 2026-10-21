@@ -21,21 +21,22 @@ create table live.station_status (
 -- 돌려줘 재현된다(NFR-04). 계약: internal-api `Forecast` (/internal/forecasts, /internal/stations/risk).
 -- shift_id는 `{regionId}:{yyyy-MM-dd}:{AM|PM|EVE}`. start는 예측 구간 시작 시각.
 -- rentals·returns는 구간 합계, rentals_h·returns_h는 시간별 값(합의 15)이고 있으면 길이가 horizon_h다.
--- numeric은 'NaN'을 받고 NaN >= 0이 참이라 따로 막는다. 배열은 NULL 원소가 있으면 0 <= ALL이 NULL(통과)이라
+-- numeric은 'NaN'·'Infinity'를 받고 둘 다 >= 0이 참이다. NaN은 Infinity보다 크게 정렬되므로 < 'Infinity' 하나로
+-- 둘을 같이 막는다. 배열은 NULL 원소가 있으면 0 <= ALL이 NULL(통과)이라
 -- array_position으로 막는다. 시간별 합 = 합계는 실수 오차가 있어 강제하지 않는다.
 create table forecast.station_forecasts (
     shift_id      text          not null,
     station_id    text          not null check (station_id ~ '^ST-[0-9]+$'),
     start         timestamptz   not null,
     horizon_h     int           not null check (horizon_h between 1 and 5),
-    rentals       numeric       not null check (rentals >= 0 and rentals <> 'NaN'),
-    returns       numeric       not null check (returns >= 0 and returns <> 'NaN'),
+    rentals       numeric       not null check (rentals >= 0 and rentals < 'Infinity'),
+    returns       numeric       not null check (returns >= 0 and returns < 'Infinity'),
     rentals_h     numeric[]     check (rentals_h is null or (
         array_ndims(rentals_h) = 1 and array_lower(rentals_h, 1) = 1 and cardinality(rentals_h) = horizon_h
-        and array_position(rentals_h, null) is null and 0 <= all (rentals_h) and 'NaN' <> all (rentals_h))),
+        and array_position(rentals_h, null) is null and 0 <= all (rentals_h) and 'Infinity' > all (rentals_h))),
     returns_h     numeric[]     check (returns_h is null or (
         array_ndims(returns_h) = 1 and array_lower(returns_h, 1) = 1 and cardinality(returns_h) = horizon_h
-        and array_position(returns_h, null) is null and 0 <= all (returns_h) and 'NaN' <> all (returns_h))),
+        and array_position(returns_h, null) is null and 0 <= all (returns_h) and 'Infinity' > all (returns_h))),
     model_version text          not null,
     created_at    timestamptz   not null default now(),
     primary key (shift_id, station_id, horizon_h)
