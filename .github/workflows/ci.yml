@@ -101,6 +101,23 @@ jobs:
         run: npm run gen:api && git diff --exit-code src/shared/api/schema.d.ts
       - run: npm run build
         working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - name: 화면 검증용 Chromium 설치
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: 계획 검토 브라우저 검증
+        run: npm run test:e2e
+        working-directory: frontend
+      - name: 실패한 화면 검사 기록
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: frontend-plan-review
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
 
   contracts:
     runs-on: ubuntu-latest

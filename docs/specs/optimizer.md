@@ -155,6 +155,14 @@ docs/evidence/의 RAG 검색·원문 Resource를 검증한다. 기본 메모리 
 ID와 정책의 팀 확정을 대체하지 않으며, wire 형식도 변경하지 않는다.
 [참조 시드 안내](https://github.com/HuitaePark/skala_seoul_bike/blob/feat/optimizer-core/infra/optimizer/seeds/README.md)에 원본 커밋·해시·제한을 기록한다.
 
+## 지도·계획 검토 화면
+
+역할 5의 화면은 [별도 명세](plan-review.md)를 따른다. 트럭별 방문 순서·적재량,
+대여소 상세와 미처리 사유, 관리자 거점 제외·새 후보 재검토·승인/거절을 공개 API에 맞춰 구현했다.
+실제 조회와 로그인 없는 가상 시연을 분리하며, 조회 실패를 시연 데이터로 대체하지 않는다.
+공통 인증·API·SSE를 사용하고 업무 DB·내부 API에 직접 접근하지 않는다.
+지도 공급자 연결과 실제 backend 대여소/계획 API·승인 통합 검증은 남아 있다.
+
 ## 예시와 단독 호출
 
 - [request.json](examples/optimizer/request.json): 공통 SolveRequest. 재고·거치대·asOf·depot 추가 없음.

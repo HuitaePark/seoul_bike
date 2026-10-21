@@ -8,6 +8,8 @@ export const router = createRouter({
     { path: '/login', component: () => import('./features/login/LoginView.vue'), meta: { public: true } },
     { path: '/signup', component: () => import('./features/login/SignupView.vue'), meta: { public: true } },
     { path: '/admin/users', component: () => import('./features/admin-users/AdminUsersView.vue') },
+    { path: '/plans/review/demo', component: () => import('./features/plan-map/PlanReviewView.vue'), props: { demo: true }, meta: { public: true } },
+    { path: '/plans/review', component: () => import('./features/plan-map/PlanReviewView.vue') },
     { path: '/', component: () => import('./features/task-console/TaskConsoleView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

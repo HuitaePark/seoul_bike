@@ -9,6 +9,7 @@
 | [`internal-api.yaml`](internal-api.yaml) | 내부 API `/internal/**`, MCP 도구 ↔ API 대응표, 승인 확인 규칙 | business-mcp → backend | 백엔드 + MCP |
 | [`asyncapi.yaml`](asyncapi.yaml) | Kafka 토픽과 메시지: `ai.tasks`, `ai.events`, `solve.requests`, `solve.results` | backend ↔ agent, backend ↔ optimizer | 백엔드 + 에이전트 + 최적화 |
 | [`optimizer.md`](optimizer.md) | 공통 solve 대응 계산 규칙·실행 설정, OSRM·캐시와 구현 범위 | backend ↔ optimizer | 최적화 · 인프라 |
+| [`plan-review.md`](plan-review.md) | 지도 서비스 제외 계획 검토 화면·실제/시연 분리·거점 제외 후 재검토 | 화면 → 공개 API | 최적화 · 인프라 |
 
 ## 보는 법
 

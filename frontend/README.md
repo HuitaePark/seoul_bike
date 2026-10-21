@@ -26,6 +26,13 @@ BACKEND_URL=https://baki-macbookpro.tail3286a4.ts.net npm run dev   # 배포 서
 - 권한 판단은 backend가 한다. 화면은 역할에 따라 **보여줄 것만** 고르고, 403은 메시지로 보여준다.
 - 새 화면은 `src/router.ts`에 경로를 추가한다. 로그인이 필요 없는 화면만 `meta: { public: true }`.
 
+## 계획 검토 화면 (역할 5)
+
+`/plans/review/demo`는 로그인 없이 트럭 경로·적재량·미처리 사유·거점 제외와 새 후보 승인 흐름을 시연한다.
+`/plans/review`는 관리자·책임자의 실제 조회 화면이며 실제 업무 API 연결은 후속이다.
+지도 서비스는 아직 연결하지 않았다. [상세 실행·검증 안내](src/features/plan-map/README.md)를 참고한다.
+검사는 `npm test`, `npm run build`, Chromium 설치 후 `npm run test:e2e`로 실행한다.
+
 ## 시연 계정
 
 `manager`(관제), `driver1`·`driver2`(기사, truck-1·truck-2), `executive`(책임자). 비밀번호는 서버 `.env`의 `SEED_USER_PASSWORD`이며 팀에 따로 공유한다.
