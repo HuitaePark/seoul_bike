@@ -25,6 +25,12 @@ class PlanController {
 		return plans.latest(shiftId);
 	}
 
+	/** 무승인 변경 수 (PRD 9.2). 계획과 같은 범위: 관리자·책임자 */
+	@GetMapping("/api/shifts/{shiftId}/safety")
+	ObjectNode safety(@PathVariable String shiftId) {
+		return plans.safety(shiftId);
+	}
+
 	@GetMapping("/api/drivers/me/route")
 	JsonNode myRoute(@AuthenticationPrincipal Jwt jwt) {
 		return plans.driverRoute(CurrentUser.from(jwt).truckId());

@@ -37,7 +37,8 @@
 | 작업 API 5개 (202 · SSE · `Last-Event-ID` 재전송 · 승인) | 구현 |
 | `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. `ai.events` 소비는 **재시도(`ai.events.retry`) → `ai.events.dlq`** (형식 오류는 바로 dlq) |
 | `/api/system/status` | 구현 |
-| 현장 보고 `POST /api/reports` (기사만, `issue`가 있으면 재경로 작업) | 구현 (v0.5). 정류장이 기사 경로에 있는지는 경로가 생기면(M3) 확인 |
+| 현장 보고 `POST /api/reports` (기사만, `issue`가 있으면 재경로 작업) | 구현 (v0.5). 활성 계획의 그 트럭 정류장 진행(DONE·SKIPPED)을 남긴다 (v0.15). 경로에 없는 정류장 보고는 저장만 |
+| 기사 경로 `DriverRoute`(+ `shiftId`) · 화면용 계획·경로의 대여소 이름 · 무승인 변경 수 `GET /api/shifts/{shiftId}/safety` | 구현 (v0.15) |
 | 계획 조회 `GET /api/shifts/{shiftId}/plan`(가장 최근 버전, 관리자·책임자만) · 기사 경로 `GET /api/drivers/me/route`(기사만, 오늘 근무조, 없으면 404) | 구현 (v0.10) |
 | 현황 지도 `GET /api/regions/{regionId}/stations` (로그인한 모든 역할) | 구현 (v0.13.2). 운영 중이고 관측이 있는 대여소만, 재고(실시간 수집에 3시간 안의 기사 현장 보고 반영)와 끝나지 않은 가장 이른 예측 구간으로 위험(2대 이하 EMPTY, 거치대 초과 OVERFLOW)을 판단한다. `live`는 수집기(`collector`, 5분마다)가 채운다. `forecast`는 6번 예측기가 채우기 전까지 비어 있어 위험은 현재 재고로만 판단한다 |
 | 성과 API | 계약만 |

@@ -2,6 +2,8 @@ package com.seoulbike.backend.plan;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -65,14 +67,26 @@ class PlanService {
 	ObjectNode latest(String shiftId) {
 		return plans.latest(shiftId)
 			.map(this::toContract)
+			.map(this::withStationNames)
 			.orElseThrow(() -> ApiException.notFound("NOT_FOUND", "근무조 " + shiftId + "에 계획이 없다"));
 	}
 
-	/** 오늘(서울 시각) 근무조의 경로만. 지난 근무조의 ACTIVE 계획은 닫히지 않고 남는다. */
+	/** 오늘(서울 시각) 근무조의 경로만. 지난 근무조의 ACTIVE 계획은 닫히지 않고 남는다. 계약 DriverRoute (Route + shiftId). */
 	JsonNode driverRoute(String truckId) {
 		return plans.activeRouteOf(truckId, LocalDate.now(SEOUL))
-			.map(json::readTree)
+			.map(r -> ((ObjectNode) json.readTree(r.routeJson())).put("shiftId", r.shiftId()))
+			.map(this::withStationNames)
 			.orElseThrow(() -> ApiException.notFound("NOT_FOUND", "오늘 경로가 없다"));
+	}
+
+	/** 계약 ShiftSafety. 무승인 변경 수(PRD 9.2, 반드시 0): 승인 없이 활성화된 계획 버전. 형식이 틀린 근무조는 400. */
+	ObjectNode safety(String shiftId) {
+		Shift shift = Shift.parse(shiftId);
+		PlanRepository.Activations counts = plans.activations(shift.id());
+		return json.createObjectNode()
+			.put("shiftId", shift.id())
+			.put("approvedChanges", counts.approved())
+			.put("unapprovedChanges", counts.unapproved());
 	}
 
 	/** submit_plan. 승인한 관리자를 활성화한 사람으로 남긴다. */
@@ -181,6 +195,28 @@ class PlanService {
 	}
 
 	/** 계약 Plan. */
+	/**
+	 * 화면 응답의 정류장·빠진 대여소에 이름(계약 Stop·Unserved `stationName`)을 채운다. 경로 계산(optimizer·탐욕 임시안)은
+	 * 대여소 ID만 넣는다. 기사 경로에는 구역이 없어 화면이 구역 대여소 목록으로 이름을 찾을 수 없다.
+	 * 에이전트 쪽(/internal) 응답에는 넣지 않는다 (business-mcp가 길이를 맞추려고 먼저 빼는 필드다).
+	 */
+	private <T extends JsonNode> T withStationNames(T node) {
+		List<ObjectNode> unnamed = node.findParents("stationId")
+			.stream()
+			.filter(n -> n instanceof ObjectNode && !n.hasNonNull("stationName"))
+			.map(ObjectNode.class::cast)
+			.toList();
+		Map<String, String> names = plans
+			.stationNames(unnamed.stream().map(n -> n.path("stationId").asString()).collect(Collectors.toSet()));
+		for (ObjectNode n : unnamed) {
+			String name = names.get(n.path("stationId").asString());
+			if (name != null) {
+				n.put("stationName", name);
+			}
+		}
+		return node;
+	}
+
 	private ObjectNode toContract(Plan p) {
 		ObjectNode out = json.createObjectNode();
 		out.put("planId", p.planId());

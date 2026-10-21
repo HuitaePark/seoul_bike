@@ -193,7 +193,8 @@ class PlanApiTest {
 		assertThat(code(call("GET", "/api/shifts/" + shift + "/plan", manager, null, null))).isEqualTo("NOT_FOUND");
 
 		String active = plan(shift, 1, "ACTIVE", routes(route("TR-01", stop("ST-1", "PICKUP", 5))), null);
-		String proposed = plan(shift, 2, "PROPOSED", routes(route("TR-01", stop("ST-2", "PICKUP", 5))), 1);
+		String proposed = plan(shift, 2, "PROPOSED",
+				routes(route("TR-01", stop("ST-2", "PICKUP", 5), stop("ST-7", "DROPOFF", 5))), 1);
 		JsonNode current = json.readTree(call("GET", "/internal/shifts/" + shift + "/plan", null, TOKEN, null).body());
 		assertThat(current.path("planId").asString()).isEqualTo(active);
 		assertThat(current.path("routes").get(0).path("stops").get(0).path("stationId").asString()).isEqualTo("ST-1");
@@ -202,6 +203,10 @@ class PlanApiTest {
 			JsonNode latest = json.readTree(call("GET", "/api/shifts/" + shift + "/plan", token, null, null).body());
 			assertThat(latest.path("planId").asString()).isEqualTo(proposed);
 			assertThat(latest.path("status").asString()).isEqualTo("PROPOSED");
+			// 계획에는 대여소 ID만 있다. 화면 응답은 기준 정보에 있는 대여소에 이름을 붙인다 (없는 ID는 그대로).
+			JsonNode stops = latest.path("routes").get(0).path("stops");
+			assertThat(stops.get(0).has("stationName")).isFalse();
+			assertThat(stops.get(1).path("stationName").asString()).isEqualTo("합정역 5번출구 앞");
 		}
 		// 근무조 계획에는 모든 트럭 경로가 있다. 기사는 자기 경로만 본다 (NFR-06).
 		assertThat(call("GET", "/api/shifts/" + shift + "/plan", login("driver1"), null, null).statusCode()).isEqualTo(403);
@@ -222,12 +227,72 @@ class PlanApiTest {
 
 		JsonNode own = route(truck, stop("ST-7", "DROPOFF", 3));
 		String today = LocalDate.now(ZoneId.of("Asia/Seoul")).toString();
-		plan(newShift(today), 1, "ACTIVE", routes(route("TR-01", stop("ST-1", "PICKUP", 5)), own), null);
+		String shift = newShift(today);
+		plan(shift, 1, "ACTIVE", routes(route("TR-01", stop("ST-1", "PICKUP", 5)), own), null);
 		var res = call("GET", "/api/drivers/me/route", driver, null, null);
 		assertThat(res.statusCode()).isEqualTo(200);
+		// 계약 DriverRoute: 경로 + 근무조 (현장 보고·구역 대여소 조회에 쓴다). 이름은 기준 정보에서 붙인다
+		((ObjectNode) own).put("shiftId", shift);
+		((ObjectNode) own.path("stops").get(0)).put("stationName", "합정역 5번출구 앞");
 		assertThat(json.readTree(res.body())).isEqualTo(own);
 
 		assertThat(call("GET", "/api/drivers/me/route", login("manager"), null, null).statusCode()).isEqualTo(403);
+	}
+
+	@Test
+	void fieldReportsRecordProgressOnTheDriversActiveRouteWithoutANewVersion() throws Exception {
+		String truck = "TR-" + (100_000 + (int) (Math.random() * 900_000));
+		String driver = newDriver(truck);
+		String shift = newShift(LocalDate.now(ZoneId.of("Asia/Seoul")).toString());
+		JsonNode own = route(truck, stop("ST-7", "PICKUP", 5), stop("ST-1", "DROPOFF", 3), stop("ST-2", "DROPOFF", 2));
+		((ObjectNode) own).put("startLoad", 2);
+		String planId = plan(shift, 1, "ACTIVE", routes(own), null);
+
+		// 처리한 정류장은 DONE. 실은·내린 대수를 보고하면 적재를 직전 적재(출발 2대) + 실은 4대로 다시 센다
+		assertThat(report(driver, shift, "ST-7", 9, 4, null, null).statusCode()).isEqualTo(202);
+		JsonNode stops = myStops(driver);
+		assertThat(stops.get(0).path("status").asString()).isEqualTo("DONE");
+		assertThat(stops.get(0).path("loadAfter").asInt()).isEqualTo(6);
+		// 진입 불가는 처리하지 못한 것이다 (SKIPPED). 재경로 작업은 그대로 만든다
+		var blocked = report(driver, shift, "ST-1", 0, null, null, "BLOCKED");
+		assertThat(blocked.statusCode()).isEqualTo(202);
+		assertThat(json.readTree(blocked.body()).path("taskId").isNull()).isFalse();
+		stops = myStops(driver);
+		assertThat(stops.get(1).path("status").asString()).isEqualTo("SKIPPED");
+		assertThat(stops.get(1).has("loadAfter")).isFalse();
+
+		// 이미 끝낸 정류장, 경로에 없는 대여소 보고는 받기만 하고 진행은 그대로다
+		assertThat(report(driver, shift, "ST-7", 3, 1, null, null).statusCode()).isEqualTo(202);
+		assertThat(report(driver, shift, "ST-2547", 3, null, null, null).statusCode()).isEqualTo(202);
+		assertThat(myStops(driver)).isEqualTo(stops);
+		// 진행은 경로를 바꾸지 않아 새 버전이 아니다 (승인 대상이 아니다)
+		assertThat(status(planId)).isEqualTo("ACTIVE");
+		assertThat(jdbc.sql("select count(*) from plans where shift_id = :s").param("s", shift).query(Integer.class).single())
+			.isEqualTo(1);
+	}
+
+	@Test
+	void safetyCountsPlanVersionsActivatedWithoutApproval() throws Exception {
+		String shift = "S09:" + LocalDate.of(2090, 1, 1).plusDays((long) (Math.random() * 30_000)) + ":PM";
+		String manager = login("manager");
+		JsonNode none = json.readTree(call("GET", "/api/shifts/" + shift + "/safety", manager, null, null).body());
+		assertThat(none.path("shiftId").asString()).isEqualTo(shift);
+		assertThat(none.path("approvedChanges").asInt()).isZero();
+		assertThat(none.path("unapprovedChanges").asInt()).isZero();
+
+		// v1은 승인 없이 ACTIVE가 된 버전(시험용으로 바로 넣는다), v2는 관리자 승인으로 활성화한 버전
+		plan(shift, 1, "ACTIVE", routes(route("TR-01", stop("ST-1", "PICKUP", 5))), null);
+		String v2 = plan(shift, 2, "PROPOSED", routes(route("TR-01", stop("ST-2", "PICKUP", 5))), 1);
+		UUID task = task(shift, "PLAN_DRAFT");
+		assertThat(activate(v2, approval(task, "SUBMIT_PLAN", "MANAGER", null, null, v2, "u-manager"), task).statusCode())
+			.isEqualTo(200);
+		for (String token : new String[] { manager, login("executive") }) {
+			JsonNode counts = json.readTree(call("GET", "/api/shifts/" + shift + "/safety", token, null, null).body());
+			assertThat(counts.path("approvedChanges").asInt()).isEqualTo(1);
+			assertThat(counts.path("unapprovedChanges").asInt()).isEqualTo(1);
+		}
+		assertThat(call("GET", "/api/shifts/" + shift + "/safety", login("driver1"), null, null).statusCode()).isEqualTo(403);
+		assertThat(call("GET", "/api/shifts/N02-today/safety", manager, null, null).statusCode()).isEqualTo(400);
 	}
 
 	// ── 행 넣기 ────────────────────────────
@@ -355,6 +420,17 @@ class PlanApiTest {
 	}
 
 	// ── HTTP ────────────────────────────
+
+	private HttpResponse<String> report(String driver, String shiftId, String stationId, int actualBikes, Integer loaded,
+			Integer unloaded, String issue) throws Exception {
+		ObjectNode body = json.createObjectNode().put("shiftId", shiftId).put("stationId", stationId)
+			.put("actualBikes", actualBikes).put("loaded", loaded).put("unloaded", unloaded).put("issue", issue);
+		return call("POST", "/api/reports", driver, null, json.writeValueAsString(body));
+	}
+
+	private JsonNode myStops(String driver) throws Exception {
+		return json.readTree(call("GET", "/api/drivers/me/route", driver, null, null).body()).path("stops");
+	}
 
 	private HttpResponse<String> activate(String planId, UUID approvalId, UUID taskId) throws Exception {
 		return call("POST", "/internal/plans/" + planId + "/activate", null, TOKEN,

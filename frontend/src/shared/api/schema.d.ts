@@ -275,8 +275,32 @@ export interface paths {
         /**
          * 근무조의 현재 계획 (계획 검토·모니터링)
          * @description 관리자·책임자만. 모든 트럭 경로가 들어 있어 기사는 403이다 (기사는 `/api/drivers/me/route`).
+         *     정류장·빠진 대여소의 이름(`stationName`)은 기준 정보에서 붙인다 (경로 계산은 대여소 ID만 넣는다).
          */
         get: operations["getShiftPlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shifts/{shiftId}/safety": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 근무조의 무승인 변경 수 (PRD 9.2, 반드시 0)
+         * @description 관리자·책임자만 (계획과 같은 범위). 근무조에서 ACTIVE가 된 적 있는 계획 버전을 센다.
+         *     활성화한 승인(`activated_by_approval`)이 APPROVED면 승인된 변경, 승인이 없거나 APPROVED가 아니면 무승인 변경이다.
+         *     계획 활성화와 경로 적용(새 버전)이 변경이다. 현장 보고로 남기는 정류장 진행은 경로를 바꾸지 않아 세지 않는다.
+         *     계획이 없는 근무조는 둘 다 0이다.
+         */
+        get: operations["getShiftSafety"];
         put?: never;
         post?: never;
         delete?: never;
@@ -297,6 +321,8 @@ export interface paths {
          * @description DRIVER만. 다른 트럭 경로는 볼 수 없다 (트럭은 토큰에서 꺼낸다).
          *     오늘(Asia/Seoul) 날짜 근무조(`shiftId`의 `yyyy-MM-dd`)의 ACTIVE 계획 중 이 트럭이 있고 가장 늦게 활성화된 것의 경로다.
          *     지난 근무조의 경로는 나오지 않는다. 없으면 404.
+         *     그 경로의 근무조(`shiftId`)를 같이 준다. 기사 계정에는 근무조가 없어 화면이 현장 보고와 구역 대여소 조회(구역 ID는 `shiftId` 앞부분)에 쓴다.
+         *     정류장 이름(`stationName`)은 기준 정보에서 붙인다 (경로 계산은 대여소 ID만 넣는다).
          */
         get: operations["getMyRoute"];
         put?: never;
@@ -321,6 +347,10 @@ export interface paths {
          * @description **DRIVER만** 보고한다. 트럭은 로그인한 기사의 트럭이다 (본문에 받지 않는다).
          *     보고는 바로 저장하고, **`issue`가 있으면** 재경로 `FIELD_REPORT` 작업을 만들어 `taskId`를 함께 돌려준다.
          *     `issue`가 없는 보고(진행 기록)는 저장만 하고 `taskId`는 null이다.
+         *     **정류장 진행:** 그 근무조 ACTIVE 계획의 이 트럭 경로에서 이 대여소의 첫 PENDING 정류장을 끝낸다. 진입 불가·공사(`BLOCKED`·`CONSTRUCTION`)는
+         *     `SKIPPED`, 그 밖은 `DONE`이다. `DONE`이고 `loaded`·`unloaded`가 있으면 그 정류장 `loadAfter`를 직전에 끝낸 정류장의 적재(없으면 `startLoad`)
+         *     \+ 실은 대수 − 내린 대수로 다시 센다. 트럭 상태와 재경로는 마지막으로 끝낸 정류장에서 시작한다. 진행은 새 버전을 만들지 않는다.
+         *     경로에 없거나 이미 끝낸 정류장의 보고는 저장만 한다 (진행은 그대로). 재경로 작업이 있으면 진행을 먼저 남긴다.
          *     작업 명령(`ai.tasks`)에는 보고 값(`report`)을 같이 실어 agent가 다시 읽지 않게 한다.
          *     정류장이 그 기사의 경로에 있는지는 경로가 생기면(M3) 확인한다.
          */
@@ -627,6 +657,18 @@ export interface components {
             reason?: string | null;
             /** @enum {string} */
             status?: "PENDING" | "DONE" | "SKIPPED";
+        };
+        /** @description 기사 본인 경로. `Route`에 그 경로가 속한 근무조를 더한다 */
+        DriverRoute: components["schemas"]["Route"] & {
+            /** @description 이 경로가 속한 근무조 ID (현장 보고 `shiftId`, 구역 ID는 앞부분) */
+            shiftId: string;
+        };
+        ShiftSafety: {
+            shiftId: string;
+            /** @description 승인으로 ACTIVE가 된 계획 버전 수 (계획 활성화 + 경로 적용) */
+            approvedChanges: number;
+            /** @description 승인 없이 ACTIVE가 된 계획 버전 수. 반드시 0 (PRD 9.2) */
+            unapprovedChanges: number;
         };
         Route: {
             truckId: string;
@@ -1295,6 +1337,32 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    getShiftSafety: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description {regionId}:{yyyy-MM-dd}:{AM|PM|EVE}. Kafka 메시지 키로도 쓴다 */
+                shiftId: components["parameters"]["ShiftId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 승인·무승인 변경 수 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftSafety"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     getMyRoute: {
         parameters: {
             query?: never;
@@ -1310,7 +1378,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Route"];
+                    "application/json": components["schemas"]["DriverRoute"];
                 };
             };
             401: components["responses"]["Unauthorized"];
