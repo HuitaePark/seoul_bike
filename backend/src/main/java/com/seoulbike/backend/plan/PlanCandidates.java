@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Component;
@@ -22,12 +23,23 @@ import com.seoulbike.backend.route.RouteChangeGrader;
 import com.seoulbike.backend.route.RouteDiff;
 
 /**
- * OK 결과로 계획 후보(PROPOSED)를 만들고 계약 PlanCandidate를 돌려준다.
+ * 계산 결과로 계획 후보(PROPOSED)를 만들고 계약 PlanCandidate를 돌려준다. optimizer의 OK 결과와, 답을 받지 못했을 때 backend가
+ * 만든 임시안(provisional, 후보 status TIMEOUT_PROVISIONAL)이 같은 길로 저장된다. 그래서 임시안도 같은 승인으로 활성화·적용된다.
  * 활성 계획이 있으면 트럭마다 비교해 변경 등급과 승인 순서를 붙인다. 없으면 첫 계획이라 등급이 없다
  * (활성화는 어차피 관리자의 SUBMIT_PLAN 승인을 거친다).
  */
 @Component
 class PlanCandidates {
+
+	/**
+	 * REPLAN이 기준으로 삼은 활성 계획. 후보는 그 계획의 전체 경로다: 다시 풀지 않은 트럭은 그대로, 다시 푼 트럭은 이미 끝낸
+	 * 정류장(PENDING이 아닌 것)을 앞에 두고 새 정류장을 이어 붙인다. 그래야 끝낸 정류장과 손대지 않은 트럭이 빠진 것으로 비교되지 않는다.
+	 *
+	 * @param version 입력을 만든 활성 계획 version. 요청을 남길 때 활성 계획이 바뀌었으면 409 PLAN_CHANGED
+	 * @param truckIds 다시 푼 트럭
+	 */
+	record Replan(int version, String activeRoutesJson, Set<String> truckIds) {
+	}
 
 	private final PlanRepository plans;
 	private final SolveRequestRepository requests;
@@ -41,29 +53,49 @@ class PlanCandidates {
 		this.json = json;
 	}
 
-	/** @param taskId 요청한 작업. 현장 보고 작업이면 FIELD_REPORT, 아니면(없어도) 관리자 요청으로 등급을 매긴다 */
+	/**
+	 * optimizer의 OK 결과.
+	 *
+	 * @param taskId 요청한 작업. 현장 보고 작업이면 FIELD_REPORT, 아니면(없어도) 관리자 요청으로 등급을 매긴다
+	 * @param replan REPLAN이면 기준 계획, PLAN이면 null
+	 */
 	@Transactional
-	ObjectNode create(String shiftId, String requestId, UUID taskId, JsonNode result) {
+	ObjectNode create(String shiftId, String requestId, UUID taskId, JsonNode result, Replan replan) {
+		return insert(shiftId, requestId, taskId, array(result.path("routes")), array(result.path("unserved")), replan,
+				false, null);
+	}
+
+	/** optimizer가 답하지 못해 backend가 만든 임시안. 같은 요청(requestId)에 묶어 둔다. */
+	@Transactional
+	ObjectNode createProvisional(String shiftId, String requestId, UUID taskId, ArrayNode routes, ArrayNode unserved,
+			Replan replan, String explanation) {
+		return insert(shiftId, requestId, taskId, routes.deepCopy(), unserved.deepCopy(), replan, true, explanation);
+	}
+
+	private ObjectNode insert(String shiftId, String requestId, UUID taskId, ArrayNode solved, ArrayNode unserved,
+			Replan replan, boolean provisional, String explanation) {
 		plans.lockShift(shiftId);
-		ArrayNode routes = seoulEtas(array(result.path("routes")));
-		ArrayNode unserved = array(result.path("unserved"));
+		ArrayNode routes = seoulEtas(solved);
+		if (replan != null) {
+			routes = merge(json.readTree(replan.activeRoutesJson()), routes, replan.truckIds());
+		}
 		String planId = "PL-" + UUID.randomUUID();
 		int version = plans.nextVersion(shiftId);
-		plans.insertCandidate(planId, shiftId, version, json.writeValueAsString(routes), json.writeValueAsString(unserved),
-				requestId);
+		plans.insertCandidate(planId, shiftId, version, provisional, json.writeValueAsString(routes),
+				json.writeValueAsString(unserved), explanation, requestId);
 
 		ObjectNode candidate = json.createObjectNode();
 		candidate.put("candidateId", planId);
-		candidate.put("status", "OK");
+		candidate.put("status", provisional ? "TIMEOUT_PROVISIONAL" : "OK");
 		ObjectNode plan = candidate.putObject("plan");
 		plan.put("planId", planId);
 		plan.put("shiftId", shiftId);
 		plan.put("version", version);
 		plan.put("status", "PROPOSED");
-		plan.put("provisional", false);
+		plan.put("provisional", provisional);
 		plan.set("routes", routes);
 		plan.set("unserved", unserved);
-		plan.putNull("explanation");
+		plan.put("explanation", explanation);
 
 		ArrayNode approvers = json.createArrayNode();
 		var active = plans.active(shiftId);
@@ -79,6 +111,36 @@ class PlanCandidates {
 		}
 		candidate.set("requiredApprovers", approvers);
 		return candidate;
+	}
+
+	/** 활성 계획의 트럭 순서대로. 다시 푼 트럭은 끝낸 정류장 + 새 정류장(seq를 이어 매긴다), 출발 적재량은 활성 계획 그대로. */
+	private ArrayNode merge(JsonNode activeRoutes, ArrayNode solved, Set<String> truckIds) {
+		Map<String, JsonNode> byTruck = new LinkedHashMap<>();
+		solved.forEach(r -> byTruck.put(r.path("truckId").asString(), r));
+		ArrayNode out = json.createArrayNode();
+		for (JsonNode active : activeRoutes) {
+			String truckId = active.path("truckId").asString();
+			if (!truckIds.contains(truckId)) {
+				out.add(active.deepCopy());
+				continue;
+			}
+			ObjectNode route = (ObjectNode) active.deepCopy();
+			ArrayNode stops = route.putArray("stops");
+			for (JsonNode stop : active.path("stops")) {
+				if (!"PENDING".equals(stop.path("status").asString("PENDING"))) {
+					stops.add(stop.deepCopy());
+				}
+			}
+			JsonNode next = byTruck.remove(truckId);
+			if (next != null) {
+				for (JsonNode stop : next.path("stops")) {
+					stops.add(((ObjectNode) stop.deepCopy()).put("seq", stops.size() + 1));
+				}
+			}
+			out.add(route);
+		}
+		byTruck.values().forEach(r -> out.add(r.deepCopy()));
+		return out;
 	}
 
 	/** 활성 계획 대비 트럭별 변경(계약 RouteDiff 배열)과 등급. */

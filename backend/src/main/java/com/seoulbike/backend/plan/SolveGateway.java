@@ -72,9 +72,12 @@ public class SolveGateway {
 	 *
 	 * @param inputs 계약 SolveRequest 중 봉투 밖의 필드 (depot, asOf, stations, trucks, blockedStationIds, params)
 	 * @param taskId 요청한 작업. 없으면 null. 현장 보고 작업이면 변경 등급을 FIELD_REPORT 기준으로 매긴다
-	 * @throws ApiException 503 QUEUE_UNAVAILABLE: 브로커가 요청을 받았다고 확인하지 않았다
+	 * @param replan REPLAN이면 입력을 만든 활성 계획 (후보는 그 계획에 새 경로를 합친 것이다). PLAN이면 null
+	 * @throws ApiException 503 QUEUE_UNAVAILABLE: 브로커가 요청을 받았다고 확인하지 않았다.
+	 *         409 PLAN_CHANGED: 입력을 만든 뒤 활성 계획이 바뀌었다 (요청을 남기지 않는다)
 	 */
-	public SolveOutcome solve(String shiftId, Kind kind, ObjectNode inputs, UUID taskId, String traceId) {
+	SolveOutcome solve(String shiftId, Kind kind, ObjectNode inputs, UUID taskId, String traceId,
+			PlanCandidates.Replan replan) {
 		// 결과를 최대 60초 기다리므로 바깥 트랜잭션 안에서 부르면 안 된다. 요청 행이 커밋되기 전에 발행되고,
 		// 기다리는 동안 근무조 잠금과 DB 연결을 붙잡는다.
 		if (TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -85,7 +88,7 @@ public class SolveGateway {
 				throw new IllegalArgumentException("inputs에 봉투 필드 " + field + "를 넣을 수 없다. 봉투는 여기서 만든다");
 			}
 		}
-		ObjectNode request = tx.execute(s -> persist(shiftId, kind, inputs, taskId, traceId));
+		ObjectNode request = tx.execute(s -> persist(shiftId, kind, inputs, taskId, traceId, replan));
 		String requestId = request.path("requestId").asString();
 
 		// 결과가 발행 확인보다 먼저 올 수 있어 보내기 전에 기다릴 자리를 만든다.
@@ -129,7 +132,7 @@ public class SolveGateway {
 			return new SolveOutcome(SolveOutcome.Status.valueOf(status), requestId, null, answer.path("code").asString(null),
 					answer.path("retryable").asBoolean(false), answer.path("error").asString(null));
 		}
-		return new SolveOutcome(SolveOutcome.Status.OK, requestId, candidates.create(shiftId, requestId, taskId, answer),
+		return new SolveOutcome(SolveOutcome.Status.OK, requestId, candidates.create(shiftId, requestId, taskId, answer, replan),
 				null, false, null);
 	}
 
@@ -142,9 +145,15 @@ public class SolveGateway {
 	}
 
 	/** 근무조 잠금 안에서 seq를 매기고 요청 행을 PENDING으로 남긴다. 보낼 메시지를 그대로 저장한다. */
-	private ObjectNode persist(String shiftId, Kind kind, ObjectNode inputs, UUID taskId, String traceId) {
+	private ObjectNode persist(String shiftId, Kind kind, ObjectNode inputs, UUID taskId, String traceId,
+			PlanCandidates.Replan replan) {
 		plans.lockShift(shiftId);
 		int planVersion = plans.active(shiftId).map(PlanRepository.Active::version).orElse(0);
+		// 트럭 위치·적재와 남은 정류장을 읽은 계획이 그사이 바뀌었으면 그 입력으로 계산한 후보는 새 계획을 덮어쓴다.
+		if (replan != null && replan.version() != planVersion) {
+			throw ApiException.conflict("PLAN_CHANGED", "근무조 " + shiftId + "의 활성 계획이 v" + replan.version() + "에서 v"
+					+ planVersion + "로 바뀌었다. request_route_plan을 다시 부른다.");
+		}
 		int seq = requests.nextSeq(shiftId, planVersion);
 		String requestId = shiftId + ":" + planVersion + ":" + seq;
 
