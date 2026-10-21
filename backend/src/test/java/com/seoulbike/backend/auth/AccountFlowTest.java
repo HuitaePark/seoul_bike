@@ -285,6 +285,35 @@ class AccountFlowTest {
 			.statusCode()).isEqualTo(400);
 	}
 
+	@Test
+	void guestEntersWithoutPasswordAsManagerUntilDisabled() throws Exception {
+		var entered = call("POST", "/api/auth/guest", null, null);
+		assertThat(entered.statusCode()).isEqualTo(200);
+		JsonNode user = json.readTree(entered.body()).path("user");
+		assertThat(user.path("id").asString()).isEqualTo("u-guest");
+		assertThat(user.path("role").asString()).isEqualTo("MANAGER");
+		String guest = json.readTree(entered.body()).path("accessToken").asString();
+		// 관리자 권한 전부: 계정 관리도 된다
+		assertThat(call("GET", "/api/admin/users?status=PENDING", guest, null).statusCode()).isEqualTo(200);
+		// 다시 불러도 같은 손님 계정이다 (계정을 늘리지 않는다)
+		assertThat(json.readTree(call("POST", "/api/auth/guest", null, null).body()).path("user").path("id").asString())
+			.isEqualTo("u-guest");
+		// 아이디·비밀번호로는 손님 계정에 들어올 수 없다
+		assertThat(code(login("guest", "test-password"))).isEqualTo("INVALID_CREDENTIALS");
+
+		// 관리자가 손님 계정을 비활성화하면 손님 입장과 이미 준 토큰이 바로 막힌다
+		String manager = token("manager");
+		try {
+			assertThat(call("POST", "/api/admin/users/u-guest/disable", manager, null).statusCode()).isEqualTo(200);
+			assertThat(code(call("POST", "/api/auth/guest", null, null))).isEqualTo("ACCOUNT_DISABLED");
+			assertThat(call("GET", "/api/me", guest, null).statusCode()).isEqualTo(401);
+		}
+		finally {
+			call("POST", "/api/admin/users/u-guest/enable", manager, null);
+		}
+		assertThat(call("POST", "/api/auth/guest", null, null).statusCode()).isEqualTo(200);
+	}
+
 	private static String uniqueLoginId() {
 		return "user-" + UUID.randomUUID().toString().substring(0, 8);
 	}

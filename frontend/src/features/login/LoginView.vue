@@ -28,7 +28,8 @@ const router = useRouter()
 const loginId = ref(readSavedId())
 const remember = ref(loginId.value !== '')
 const password = ref('')
-const error = ref('')
+// /guest 주소로 손님 입장이 실패하면 그 이유를 들고 여기로 온다
+const error = ref(typeof route.query.error === 'string' ? route.query.error : '')
 const busy = ref(false)
 
 async function submit() {
@@ -38,6 +39,20 @@ async function submit() {
     await auth.login(loginId.value, password.value)
     writeSavedId(remember.value ? loginId.value : '')
     await router.replace(typeof route.query.redirect === 'string' ? route.query.redirect : '/')
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    busy.value = false
+  }
+}
+
+// 로그인 없이 들어오기: 손님 계정(관리자 권한)으로 바로 관제 대시보드에 들어간다
+async function enterAsGuest() {
+  busy.value = true
+  error.value = ''
+  try {
+    await auth.loginAsGuest()
+    await router.replace(typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard')
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -65,6 +80,7 @@ async function submit() {
         </svg>
         {{ busy ? '확인 중…' : '로그인' }}
       </button>
+      <button type="button" class="submit guest" :disabled="busy" @click="enterAsGuest">로그인 없이 둘러보기</button>
       <div class="links">
         <span>계정이 없으신가요?</span>
         <RouterLink to="/signup">회원가입 신청</RouterLink>

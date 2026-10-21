@@ -23,11 +23,22 @@ export const useAuth = defineStore('auth', () => {
   const token = computed(() => saved.value?.token ?? null)
   const user = computed(() => saved.value?.user ?? null)
 
+  function keep(data: Schemas['LoginResponse']) {
+    saved.value = { token: data.accessToken, user: data.user, expiresAt: Date.now() + data.expiresIn * 1000 }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved.value))
+  }
+
   async function login(loginId: string, password: string) {
     const { data, error } = await api.POST('/api/auth/login', { body: { loginId, password } })
     if (error || !data) throw new Error(problemMessage(error))
-    saved.value = { token: data.accessToken, user: data.user, expiresAt: Date.now() + data.expiresIn * 1000 }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved.value))
+    keep(data)
+  }
+
+  /** 로그인 없이 들어오기: 손님 계정(관리자 권한) 토큰을 받는다 */
+  async function loginAsGuest() {
+    const { data, error } = await api.POST('/api/auth/guest')
+    if (error || !data) throw new Error(problemMessage(error))
+    keep(data)
   }
 
   function logout() {
@@ -37,5 +48,5 @@ export const useAuth = defineStore('auth', () => {
 
   bindAuth(() => token.value, logout)
 
-  return { token, user, login, logout }
+  return { token, user, login, loginAsGuest, logout }
 })

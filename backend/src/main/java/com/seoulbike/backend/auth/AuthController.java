@@ -2,6 +2,7 @@ package com.seoulbike.backend.auth;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -32,6 +33,11 @@ class AuthController {
 
 	record LoginResponse(String accessToken, String tokenType, long expiresIn, CurrentUser user) {
 	}
+
+	/** 손님 계정. 관리자(MANAGER) 권한 전부를 갖는다. 관리 화면에서 비활성화하면 손님 입장이 막힌다. */
+	static final String GUEST_ID = "u-guest";
+	static final String GUEST_LOGIN_ID = "guest";
+	static final String GUEST_NAME = "손님 (로그인 없이)";
 
 	private final UserRepository users;
 	private final PasswordEncoder passwords;
@@ -65,14 +71,49 @@ class AuthController {
 					"아이디 또는 비밀번호가 맞지 않다"));
 		throttle.succeeded(req.loginId(), clientIp);
 		// 상태는 비밀번호가 맞을 때만 알려준다. 남의 계정 상태를 떠보지 못하게 한다.
+		requireActive(stored);
+		return issue(stored);
+	}
+
+	/**
+	 * 로그인 없이 들어오기. 비밀번호 없이 손님 계정(관리자 권한)의 토큰을 준다.
+	 * 손님 계정은 처음 부를 때 만든다. 비밀번호는 아무도 모르는 무작위 값이라 아이디·비밀번호로는 들어올 수 없다.
+	 * 끄는 법: GUEST_LOGIN_ENABLED=false로 다시 띄우거나, 계정 관리에서 손님 계정을 비활성화한다(이미 준 토큰도 바로 막힌다).
+	 */
+	@PostMapping("/api/auth/guest")
+	LoginResponse guest() {
+		if (!props.guestEnabled()) {
+			throw ApiException.forbidden("GUEST_LOGIN_DISABLED", "로그인 없이 들어오기가 꺼져 있다. 계정으로 로그인한다");
+		}
+		// 처음 한 번만 만든다 (bcrypt가 느려 매번 해시하지 않는다).
+		// 누가 먼저 "guest" 아이디로 가입했으면 그 계정이 아니라 손님 계정(u-guest)만 쓴다.
+		var guest = users.findById(GUEST_ID).or(() -> {
+			users.insertIfAbsent(GUEST_ID, GUEST_LOGIN_ID, passwords.encode(UUID.randomUUID().toString()), GUEST_NAME,
+					Role.MANAGER, null, AccountStatus.ACTIVE);
+			return users.findById(GUEST_ID);
+		})
+			.orElseThrow(() -> ApiException.conflict("GUEST_UNAVAILABLE",
+					"손님 계정을 만들 수 없다 (아이디 guest를 다른 계정이 쓴다)"));
+		requireActive(guest);
+		return issue(guest);
+	}
+
+	@GetMapping("/api/me")
+	CurrentUser me(@AuthenticationPrincipal Jwt token) {
+		return CurrentUser.from(token);
+	}
+
+	private static void requireActive(UserRepository.StoredUser stored) {
 		switch (stored.status()) {
 			case ACTIVE -> {
 			}
 			case PENDING -> throw ApiException.forbidden("ACCOUNT_PENDING", "관리자 승인을 기다리는 계정이다");
 			case DISABLED -> throw ApiException.forbidden("ACCOUNT_DISABLED", "비활성화된 계정이다");
 		}
-		var user = stored.toCurrentUser();
+	}
 
+	private LoginResponse issue(UserRepository.StoredUser stored) {
+		var user = stored.toCurrentUser();
 		Instant now = Instant.now();
 		JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
 			.issuer("seoul-bike-backend")
@@ -89,10 +130,5 @@ class AuthController {
 			.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims.build()))
 			.getTokenValue();
 		return new LoginResponse(token, "Bearer", props.tokenTtl().toSeconds(), user);
-	}
-
-	@GetMapping("/api/me")
-	CurrentUser me(@AuthenticationPrincipal Jwt token) {
-		return CurrentUser.from(token);
 	}
 }

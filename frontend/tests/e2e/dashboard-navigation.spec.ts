@@ -322,3 +322,40 @@ test('기사 카드 수락은 그 작업의 승인 API로 보내고 카드를 �
   })
   await expect(page.locator('.proposal')).toHaveCount(0)
 })
+
+test('로그인 없이 둘러보기·/guest 주소는 손님(관리자) 토큰을 받아 관제 대시보드로 간다', async ({ page }) => {
+  let guestCalls = 0
+  await page.route('**/api/auth/guest', (route) => {
+    guestCalls++
+    return route.fulfill({ json: {
+      accessToken: 'guest-token', tokenType: 'Bearer', expiresIn: 43_200,
+      user: { id: 'u-guest', name: '손님 (로그인 없이)', role: 'MANAGER', truckId: null },
+    } })
+  })
+  await page.route('**/api/ai/tasks?**', (route) => route.fulfill({ json: { items: [] } }))
+  await mockBoard(page)
+
+  await page.goto('/login')
+  // 대시보드 API는 손님 토큰으로 부른다
+  const plan = page.waitForRequest('**/api/shifts/*/plan', { timeout: 20_000 })
+  await page.getByRole('button', { name: '로그인 없이 둘러보기' }).click()
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(nav(page)).toBeVisible({ timeout: 20_000 })
+  expect((await plan).headers().authorization).toBe('Bearer guest-token')
+
+  // 공유용 /guest 주소: 로그인 기록이 없으면 손님으로 들어가 대시보드를 연다
+  await page.evaluate(() => localStorage.clear())
+  await page.goto('/guest')
+  await expect(page).toHaveURL(/\/dashboard$/)
+  expect(guestCalls).toBe(2)
+})
+
+test('손님 입장이 막혀 있으면 /guest는 로그인 화면에 그 이유를 보여 준다', async ({ page }) => {
+  await page.route('**/api/auth/guest', (route) => route.fulfill({
+    status: 403, contentType: 'application/problem+json',
+    json: { code: 'ACCOUNT_DISABLED', status: 403, detail: '비활성화된 계정이다' },
+  }))
+  await page.goto('/guest')
+  await expect(page).toHaveURL(/\/login/)
+  await expect(page.getByRole('alert')).toContainText('비활성화된 계정이다')
+})

@@ -28,6 +28,22 @@ export const router = createRouter({
   routes: [
     { path: '/login', component: () => import('./features/login/LoginView.vue'), meta: { public: true, layout: 'full' } },
     { path: '/signup', component: () => import('./features/login/SignupView.vue'), meta: { public: true, layout: 'full' } },
+    // 공유용 주소: 열면 손님(관리자 권한)으로 들어가 관제 대시보드를 연다. 이미 로그인했으면 그 계정 그대로 간다.
+    {
+      path: '/guest',
+      component: () => import('./features/login/LoginView.vue'),
+      meta: { public: true, layout: 'full' },
+      beforeEnter: async () => {
+        const auth = useAuth()
+        if (auth.token) return '/'
+        try {
+          await auth.loginAsGuest()
+          return '/dashboard'
+        } catch (e) {
+          return { path: '/login', query: { error: (e as Error).message } }
+        }
+      },
+    },
     {
       path: '/dashboard',
       component: () => import('./features/dashboard/DashboardView.vue'),
