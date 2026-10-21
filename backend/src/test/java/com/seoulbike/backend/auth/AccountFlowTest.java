@@ -6,6 +6,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -91,6 +93,53 @@ class AccountFlowTest {
 		assertThat(code(call("POST", "/api/admin/users/u-manager/disable", manager, null))).isEqualTo("CANNOT_DISABLE_SELF");
 		assertThat(code(call("POST", "/api/admin/users", manager,
 				body(uniqueLoginId(), "password-123", "트럭 없는 기사", "role", "DRIVER")))).isEqualTo("TRUCK_REQUIRED");
+	}
+
+	@Test
+	void repeatedWrongPasswordsBlockOnlyThatLoginId() throws Exception {
+		String manager = token("manager");
+		String loginId = uniqueLoginId();
+		call("POST", "/api/admin/users", manager, body(loginId, "password-123", "책임자 3", "role", "EXECUTIVE"));
+
+		// TestInfra: 3번까지는 그냥 틀렸다고 한다.
+		for (int i = 0; i < 3; i++) {
+			assertThat(code(login(loginId, "wrong-password"))).isEqualTo("INVALID_CREDENTIALS");
+		}
+		// 그 뒤로는 맞는 비밀번호도 받지 않는다. 없는 아이디도 똑같이 센다.
+		var blocked = login(loginId, "password-123");
+		assertThat(blocked.statusCode()).isEqualTo(429);
+		assertThat(code(blocked)).isEqualTo("TOO_MANY_LOGIN_FAILURES");
+		String ghost = uniqueLoginId();
+		for (int i = 0; i < 3; i++) {
+			login(ghost, "whatever-123");
+		}
+		assertThat(code(login(ghost, "whatever-123"))).isEqualTo("TOO_MANY_LOGIN_FAILURES");
+		// 다른 아이디는 영향이 없다.
+		assertThat(login("driver1", "test-password").statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void signupsStopWhileTooManyArePending() throws Exception {
+		String manager = token("manager");
+		List<String> created = new ArrayList<>();
+		try {
+			// TestInfra: 승인 대기 5건까지. 다른 테스트가 남긴 대기 건이 있어도 5건까지 채운다.
+			int pending = json.readTree(call("GET", "/api/admin/users?status=PENDING", manager, null).body()).size();
+			for (int i = pending; i < 5; i++) {
+				var ok = call("POST", "/api/auth/signup", null, body(uniqueLoginId(), "password-123", "대기", "requestedRole", "DRIVER"));
+				assertThat(ok.statusCode()).isEqualTo(201);
+				created.add(json.readTree(ok.body()).path("id").asString());
+			}
+			var full = call("POST", "/api/auth/signup", null, body(uniqueLoginId(), "password-123", "넘침", "requestedRole", "DRIVER"));
+			assertThat(full.statusCode()).isEqualTo(429);
+			assertThat(code(full)).isEqualTo("TOO_MANY_PENDING_SIGNUPS");
+		}
+		finally {
+			// 거절(비활성화)하면 대기에서 빠진다. 뒤 테스트의 가입을 막지 않게 치운다.
+			for (String id : created) {
+				call("POST", "/api/admin/users/" + id + "/disable", manager, null);
+			}
+		}
 	}
 
 	@Test

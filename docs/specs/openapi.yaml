@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.6.0-draft
+  version: 0.7.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
-    **초안 v0.6.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
+    **초안 v0.7.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.7: 로그인 실패 제한(429 `TOO_MANY_LOGIN_FAILURES`), 승인 대기 가입 상한(429 `TOO_MANY_PENDING_SIGNUPS`).
     - v0.6: 비활성화한 계정은 이미 받은 토큰도 다음 요청부터 401 (만료를 기다리지 않는다).
     - v0.5: 현장 보고 `POST /api/reports` 규칙(기사만, `issue`가 있으면 재경로 작업). FIELD_REPORT 작업은 작업 API로 만들지 않는다 (G13).
     - v0.4: `TaskEvent.code`(FAILED 실패 종류). SSE는 계약 필드만 보낸다.
@@ -65,6 +66,13 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: |
+            같은 아이디로 비밀번호를 여러 번(기본 10번) 틀려 잠시 막힘 (TOO_MANY_LOGIN_FAILURES).
+            첫 실패부터 기본 10분이 지나야 풀리며, 그동안은 맞는 비밀번호도 받지 않는다. 없는 아이디도 똑같이 센다.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /api/auth/signup:
     post:
@@ -89,6 +97,11 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '409':
           description: 이미 쓰는 아이디 (LOGIN_ID_TAKEN)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: 승인 대기 가입 신청이 너무 많이(기본 50건) 쌓여 받지 않음 (TOO_MANY_PENDING_SIGNUPS). 관리자가 처리하면 다시 받는다
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
