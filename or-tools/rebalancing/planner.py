@@ -28,6 +28,7 @@ def plan_routes(
     trucks: list[Truck],
     *,
     time_limit_s: int = 5,
+    solution_limit: int | None = None,
     penalty_per_bike_m: int = 3_000,
     truck_fixed_cost_m: int = 2_000,
 ) -> Plan:
@@ -72,6 +73,8 @@ def plan_routes(
     params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
     params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     params.time_limit.seconds = time_limit_s
+    if solution_limit:  # stop after N solutions: same answer regardless of CPU load (time_limit_s becomes a safety cap)
+        params.solution_limit = solution_limit
 
     solution = routing.SolveWithParameters(params)
     if solution is None:
