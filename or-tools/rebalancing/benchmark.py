@@ -182,7 +182,8 @@ def measure(case, provider, *, repeats, cache_mode, namespace, profile_stages=Fa
 def parser():
     cli = argparse.ArgumentParser(description=__doc__)
     geography = cli.add_mutually_exclusive_group()
-    geography.add_argument("--stations", type=int, default=200)
+    # default=None: argparse may not see an explicit value equal to the default as a --region conflict.
+    geography.add_argument("--stations", type=int, help="synthetic station count (default 200)")
     geography.add_argument("--region", help="use all reference stations of this region; requires --all-candidates")
     cli.add_argument("--trucks", type=int, help="override fleet size; default regional trucks_min with --region, otherwise 5")
     cli.add_argument("--seed", type=int, default=7)
@@ -203,6 +204,8 @@ def parser():
 def main(argv=None):
     cli = parser()
     args = cli.parse_args(argv)
+    if args.stations is None:
+        args.stations = 200
     if min(args.stations, args.repeats, args.solution_limit) < 1 or (args.trucks is not None and args.trucks < 1):
         cli.error("stations, trucks, repeats and solution-limit must be positive")
     if args.region and not args.all_candidates:

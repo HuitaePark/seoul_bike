@@ -39,7 +39,8 @@ def print_plan(plan: Plan, names: dict[int, str]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     when = ap.add_mutually_exclusive_group()
-    when.add_argument("--hour", type=int, default=8, help="mock hour on fixed 2026-10-20 KST (0-23)")
+    # default=None: argparse may not see an explicit value equal to the default as a --start conflict.
+    when.add_argument("--hour", type=int, help="mock hour on fixed 2026-10-20 KST (0-23, default 8)")
     when.add_argument("--start", help="explicit whole-hour ISO datetime; naive values mean KST")
     ap.add_argument("--horizon-h", type=int, default=3, choices=range(1, 6), help="forecast hours (default 3)")
     ap.add_argument("--inventory-policy", choices=("endpoint", "hourly"), default="endpoint",
@@ -62,6 +63,8 @@ def main() -> None:
     ap.add_argument("--json", action="store_true", help="print the two plans as JSON")
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
+    if args.hour is None:
+        args.hour = 8
     if not 0 <= args.hour <= 23 or args.trucks < 0 or args.shift_minutes < 0:
         ap.error("hour must be 0..23, trucks and shift-minutes must be non-negative")
     if args.matrix_cache_dir and (not args.osrm_url or args.osrm_data_version == "unversioned"):
