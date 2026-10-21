@@ -121,3 +121,18 @@ class HttpInternalApi:
 
     async def apply_route(self, truck_id, request):
         return await self._request("POST", f"/internal/routes/{truck_id}/apply", json=request)
+
+
+# backend가 /internal/**를 단계적으로 연다 (PR #19·#20: 현장 보고, 제약 추가, 감사 기록). 열린 것만 http로 부른다.
+HTTP_READY_METHODS = ("field_reports", "add_constraint", "audit_events")
+
+
+class RoutedInternalApi:
+    """메서드마다 다른 구현을 쓴다. routes에 있는 메서드는 그 구현으로, 나머지는 default로 부른다 (INTERNAL_MODE=hybrid)."""
+
+    def __init__(self, default: InternalApi, routes: dict[str, InternalApi]) -> None:
+        self._default = default
+        self._routes = routes
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._routes.get(name, self._default), name)

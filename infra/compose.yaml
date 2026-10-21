@@ -152,8 +152,10 @@ services:
     build:
       context: ../business-mcp
     environment:
-      # backend가 /internal/**를 열기 전(M3)까지는 계약 형식의 가짜 응답(fake)으로 돈다. 연결할 때 .env에서 http로 바꾼다.
+      # backend가 /internal/**를 다 열기 전(M3)까지는 계약 형식의 가짜 응답(fake)으로 돈다.
+      # hybrid는 backend가 연 것(현장 보고·제약 추가·감사 기록)만 http로 부른다. 다 열리면 http로 바꾼다.
       INTERNAL_MODE: ${MCP_INTERNAL_MODE:-fake}
+      INTERNAL_HTTP_METHODS: ${MCP_INTERNAL_HTTP_METHODS:-}
       BACKEND_URL: http://backend:8080
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
     healthcheck:
