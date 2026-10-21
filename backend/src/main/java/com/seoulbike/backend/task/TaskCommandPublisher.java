@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -90,7 +91,8 @@ class TaskCommandPublisher {
 			Thread.currentThread().interrupt();
 			throw unavailable();
 		}
-		catch (ExecutionException | TimeoutException e) {
+		catch (ExecutionException | TimeoutException | KafkaException e) {
+			// KafkaException: 브로커가 내려가 있으면 send가 그 자리에서 던진다. 500 대신 503으로 알린다.
 			throw unavailable();
 		}
 	}
