@@ -89,6 +89,7 @@ class TruckStatusApiTest {
 		var at = position(st.get(1));
 		assertThat(first.path("lat").asDouble()).isEqualTo(at.get(0));
 		assertThat(first.path("lon").asDouble()).isEqualTo(at.get(1));
+		assertThat(first.path("atStationId").asString()).isEqualTo(st.get(1));
 		assertThat(first.path("shiftEnd").asString()).isEqualTo(day + "T16:00:00+09:00");
 		assertThat(ids(first.path("remainingStops"), "stationId")).containsExactly(st.get(2));
 		assertThat(first.path("remainingStops").get(0)).isEqualTo(routes.get(0).path("stops").get(2));
@@ -98,6 +99,7 @@ class TruckStatusApiTest {
 		assertThat(second.path("load").asInt()).isEqualTo(1);
 		assertThat(second.path("lat").asDouble()).isEqualTo(depot.get(0));
 		assertThat(second.path("lon").asDouble()).isEqualTo(depot.get(1));
+		assertThat(second.path("atStationId").isTextual()).isFalse();
 
 		var one = get("/internal/shifts/" + shift + "/trucks?truckId=" + t2, TOKEN);
 		assertThat(ids(json.readTree(one.body()), "truckId")).containsExactly(t2);
@@ -135,6 +137,30 @@ class TruckStatusApiTest {
 		assertThat(get("/internal/shifts/" + REGION + ":" + futureDay() + ":AM/trucks", null).statusCode()).isEqualTo(401);
 		assertThat(get("/internal/shifts/" + REGION + ":" + futureDay() + ":AM/trucks", "wrong").statusCode())
 			.isEqualTo(401);
+	}
+
+	/** 관제 지도(GET /api/shifts/{shiftId}/trucks)는 에이전트 도구와 같은 값을 본다. 모든 트럭이 있어 기사는 못 본다. */
+	@Test
+	void 화면도_같은_트럭_상태를_보고_기사는_볼_수_없다() throws Exception {
+		String shift = REGION + ":" + futureDay() + ":AM";
+		insertActive(shift, json.createArrayNode().add(route(trucks.get(0), 3,
+				stop(1, st.get(0), "PICKUP", 4, 7, "DONE"), stop(2, st.get(1), "DROPOFF", 7, 0, "PENDING"))));
+		JsonNode internal = json.readTree(get("/internal/shifts/" + shift + "/trucks", TOKEN).body());
+		assertThat(internal.get(0).path("atStationId").asString()).isEqualTo(st.get(0));
+
+		String path = "/api/shifts/" + shift + "/trucks";
+		for (String who : List.of("manager", "executive")) {
+			var res = getAs(path, login(who));
+			assertThat(res.statusCode()).as(who + " " + res.body()).isEqualTo(200);
+			assertThat(json.readTree(res.body())).isEqualTo(internal);
+		}
+		assertThat(getAs(path, login("driver1")).statusCode()).isEqualTo(403);
+		assertThat(getAs(path, null).statusCode()).isEqualTo(401);
+		String manager = login("manager");
+		assertThat(getAs("/api/shifts/S02-2026-10-21-AM/trucks", manager).statusCode()).isEqualTo(400);
+		var unknownRegion = getAs("/api/shifts/N09:" + futureDay() + ":AM/trucks", manager);
+		assertThat(unknownRegion.statusCode()).isEqualTo(404);
+		assertThat(json.readTree(unknownRegion.body()).path("code").asString()).isEqualTo("SHIFT_NOT_FOUND");
 	}
 
 	private static String futureDay() {
@@ -177,6 +203,22 @@ class TruckStatusApiTest {
 			req.header("X-Internal-Token", token);
 		}
 		return http.send(req.build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpResponse<String> getAs(String path, String bearer) throws Exception {
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).timeout(Duration.ofSeconds(30)).GET();
+		if (bearer != null) {
+			req.header("Authorization", "Bearer " + bearer);
+		}
+		return http.send(req.build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private String login(String loginId) throws Exception {
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login"))
+			.header("Content-Type", "application/json")
+			.POST(HttpRequest.BodyPublishers.ofString("{\"loginId\":\"" + loginId + "\",\"password\":\"test-password\"}"))
+			.build();
+		return json.readTree(http.send(req, HttpResponse.BodyHandlers.ofString()).body()).path("accessToken").asString();
 	}
 
 	private static List<String> ids(JsonNode array, String field) {

@@ -51,6 +51,32 @@ test('초기 관제 화면만 보이고 적재 현황은 3D 지도 안에만 있
   await expect(page.locator('.scene > .map-truck-load')).toBeVisible()
 })
 
+test('관제 뷰에서 고른 대여소는 지도 바로 옆 재고 현황 칸에 보인다 (#74)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openDashboard(page)
+  const detail = page.locator('#view .stock .w-detail')
+  await expect(page.locator('.w-detail')).toHaveCount(1)  // 지도 아래 따로 뜨던 창은 없다
+  await expect(detail).toContainText('성수역 3번출구')
+
+  await page.getByRole('button', { name: '서울숲 정문 재고 28/30' }).click()
+  await expect(detail).toContainText('서울숲 정문')
+  await expect(detail).toContainText('ST-511')
+  const scene = (await page.locator('.scene').boundingBox())!
+  const box = (await detail.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(scene.x + scene.width - 1)  // 지도 오른쪽 바로 옆
+  expect(box.y).toBeLessThan(scene.y + 60)  // 지도 윗줄에 맞춰
+  expect(box.y + box.height).toBeLessThanOrEqual(900)  // 스크롤 없이 보인다
+  expect((await page.locator('.stock').boundingBox())!.height).toBeCloseTo(scene.height, 0)  // 칸이 지도 높이를 늘리지 않는다
+  await page.screenshot({ path: 'test-results/dashboard-1440-selected.png' })
+
+  // 목록에서 골라도 같은 칸에 보이고, 선택을 풀면 재고 현황만 남는다
+  await page.locator('.stock-list').getByRole('button', { name: /구의역 1번출구/ }).click()
+  await expect(detail).toContainText('ST-561')
+  await detail.getByRole('button', { name: '대여소 선택 해제' }).click()
+  await expect(page.locator('.w-detail')).toHaveCount(0)
+  await expect(page.locator('.stock-list')).toBeVisible()
+})
+
 test('메뉴마다 해당 화면만 보이고 경로 선택은 경로 화면에 머문다', async ({ page }) => {
   await openDashboard(page)
   const screens = [

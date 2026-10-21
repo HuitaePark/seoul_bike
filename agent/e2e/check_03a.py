@@ -2,9 +2,13 @@
 # Date: 20OCT2026
 # Purpose: 03a 통합 확인. 실제 backend로 로그인 → 계획 초안 → SSE → 일부 제외 → 새 카드 → 늦은 결정 409 → 승인 → DONE.
 
-"""03a 통합 확인 (docs/AGENT-GRAPH.md 8.2). backend(:8080)와 agent(`MCP_FAKE=1 AGENT_LLM=none`)가 떠 있어야 한다.
+"""03a 통합 확인 (docs/AGENT-GRAPH.md 8.2). backend(:8080)와 agent(`AGENT_LLM=none`)가 떠 있어야 한다.
 
-    ../.venv/bin/python e2e/check_03a.py <SEED_USER_PASSWORD>
+    ../.venv/bin/python e2e/check_03a.py <SEED_USER_PASSWORD> [근무조 ID]
+
+- 실제 MCP(`MCP_FAKE=0`, 기본값): business-mcp(`MCP_INTERNAL_MODE=http`)·rag-mcp·optimizer·collector가 함께 떠 있고,
+  실시간 재고가 들어온 구역의 근무조를 준다. 예: `N02:2026-10-21:EVE` (#91, main 5381273에서 통과).
+- 가짜 MCP(`MCP_FAKE=1`): 근무조를 빼면 가짜 MCP의 근무조(`evaluation/fake_mcp.py` SHIFT_ID)를 쓴다.
 
 모델 없는 경로 기준으로 카드 내용까지 확인한다. 실제 모델로 돌리면 모델이 고르는 도구에 따라 흐름이 달라질 수 있다.
 """
@@ -15,7 +19,7 @@ import time
 import httpx
 
 BASE = "http://localhost:8080"
-SHIFT = "yeongdeungpo:2026-10-24:PM"  # evaluation/fake_mcp.py SHIFT_ID (가짜 MCP의 근무조)
+FAKE_SHIFT = "yeongdeungpo:2026-10-24:PM"  # evaluation/fake_mcp.py SHIFT_ID (가짜 MCP의 근무조)
 
 
 def sse(client, task_id, after=0, until=("APPROVAL_REQUIRED", "DONE", "FAILED"), timeout=60):
@@ -46,15 +50,15 @@ def sse(client, task_id, after=0, until=("APPROVAL_REQUIRED", "DONE", "FAILED"),
     return events, frames
 
 
-def main(password):
+def main(password, shift=FAKE_SHIFT):
     c = httpx.Client(base_url=BASE, timeout=30)
     tok = c.post("/api/auth/login", json={"loginId": "manager", "password": password})
     tok.raise_for_status()
     c.headers["Authorization"] = f"Bearer {tok.json()['accessToken']}"
     print("login:", tok.json()["user"]["role"])
 
-    r = c.post("/api/ai/tasks", json={"type": "PLAN_DRAFT", "shiftId": SHIFT})
-    print("create:", r.status_code, r.json())
+    r = c.post("/api/ai/tasks", json={"type": "PLAN_DRAFT", "shiftId": shift})
+    print("create:", shift, r.status_code, r.json())
     assert r.status_code == 202
     task_id = r.json()["taskId"]
 
@@ -69,7 +73,8 @@ def main(password):
     assert task["status"] == "WAITING_APPROVAL"
 
     # UR-04: 대여소 하나를 빼고 다시 계산 → 같은 작업에 새 카드
-    stop = card["routes"][0]["stops"][0]["stationId"] if card.get("routes") else "ST-2007"
+    assert card.get("routes"), "계획에 움직이는 트럭이 없어 뺄 대여소가 없다. 재고가 들어온 근무조인지 본다"
+    stop = card["routes"][0]["stops"][0]["stationId"]
     r = c.post(f"/api/ai/tasks/{task_id}/approval",
                json={"approvalId": card["approvalId"], "decision": "REJECT", "excludeStationIds": [stop],
                      "comment": "이 대여소는 오늘 공사 중"})
@@ -107,4 +112,4 @@ def main(password):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(*sys.argv[1:3])

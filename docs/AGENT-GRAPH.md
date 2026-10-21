@@ -267,15 +267,17 @@ env 파일은 `infra/.env.example`을 복사해 채운다 (저장소에 넣지 �
 | `JWT_SECRET`, `SEED_USER_PASSWORD`, `POSTGRES_PASSWORD`, `VECTOR_PASSWORD` | `openssl rand -hex 32` 등 | 예시 값을 그대로 쓰지 않는다 |
 | `AGENT_LLM` | `none` | `check_03a.py`는 모델 없는 경로 기준이다. 비우면 harness.yaml 모델(`OLLAMA_API_KEY` 필요) |
 | `MCP_FAKE` | `0` (기본) | 실제 business-mcp·rag-mcp(3)를 쓴다. `1`은 MCP 없이 그래프만 볼 때 (예시 데이터) |
+| `MCP_INTERNAL_MODE`, `INTERNAL_TOKEN` | `http`, 아무 값 | business-mcp가 backend `/internal/**`를 실제로 부른다. `fake`(기본)면 business-mcp 안의 예시 데이터로 답해 backend 계획이 바뀌지 않는다 |
+| `SEOUL_API_KEY` | 열린데이터광장 키 | collector가 실시간 재고를 넣어야 실제 근무조(예: `N02:2026-10-21:EVE`)에 대여소가 있다 |
 
 ```bash
 docker compose -p seoulbike-e2e -f infra/compose.yaml --env-file ~/e2e.env up -d --build --wait   # frontend·backend·agent까지
 docker compose -p seoulbike-e2e logs -f agent                  # "도구 12개, 모델 none" 뒤 ai.tasks 구독
-cd agent && ../.venv/bin/python e2e/check_03a.py <SEED_USER_PASSWORD>   # 03a를 HTTP로 끝까지. 마지막 줄 "E2E 03a OK"
+cd agent && ../.venv/bin/python e2e/check_03a.py <SEED_USER_PASSWORD> <근무조 ID>   # 03a를 HTTP로 끝까지. 마지막 줄 "E2E 03a OK". MCP_FAKE=1이면 근무조를 뺀다
 docker compose -p seoulbike-e2e down -v                        # 끝나면 정리
 ```
 
-화면은 compose frontend(http://localhost:3000)나 `cd frontend && npm run dev`(http://localhost:5173)로 본다. 시연 계정은 manager, 근무조는 가짜 MCP의 `yeongdeungpo:2026-10-24:PM`이다. 실제 모델로 보려면 env 파일에서 `AGENT_LLM`을 비우고 `OLLAMA_API_KEY`를 채운 뒤 `up -d agent`로 agent만 다시 만든다. agent 코드를 고쳤으면 `up -d --build agent`.
+화면은 compose frontend(http://localhost:3000)나 `cd frontend && npm run dev`(http://localhost:5173)로 본다. 시연 계정은 manager, 근무조는 `check_03a.py`에 준 근무조다 (가짜 MCP면 `yeongdeungpo:2026-10-24:PM`). 실제 모델로 보려면 env 파일에서 `AGENT_LLM`을 비우고 `OLLAMA_API_KEY`를 채운 뒤 `up -d agent`로 agent만 다시 만든다. agent 코드를 고쳤으면 `up -d --build agent`.
 
 **호스트에서 agent를 돌릴 때 (디버깅용).** 덮어쓰기 [`agent/e2e/compose.override.yaml`](../agent/e2e/compose.override.yaml)이 호스트용 Kafka 리스너(127.0.0.1:19092)와 PostgreSQL 포트(127.0.0.1:55432)를 연다. compose의 agent는 먼저 멈춘다. 같은 consumer group에 둘이 남아 있으면 파티션을 나눠 가져가서 다른 쪽 코드가 명령을 처리한다 (실제로 겪었다). 실제 모델은 `AGENT_LLM`을 빼고 `set -a; . ./.env; set +a`로 Ollama 키를 읽는다.
 
