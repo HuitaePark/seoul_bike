@@ -349,6 +349,53 @@ def test_backend89_empty_candidate_returns_no_routes_for_backend_to_fill(backend
     assert result["stats"]["bikesMoved"] == 0
 
 
+def backend96_replan(payload):
+    """PR #96: a field report resolved a PENDING stop, so backend drops it from stations and fixedStationIds."""
+    target, other, reported = payload["stations"]
+    target.update(neededBikes=-3, priority=8.0, kind="EMPTY")
+    other.update(neededBikes=3, priority=4.0, kind="OVERFLOW")
+    payload.update(kind="REPLAN", requestId="N02:2026-10-21:AM:2:1", occurredAt="2026-10-21T08:12:00+09:00",
+                   asOf="2026-10-21T08:12:00+09:00", stations=[target, other], blockedStationIds=[])
+    for truck, load in zip(payload["trucks"], (4, 2)):
+        truck.update(load=load, lat=target["lat"], lon=target["lon"])
+    payload["trucks"][0]["fixedStationIds"] = [target["stationId"]]
+    payload["trucks"][1]["fixedStationIds"] = []  # Was [reported]; the report made it unnecessary.
+    return reported["stationId"]
+
+
+@pytest.mark.parametrize("policy", ["ortools", "greedy"])
+def test_backend96_reported_stop_removed_from_replan_keeps_other_fixed_work(backend89_request, validators, policy):
+    payload = backend89_request
+    reported = backend96_replan(payload)
+    original = copy.deepcopy(payload)
+    validators["SolveRequest"].validate(payload)
+    result = run(payload, policy=policy)
+    validators["SolveResult"].validate(result)
+    assert result["status"] == "OK"
+    sent = {s["stationId"] for s in payload["stations"]}
+    visits = {s["stationId"]: r["truckId"] for r in result["routes"] for s in r["stops"]}
+    assert set(visits) | {u["stationId"] for u in result["unserved"]} <= sent and reported not in visits
+    assert visits[payload["stations"][0]["stationId"]] == "TR-03"
+    assert {r["truckId"]: r["startLoad"] for r in result["routes"]}.items() <= {"TR-03": 4, "TR-04": 2}.items()
+    assert payload == original
+
+
+@pytest.mark.parametrize("policy", ["ortools", "greedy"])
+def test_backend96_replan_with_every_need_resolved_by_reports_is_empty(backend89_request, validators, policy):
+    payload = backend89_request
+    backend96_replan(payload)
+    payload.update(stations=[])
+    for truck in payload["trucks"]:
+        truck["fixedStationIds"] = []
+    validators["SolveRequest"].validate(payload)
+    with patch.object(HaversineTravelTime, "matrix", side_effect=AssertionError("no work needs no matrix")):
+        result = run(payload, policy=policy)
+    validators["SolveResult"].validate(result)
+    # Loaded trucks with nothing left: backend keeps their previous stops and startLoad (PlanCandidates).
+    assert result["status"] == "OK" and result["routes"] == result["unserved"] == []
+    assert result["stats"]["bikesMoved"] == 0
+
+
 @pytest.mark.parametrize("offset", ["Z", "+00:00", "+09:00", "-04:00"])
 def test_result_timestamps_use_seoul_offset_without_changing_instants(request_data, validators, offset):
     from datetime import timedelta, timezone

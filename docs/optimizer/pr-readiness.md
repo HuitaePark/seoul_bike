@@ -1,9 +1,10 @@
 # 역할 5 — 현재 상태와 다음 PR 준비 (2026-10-21)
 
-기준 main은 `a5fac87`(#98 병합)이며 브랜치는 `hyunmoo`다. 열린 역할 5 PR은 없다.
-공개 API 0.13.1·내부 API 0.8.3·Kafka 0.5.1-draft·payload schemaVersion 1을 따른다.
-열린 [PR #96](https://github.com/HuitaePark/skala_seoul_bike/pull/96)이 병합되면 내부 API가 0.8.4가 된다(`bikes`·`observedAt` 설명).
+기준 main은 `1b33380`(#98 다음 #96·#97·#99·#100 병합)이며 브랜치는 `hyunmoo`다. 열린 역할 5 PR은 없다.
+공개 API 0.13.2·내부 API 0.8.4·Kafka 0.5.1-draft·payload schemaVersion 1을 따른다.
+[PR #96](https://github.com/HuitaePark/skala_seoul_bike/pull/96)으로 내부 API가 0.8.4가 됐다(`bikes`·`observedAt` 설명).
 optimizer가 받는 계약 필드는 바뀌지 않으며, 현장 보고로 필요가 없어진 정류장이 REPLAN `stations`·`fixedStationIds`에서 빠진다.
+#97은 가짜 에이전트·시드 기사를 N02(TR-03·TR-04)로 옮겨 역할 5 시연 트럭과 맞췄다. #99·#100은 시뮬레이터·관제 화면이며 역할 5 코드와 겹치지 않는다.
 
 ## 병합된 역할 5 PR
 
@@ -18,8 +19,9 @@ optimizer가 받는 계약 필드는 바뀌지 않으며, 현장 보고로 필�
 
 ## 지금 남은 독립 작업
 
-- #96 병합 뒤: 현장 보고로 줄어든 REPLAN 입력(빈 `stations`, 줄어든 `fixedStationIds`)을 기존 테스트 범위에서 확인한다.
-  계약과 `PlanSolver`는 바뀌지 않아 코드 변경은 예상하지 않는다.
+- **#96 대응 완료(hyunmoo, PR 전):** 현장 보고로 줄어든 REPLAN 입력을 계약 검사 `test_backend96_*` 4개(두 정책)로 확인했다.
+  보고된 정류장이 빠지고 다른 트럭의 고정 작업이 남는 경우, 모든 필요가 보고로 사라진 적재 트럭의 빈 입력.
+  optimizer 코드 변경은 필요 없었다. 최적화 403 passed·24 subtests(실제 broker 3개 skipped).
 - 그 밖의 독립 구현은 남아 있지 않다. 아래 항목은 입력이 와야 진행한다.
 
 ## 다음 작업에 필요한 것

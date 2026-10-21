@@ -5,8 +5,8 @@
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.13.1-draft |
-| 내부 API (OpenAPI) | 0.8.3-draft |
+| 공개 API (OpenAPI) | 0.13.2-draft |
+| 내부 API (OpenAPI) | 0.8.4-draft |
 | Kafka (AsyncAPI) | 0.5.1-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
@@ -80,6 +80,10 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
   optimizer가 별도 PlanCandidate를 만들거나 저장 결과의 차량/seq를 확장하지 않는다.
 - priority는 backend가 계산한 점수를 그대로 받으며 기본 penaltyScale만 생략 시 3000을 사용한다.
   내부 API의 요청/응답·오류·제약 상세는 [internal-api.yaml](internal-api.yaml)의 /internal/plans/solve를 따른다.
+- PR #96(내부 API 0.8.4)부터 재고는 실시간 수집에 기사 현장 보고를 반영한다. 보고로 필요 대수가 0이 된 남은 정류장은
+  REPLAN `stations`와 `fixedStationIds`에서 함께 빠진다. 계약 필드는 같고, 정류장이 모두 빠지면 빈 `stations`로 온다.
+  optimizer는 받은 대여소만 방문·미처리로 돌려주고 빠진 정류장을 되살리지 않는다. 빈 입력은 경로 없는 OK이며
+  적재가 남은 트럭의 이전 정류장·startLoad는 backend가 보존한다.
 
 ## 로컬 수요 예측 연결
 
