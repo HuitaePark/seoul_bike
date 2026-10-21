@@ -49,6 +49,13 @@ class UserRepository {
 		return jdbc.sql("select " + COLUMNS + " from users where id = :id").param("id", id).query(UserRepository::map).optional();
 	}
 
+	Optional<AccountStatus> statusOf(String id) {
+		return jdbc.sql("select status from users where id = :id")
+			.param("id", id)
+			.query((rs, row) -> AccountStatus.valueOf(rs.getString(1)))
+			.optional();
+	}
+
 	List<StoredUser> list(AccountStatus status) {
 		return jdbc.sql("select " + COLUMNS + """
 				 from users where (cast(:status as varchar) is null or status = :status)

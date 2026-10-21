@@ -1,5 +1,5 @@
 # 서버(Apple Silicon)와 로컬 개발이 함께 쓰는 Compose 파일.
-# 공개 포트는 frontend(:80), backend(:8080)만 연다. 아래 인프라는 내부망에만 둔다.
+# 밖으로 여는 포트는 frontend(:3000)뿐이다. backend(:8080)는 서버 자신(127.0.0.1)에만 열고, 아래 인프라는 내부망에만 둔다.
 # 비밀값은 저장소가 아니라 서버의 .env에 둔다 (infra/.env.example 참고).
 name: seoul-bike
 
@@ -39,8 +39,9 @@ services:
       # business-mcp와 같은 값. 비우면 /internal/** 는 모두 401이다.
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
     ports:
-      # 공개 포트. 서버에서는 Tailscale 주소로 접근한다.
-      - "8080:8080"
+      # 서버 자신에게만 연다 (127.0.0.1). 화면·/api·/swagger는 frontend nginx가 넘겨 주므로 밖에서 직접 올 일이 없고,
+      # 그래야 /internal/** 이 정말 내부망에만 남는다. Colima도 이 주소 그대로 연다 (서버에서 확인).
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
