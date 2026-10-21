@@ -193,6 +193,27 @@ class AccountFlowTest {
 	}
 
 	@Test
+	void driverWithTruckOutsideTheListIsNotReopened() throws Exception {
+		String manager = token("manager");
+		String driver = json.writeValueAsString(json.createObjectNode()
+			.put("loginId", uniqueLoginId())
+			.put("password", "password-123")
+			.put("name", "다시 열 기사")
+			.put("role", "DRIVER")
+			.put("truckId", "TR-03"));
+		String userId = json.readTree(call("POST", "/api/admin/users", manager, driver).body()).path("id").asString();
+		call("POST", "/api/admin/users/" + userId + "/disable", manager, null);
+		String enable = "/api/admin/users/" + userId + "/enable";
+
+		// 트럭 ID를 정하기 전 형식(예: sh-truck)으로 남은 운영 계정. 바꾸는 API가 없어 DB에서 고친 뒤에만 다시 연다.
+		jdbc.sql("update users set truck_id = 'sh-truck' where id = :id").param("id", userId).update();
+		assertThat(code(call("POST", enable, manager, null))).isEqualTo("TRUCK_NOT_FOUND");
+
+		jdbc.sql("update users set truck_id = 'TR-03' where id = :id").param("id", userId).update();
+		assertThat(call("POST", enable, manager, null).statusCode()).isEqualTo(200);
+	}
+
+	@Test
 	void repeatedWrongPasswordsBlockOnlyThatLoginIdFromThatIp() throws Exception {
 		String manager = token("manager");
 		String loginId = uniqueLoginId();

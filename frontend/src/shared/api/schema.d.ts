@@ -231,6 +231,7 @@ export interface paths {
          *     **승인된 적 있는 계정(`approvedAt`이 있음)만** 연다. 거절한 가입 신청도 DISABLED로 남는데, 이것을 열면 신청 때 고른 역할로
          *     승인 단계 없이 ACTIVE가 되므로 막는다 (SIGNUP_REJECTED). 다시 가입을 받거나 새로 발급한다.
          *     **비활성화 전에 받은 토큰은 다시 연 뒤에도 401이다.** 새로 로그인해야 한다.
+         *     기사는 트럭 목록에 있는 운행 트럭을 가져야 다시 연다 (아니면 400 `TRUCK_NOT_FOUND`, `suggestions`에 운행 트럭 ID).
          */
         post: operations["enableAccount"];
         delete?: never;
@@ -1194,6 +1195,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description 기사의 트럭이 트럭 목록에 없거나 운행하지 않음 (TRUCK_NOT_FOUND) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             401: components["responses"]["Unauthorized"];
