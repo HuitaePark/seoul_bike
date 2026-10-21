@@ -1,10 +1,10 @@
 asyncapi: 3.0.0
 info:
   title: 따릉이 재배치 에이전트 · Kafka 메시지
-  version: 0.5.0-draft
+  version: 0.5.1-draft
   description: |
     **초안 v0.5.** 에이전트·최적화 담당 확인 전이다.
-    (v0.5: SolveRequest에 `depot`·`asOf` 필수, SolveResult 실패에 `code`·`retryable` · v0.4: FIELD_REPORT 명령에 `reportId`·`report` 필수 · v0.3: `threadId` 작업 단위, `requestedBy.truckId`, 이벤트 `code`, 계약 밖 필드는 전달하지 않음 · v0.2: 경로 변경 승인 카드 순서)
+    (v0.5.1: backend가 보내는 시각은 `+09:00` · v0.5: SolveRequest에 `depot`·`asOf` 필수, SolveResult 실패에 `code`·`retryable` · v0.4: FIELD_REPORT 명령에 `reportId`·`report` 필수 · v0.3: `threadId` 작업 단위, `requestedBy.truckId`, 이벤트 `code`, 계약 밖 필드는 전달하지 않음 · v0.2: 경로 변경 승인 카드 순서)
 
     공통 규칙
     - **키는 `shiftId`.** 한 근무조의 메시지는 같은 파티션에 들어가 순서대로 처리된다.
@@ -12,6 +12,8 @@ info:
       (재시도·리밸런스 때 같은 메시지가 다시 올 수 있다).
     - `schemaVersion`은 필드를 **추가만** 할 때 올린다. 소비자는 모르는 필드를 무시한다.
     - `traceId`를 그대로 넘긴다. LangSmith trace와 로그를 한 줄로 잇는다 (Harness Observability).
+    - 모든 `date-time` 값은 RFC 3339다. backend가 보내는 메시지(`ai.tasks`, `solve.requests`)의 시각은 서울 오프셋 `+09:00`이다
+      (예 `2026-10-21T07:00:00+09:00`, 팀 합의 5). 받는 쪽은 어느 오프셋이든 받는다.
     - 처리에 실패하면 `<토픽>.retry`로 재시도하고, 계속 실패하면 `<토픽>.dlq`로 보낸다 (대기열 가산점).
       backend(Spring Kafka)는 `@RetryableTopic(retryTopicSuffix=".retry", dltTopicSuffix=".dlq")`로 맞춘다.
       **backend의 `ai.events`**: 처음 한 번 + `ai.events.retry`(같은 간격, 기본 2초) 재시도 3번 뒤 `ai.events.dlq`.

@@ -1,31 +1,38 @@
 <!--
-에이전트 대화. 에이전트가 올린 계획 요약과 변경안(승인 카드)을 대화처럼 보여 주고,
-관리자의 결정과 질문도 같은 흐름에 남긴다. 질문은 대시보드 맨 위 묻기 줄(AskBar)에서 하고, 계획을 새로 만드는 일은 작업 콘솔에서 한다.
+에이전트 대화. 근무조 작업의 승인 요청(승인 카드)과 묻기·결정의 결과를 대화처럼 보여 준다 (useShiftFeed가 SSE로 채운다).
+질문은 대시보드 맨 위 묻기 줄(AskBar)에서 하고, 계획을 새로 만드는 일은 작업 콘솔에서 한다.
 변경안을 펼치거나 '지도에서 보기'를 누르면 위 지도에 그 변경안만 겹쳐 보인다 (preview).
 -->
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
-import type { Schemas } from '../../shared/api/client'
+import { nextTick, onScopeDispose, ref, watch } from 'vue'
 import ApprovalCard from '../approval/ApprovalCard.vue'
 import type { ApprovalDecision } from '../approval/approval'
 import { kindLabel } from '../approval/approval'
+import { minutesAgo, type Line, type LiveCard } from './feed'
 
-type Pending = Schemas['ApprovalRequest'] & { createdMin: number }
-
-const props = defineProps<{ pending: Pending[]; summary: string; version: number; qa: { q: string; a: string }[]; previewing?: string | null }>()
-const emit = defineEmits<{ decide: [body: ApprovalDecision, summary: string]; preview: [card: Pending | null, scroll: boolean] }>()
+const props = withDefaults(
+  defineProps<{
+    pending: LiveCard[]
+    summary: string
+    version: number
+    log: Line[]
+    previewing?: string | null
+    /** 결정을 보내는 중인 승인 요청 */
+    busy?: string | null
+    errors?: Record<string, string>
+  }>(),
+  { previewing: null, busy: null, errors: () => ({}) },
+)
+const emit = defineEmits<{ decide: [body: ApprovalDecision, card: LiveCard]; preview: [card: LiveCard | null, scroll: boolean] }>()
 
 const open = ref<string | null>(null)
-const log = ref<{ who: 'me' | 'agent'; text: string }[]>([])
 const body = ref<HTMLElement | null>(null)
+// "몇 분 전"을 30초마다 다시 센다
+const now = ref(Date.now())
+const tick = window.setInterval(() => (now.value = Date.now()), 30_000)
+onScopeDispose(() => window.clearInterval(tick))
 
-async function push(...entries: { who: 'me' | 'agent'; text: string }[]) {
-  log.value.push(...entries)
-  await nextTick()
-  body.value?.scrollTo({ top: body.value.scrollHeight, behavior: 'smooth' })
-}
-
-function review(p: Pending) {
+function review(p: LiveCard) {
   open.value = p.approvalId
   emit('preview', p, false)
 }
@@ -35,18 +42,20 @@ function fold() {
   emit('preview', null, false)
 }
 
-function decide(d: ApprovalDecision, p: Pending) {
-  open.value = null
-  emit('decide', d, p.summary)
-  const verb = d.decision === 'APPROVE' ? '승인' : '거절'
-  push({ who: 'me', text: `「${p.summary}」 ${verb}` }, { who: 'agent', text: `${verb} 결과를 반영했다 (더미).` })
-}
-
-// 맨 위 묻기 줄에서 한 질문과 답을 대화 흐름에도 남긴다
+// 결정이 받아들여지거나 다른 곳에서 처리돼 카드가 내려가면 펼친 것도 접는다
 watch(
-  () => props.qa.length,
-  (n, old) => {
-    for (const { q, a } of props.qa.slice(old ?? 0, n)) push({ who: 'me', text: q }, { who: 'agent', text: a })
+  () => props.pending.map((p) => p.approvalId),
+  (ids) => {
+    if (open.value && !ids.includes(open.value)) open.value = null
+  },
+)
+
+// 새 줄이 붙거나 답이 이어지면 맨 아래로
+watch(
+  () => [props.log.length, props.log.at(-1)?.text],
+  async () => {
+    await nextTick()
+    body.value?.scrollTo({ top: body.value.scrollHeight, behavior: 'smooth' })
   },
 )
 </script>
@@ -68,7 +77,7 @@ watch(
           <span class="meta">
             <span class="badge WAITING_APPROVAL">{{ kindLabel[p.kind] }}</span>
             <span v-if="p.grade === 'MAJOR'" class="badge FAILED">큰 변경</span>
-            {{ p.createdMin }}분 전<template v-if="p.truckId"> · {{ p.truckId }}</template>
+            {{ minutesAgo(p.since, now) }}분 전<template v-if="p.truckId"> · {{ p.truckId }}</template>
           </span>
           <strong>{{ p.summary }}</strong>
           <div v-if="open !== p.approvalId" class="row">
@@ -77,15 +86,18 @@ watch(
           </div>
           <template v-else>
             <button class="ghost review" @click="emit('preview', p, true)">지도에서 바뀐 경로 보기</button>
-            <ApprovalCard :card="p" @decide="decide($event, p)" />
+            <ApprovalCard :card="p" :busy="busy === p.approvalId" :error="errors[p.approvalId] ?? ''" @decide="emit('decide', $event, p)" />
             <button class="ghost close" @click="fold">접기</button>
           </template>
         </div>
       </div>
 
-      <div v-for="(m, i) in log" :key="i" :class="['msg', m.who]">
+      <div v-for="(m, i) in log" :key="i" :class="['msg', m.who, m.state]">
         <span v-if="m.who === 'agent'" class="who" aria-hidden="true">AI</span>
-        <div class="bubble">{{ m.text }}</div>
+        <div class="bubble" :aria-busy="m.state === 'working'">
+          <span v-if="m.text" class="text">{{ m.text }}</span>
+          <span v-if="m.state === 'working'" class="note">{{ m.tool ? `${m.tool}…` : m.text ? '' : '답을 만드는 중…' }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -109,5 +121,9 @@ watch(
 .row { display: flex; flex-wrap: wrap; gap: 6px; }
 .review { align-self: flex-start; margin-top: 4px; padding: 6px 12px; font-size: 12px; }
 .close { align-self: flex-end; padding: 4px 10px; font-size: 12px; }
+.text { white-space: pre-wrap; }
+.note { font-size: 11.5px; color: var(--ink-3); }
+.note:empty { display: none; }
+.msg.failed .bubble { background: #fef2f2; color: #991b1b; }
 .proposal :deep(.approval) { margin: 6px 0 0; padding: 12px; border-width: 1px; }
 </style>
