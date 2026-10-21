@@ -27,7 +27,7 @@ import type { RoutePreview } from './route-view'
 import { legOf, previewOf } from './route-view'
 import { useShiftFeed } from './useShiftFeed'
 
-const colors: Record<string, string> = { 'truck-1': '#2563eb', 'truck-2': '#9333ea', 'truck-3': '#0891b2' }
+const colors: Record<string, string> = { 'TR-03': '#2563eb', 'TR-04': '#9333ea', 'TR-05': '#0891b2' }
 const riskLabel: Record<Schemas['RiskKind'], string> = { EMPTY: '빈 대여소 위험', OVERFLOW: '과적재 위험', NONE: '정상' }
 const roleLabel: Record<Schemas['StationRole'], string> = { FIXED_PICKUP: '고정 회수', FIXED_DROPOFF: '고정 배치', VARIABLE: '변동' }
 
@@ -45,7 +45,7 @@ const unapprovedChanges = 0
 const view = ref<'3d' | 'map'>('3d')
 const selected = ref<string | null>('ST-503')
 const focusTruck = ref<string | null>(null)
-const loadTruck = ref('truck-1')
+const loadTruck = ref('TR-03')
 const toast = ref('')
 // 승인 대기 변경안을 지도에 겹쳐 본다. 켜져 있으면 그 변경안의 트럭·대여소만 밝게 보인다.
 const preview = ref<RoutePreview | null>(null)

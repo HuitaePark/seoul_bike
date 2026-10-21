@@ -64,7 +64,7 @@ export const DUMMY_PLAN: Plan = {
   explanation: '출근 시간 성수·건대 역세권 빈 대여소 5곳을 먼저 채우고, 서울숲·어린이대공원 과적재분으로 충당한다.',
   routes: [
     {
-      truckId: 'truck-1',
+      truckId: 'TR-03',
       capacity: 15,
       startLoad: 4,
       stops: [
@@ -77,7 +77,7 @@ export const DUMMY_PLAN: Plan = {
       ],
     },
     {
-      truckId: 'truck-2',
+      truckId: 'TR-04',
       capacity: 15,
       startLoad: 2,
       stops: [
@@ -88,7 +88,7 @@ export const DUMMY_PLAN: Plan = {
       ],
     },
     {
-      truckId: 'truck-3',
+      truckId: 'TR-05',
       capacity: 12,
       startLoad: 0,
       stops: [
@@ -116,7 +116,7 @@ export type TruckLive = {
 }
 
 export const DUMMY_TRUCKS: TruckLive[] = [
-  { truckId: 'truck-1', driver: '김기사', lat: 37.5458, lon: 127.0518, load: 7, capacity: 15, moving: true, updatedSec: 3 },
-  { truckId: 'truck-2', driver: '이기사', lat: 37.5440, lon: 127.0720, load: 12, capacity: 15, moving: true, updatedSec: 2 },
-  { truckId: 'truck-3', driver: '박기사', lat: 37.5612, lon: 127.0371, load: 0, capacity: 12, moving: false, updatedSec: 4 },
+  { truckId: 'TR-03', driver: '김기사', lat: 37.5458, lon: 127.0518, load: 7, capacity: 15, moving: true, updatedSec: 3 },
+  { truckId: 'TR-04', driver: '이기사', lat: 37.5440, lon: 127.0720, load: 12, capacity: 15, moving: true, updatedSec: 2 },
+  { truckId: 'TR-05', driver: '박기사', lat: 37.5612, lon: 127.0371, load: 0, capacity: 12, moving: false, updatedSec: 4 },
 ]

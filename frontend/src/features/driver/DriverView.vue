@@ -15,7 +15,7 @@ type Stop = Schemas['Stop']
 type Issue = NonNullable<Schemas['FieldReportRequest']['issue']>
 
 const auth = useAuth()
-const truckId = computed(() => auth.user?.truckId ?? 'truck-1')
+const truckId = computed(() => auth.user?.truckId ?? 'TR-03')
 const source = computed(() => DUMMY_PLAN.routes.find((r) => r.truckId === truckId.value) ?? DUMMY_PLAN.routes[0]!)
 const stops = ref<Stop[]>(structuredClone(source.value.stops))
 const capacity = computed(() => source.value.capacity ?? 15)
