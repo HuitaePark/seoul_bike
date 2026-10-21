@@ -12,17 +12,14 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 
 /** 회원가입은 승인 전까지 로그인 불가, 관리자만 승인·발급·비활성화, 기사는 트럭 필수. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = TestInfra.PROPS)
-@Import(TestInfra.class)
+@IntegrationTest
 class AccountFlowTest {
 
 	@LocalServerPort
