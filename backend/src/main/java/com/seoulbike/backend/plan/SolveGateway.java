@@ -111,7 +111,7 @@ public class SolveGateway {
 		catch (TimeoutException e) {
 			// 결과 처리가 바로 앞에서 자리를 가져갔으면 곧 완료된다. 그 결과를 쓴다.
 			if (pending.remove(requestId, result)) {
-				return new SolveOutcome(SolveOutcome.Status.TIMED_OUT, requestId, null, null);
+				return new SolveOutcome(SolveOutcome.Status.TIMED_OUT, requestId, null, null, false, null);
 			}
 			answer = result.join();
 		}
@@ -126,9 +126,11 @@ public class SolveGateway {
 
 		String status = answer.path("status").asString();
 		if (!"OK".equals(status)) {
-			return new SolveOutcome(SolveOutcome.Status.valueOf(status), requestId, null, answer.path("error").asString(null));
+			return new SolveOutcome(SolveOutcome.Status.valueOf(status), requestId, null, answer.path("code").asString(null),
+					answer.path("retryable").asBoolean(false), answer.path("error").asString(null));
 		}
-		return new SolveOutcome(SolveOutcome.Status.OK, requestId, candidates.create(shiftId, requestId, taskId, answer), null);
+		return new SolveOutcome(SolveOutcome.Status.OK, requestId, candidates.create(shiftId, requestId, taskId, answer),
+				null, false, null);
 	}
 
 	/** 결과 저장이 커밋된 뒤 SolveResultConsumer가 부른다. 기다리는 요청이 없으면(시간 초과) 저장만 하고 끝난다. */

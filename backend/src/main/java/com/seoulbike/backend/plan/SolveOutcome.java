@@ -6,9 +6,12 @@ import tools.jackson.databind.node.ObjectNode;
  * 경로 계산 한 번의 결과.
  *
  * @param candidate OK일 때만 있는 계약 PlanCandidate. 나머지는 null
- * @param error optimizer가 FAILED·TIMEOUT과 함께 보낸 오류 (앞부분이 INVALID_REQUEST·NO_SOLUTION 같은 코드). 나머지는 null
+ * @param code optimizer가 FAILED·TIMEOUT과 함께 보낸 실패 종류 (asyncapi SolveResult.code, 예 NO_SOLUTION). 나머지는 null
+ * @param retryable 같은 입력으로 다시 계산할 만한가 (optimizer 판단). OK·TIMED_OUT은 false
+ * @param error optimizer가 보낸 사람이 읽는 설명. 분기는 code로 한다
  */
-public record SolveOutcome(Status status, String requestId, ObjectNode candidate, String error) {
+public record SolveOutcome(Status status, String requestId, ObjectNode candidate, String code, boolean retryable,
+		String error) {
 
 	public enum Status {
 		/** 후보를 만들었다. */

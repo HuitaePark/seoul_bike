@@ -111,7 +111,7 @@ class SolveRoundTripTest {
 	void okResultBecomesProposedCandidateAndSeqGrows() throws Exception {
 		String shift = shift();
 		ArrayNode routes = routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-2", "DROPOFF", 5, 20)));
-		optimizer.answers.put(shift, r -> List.of(result(r, "OK", routes, null)));
+		optimizer.answers.put(shift, r -> List.of(result(r, "OK", routes, null, false, null)));
 
 		SolveOutcome first = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, "trace-a");
 
@@ -166,7 +166,7 @@ class SolveRoundTripTest {
 			.update();
 		ArrayNode replanned = routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-3", "DROPOFF", 5, 24)),
 				route("truck-2", stop(1, "ST-9", "PICKUP", 2, 15)));
-		optimizer.answers.put(shift, r -> List.of(result(r, "OK", replanned, null)));
+		optimizer.answers.put(shift, r -> List.of(result(r, "OK", replanned, null, false, null)));
 		UUID fieldReportTask = UUID.randomUUID();
 		jdbc.sql("""
 				insert into ai_tasks (task_id, type, status, shift_id, created_by)
@@ -203,7 +203,7 @@ class SolveRoundTripTest {
 		String shift = shift();
 		ArrayNode routes = routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10)));
 		optimizer.answers.put(shift, r -> {
-			String once = result(r, "OK", routes, null);
+			String once = result(r, "OK", routes, null, false, null);
 			return List.of(once, once);
 		});
 
@@ -222,19 +222,23 @@ class SolveRoundTripTest {
 	@Test
 	void optimizerFailureReturnsErrorWithoutPlan() throws Exception {
 		String shift = shift();
-		optimizer.answers.put(shift, r -> List.of(result(r, "FAILED", null, "NO_SOLUTION: 트럭 용량으로 풀 수 없다")));
+		optimizer.answers.put(shift,
+				r -> List.of(result(r, "FAILED", null, "NO_SOLUTION", false, "solver returned no solution")));
 
 		SolveOutcome failed = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null);
 
 		assertThat(failed.status()).isEqualTo(SolveOutcome.Status.FAILED);
-		assertThat(failed.error()).startsWith("NO_SOLUTION");
+		assertThat(failed.code()).isEqualTo("NO_SOLUTION");
+		assertThat(failed.retryable()).isFalse();
 		assertThat(failed.candidate()).isNull();
 		assertThat(requestStatus(failed.requestId())).isEqualTo("FAILED");
 
-		optimizer.answers.put(shift, r -> List.of(result(r, "TIMEOUT", null, "SOLVER_TIMEOUT: 해를 찾지 못했다")));
+		optimizer.answers.put(shift,
+				r -> List.of(result(r, "TIMEOUT", null, "OSRM_BUDGET_EXCEEDED", true, "OSRM matrix budget exceeded")));
 		SolveOutcome timeout = gateway.solve(shift, SolveGateway.Kind.PLAN, inputs(), null, null);
 		assertThat(timeout.status()).isEqualTo(SolveOutcome.Status.TIMEOUT);
-		assertThat(timeout.error()).startsWith("SOLVER_TIMEOUT");
+		assertThat(timeout.code()).isEqualTo("OSRM_BUDGET_EXCEEDED");
+		assertThat(timeout.retryable()).isTrue();
 		assertThat(jdbc.sql("select count(*) from plans where shift_id = :shift").param("shift", shift)
 			.query(Integer.class).single()).isZero();
 	}
@@ -254,7 +258,7 @@ class SolveRoundTripTest {
 
 		JsonNode request = optimizer.lastRequest(shift);
 		kafka.send(SolveTopics.SOLVE_RESULTS, shift,
-				result(request, "OK", routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10))), null))
+				result(request, "OK", routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10))), null, false, null))
 			.get(10, TimeUnit.SECONDS);
 		Instant deadline = Instant.now().plusSeconds(15);
 		while (!"OK".equals(requestStatus(outcome.requestId()))) {
@@ -269,7 +273,7 @@ class SolveRoundTripTest {
 	void resultOfUnknownRequestIsRetriedThenDeadLettered() throws Exception {
 		String shift = shift();
 		ObjectNode request = json.createObjectNode().put("shiftId", shift).put("requestId", shift + ":0:99");
-		String result = result(request, "OK", routes(), null);
+		String result = result(request, "OK", routes(), null, false, null);
 		String eventId = json.readTree(result).path("eventId").asString();
 		kafka.send(SolveTopics.SOLVE_RESULTS, shift, result).get(10, TimeUnit.SECONDS);
 
@@ -305,8 +309,11 @@ class SolveRoundTripTest {
 			.query(String.class).single();
 	}
 
+	/** 계약 SolveRequest 중 봉투 밖 필드. 대여소·트럭은 이 테스트에 필요 없어 비운다. */
 	private ObjectNode inputs() {
 		ObjectNode inputs = json.createObjectNode();
+		inputs.putObject("depot").put("lat", 37.54).put("lon", 127.07);
+		inputs.put("asOf", "2026-10-21T07:00:00+09:00");
 		inputs.putArray("stations");
 		inputs.putArray("trucks");
 		inputs.putObject("params").put("solutionLimit", 100);
@@ -314,7 +321,8 @@ class SolveRoundTripTest {
 	}
 
 	/** 진짜 worker의 결과 모양 (docs/specs/examples/optimizer/result.json). */
-	private String result(JsonNode request, String status, ArrayNode routes, String error) {
+	private String result(JsonNode request, String status, ArrayNode routes, String code, boolean retryable,
+			String error) {
 		ObjectNode r = json.createObjectNode();
 		r.put("eventId", UUID.randomUUID().toString());
 		r.put("schemaVersion", 1);
@@ -327,10 +335,12 @@ class SolveRoundTripTest {
 		r.put("status", status);
 		if (routes != null) {
 			r.set("routes", routes);
-			r.putArray("unserved").addObject().put("stationId", "ST-77").put("priority", 0.4).put("reason", "시간 부족");
+			r.putArray("unserved").addObject().put("stationId", "ST-77").put("priority", 0.4).put("reason", "NOT_SELECTED");
 			r.putObject("stats").put("solveMs", 13).put("bikesMoved", 10);
 		}
-		if (error != null) {
+		if (code != null) {
+			r.put("code", code);
+			r.put("retryable", retryable);
 			r.put("error", error);
 		}
 		return json.writeValueAsString(r);
