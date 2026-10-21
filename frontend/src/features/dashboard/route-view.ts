@@ -1,7 +1,7 @@
 // 지도·타임라인이 같이 쓰는 경로 표시 규칙: 트럭이 지금 구간을 얼마나 지났는지, 승인 대기 변경안을 지도에 어떻게 겹칠지.
 
 import type { Schemas } from '../../shared/api/client'
-import type { TruckLive } from '../../shared/dummy'
+import { toDemoTruckId, type TruckLive } from '../../shared/dummy.ts'
 import type { ApprovalCard } from '../approval/approval'
 import { diffMarks } from '../approval/approval.ts'
 
@@ -70,12 +70,14 @@ export function previewOf(card: ApprovalCard, stations: Station[]): RoutePreview
   const marks = diffMarks(card)
   const before = (card.diff?.before ?? []).map((s) => s.stationId)
   const after = (card.diff?.after ?? []).map((s) => s.stationId)
+  const truckId = card.diff?.truckId ?? card.truckId
   const text = [card.summary, ...(card.reasons ?? [])].join(' ')
   const named = stations.filter((s) => text.includes(s.name) || text.includes(s.stationId)).map((s) => s.stationId)
   return {
     approvalId: card.approvalId,
     summary: card.summary,
-    truckId: card.diff?.truckId ?? card.truckId ?? null,
+    // 승인 카드의 원래 ID는 API 결정에 유지하고, 시연 지도와 비교할 ID만 맞춘다.
+    truckId: truckId ? toDemoTruckId(truckId) : null,
     after,
     added: Object.keys(marks).filter((id) => marks[id] === 'added'),
     removed: Object.keys(marks).filter((id) => marks[id] === 'removed'),

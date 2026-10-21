@@ -3,7 +3,7 @@
 // 관제 대시보드와 기사 앱이 같은 근무조를 보도록 한 곳에 둔다.
 
 import type { Schemas } from './api/client'
-import { todayInSeoul } from './region/regions'
+import { todayInSeoul } from './region/regions.ts'
 
 type StationStatus = Schemas['StationStatus']
 type Plan = Schemas['Plan']
@@ -12,6 +12,11 @@ type Plan = Schemas['Plan']
 export const DUMMY_REGION = { id: 'N02', name: '강북-02 (광진·성동)' }
 const today = todayInSeoul()
 export const DUMMY_SHIFT_ID = `${DUMMY_REGION.id}:${today}:AM`
+
+// 기존 기사 계정의 truck-N은 인증 정보 그대로 두고 더미 화면에서만 새 시연 ID로 읽는다.
+export function toDemoTruckId(id: string): string {
+  return ({ 'truck-1': 'TR-01', 'truck-2': 'TR-02', 'truck-3': 'TR-03' } as Record<string, string>)[id] ?? id
+}
 
 const observedAt = new Date().toISOString()
 function st(
@@ -64,7 +69,7 @@ export const DUMMY_PLAN: Plan = {
   explanation: '출근 시간 성수·건대 역세권 빈 대여소 5곳을 먼저 채우고, 서울숲·어린이대공원 과적재분으로 충당한다.',
   routes: [
     {
-      truckId: 'truck-1',
+      truckId: 'TR-01',
       capacity: 15,
       startLoad: 4,
       stops: [
@@ -77,7 +82,7 @@ export const DUMMY_PLAN: Plan = {
       ],
     },
     {
-      truckId: 'truck-2',
+      truckId: 'TR-02',
       capacity: 15,
       startLoad: 2,
       stops: [
@@ -88,8 +93,8 @@ export const DUMMY_PLAN: Plan = {
       ],
     },
     {
-      truckId: 'truck-3',
-      capacity: 12,
+      truckId: 'TR-03',
+      capacity: 15,
       startLoad: 0,
       stops: [
         { seq: 1, stationId: 'ST-530', stationName: '한양대역 2번출구', action: 'PICKUP', bikes: 8, loadAfter: 8, eta: at(7, 15), status: 'DONE', reason: '22대 예상, 거치대 20 초과' },
@@ -116,7 +121,7 @@ export type TruckLive = {
 }
 
 export const DUMMY_TRUCKS: TruckLive[] = [
-  { truckId: 'truck-1', driver: '김기사', lat: 37.5458, lon: 127.0518, load: 7, capacity: 15, moving: true, updatedSec: 3 },
-  { truckId: 'truck-2', driver: '이기사', lat: 37.5440, lon: 127.0720, load: 12, capacity: 15, moving: true, updatedSec: 2 },
-  { truckId: 'truck-3', driver: '박기사', lat: 37.5612, lon: 127.0371, load: 0, capacity: 12, moving: false, updatedSec: 4 },
+  { truckId: 'TR-01', driver: '김기사', lat: 37.5458, lon: 127.0518, load: 7, capacity: 15, moving: true, updatedSec: 3 },
+  { truckId: 'TR-02', driver: '이기사', lat: 37.5440, lon: 127.0720, load: 12, capacity: 15, moving: true, updatedSec: 2 },
+  { truckId: 'TR-03', driver: '박기사', lat: 37.5612, lon: 127.0371, load: 0, capacity: 15, moving: false, updatedSec: 4 },
 ]
