@@ -1,25 +1,31 @@
 import { ReviewError, type Plan, type PlanReviewSource, type Station, type Task } from './model.ts'
 
-export const DEMO_REGION = 'gwangjin-seongdong'
+export const DEMO_REGION = 'N02'
 export const DEMO_SHIFT = `${DEMO_REGION}:2026-10-21:AM`
 export const DEMO_TASK_ID = 'dd39466c-c263-4da9-8848-38273793215a'
 const observedAt = '2026-10-21T08:00:00+09:00'
-const names = ['성수역 2번 출구', '서울숲 입구', '뚝섬역 5번 출구', '성수동 주민센터', '건대입구역', '어린이대공원 정문', '화양사거리', '자양동 주민센터']
-// Deliberately synthetic positions for this offline fixture, not station geocoding.
-const coordinates = [[37.548, 127.056], [37.544, 127.044], [37.552, 127.05], [37.541, 127.057], [37.54, 127.07], [37.548, 127.076], [37.545, 127.065], [37.535, 127.063]]
-const ids = ['ST-101', 'ST-102', 'ST-103', 'ST-104', 'ST-201', 'ST-202', 'ST-203', 'ST-301']
-export const demoStations: Station[] = ids.map((stationId, index) => ({
-  stationId, name: names[index]!, lat: coordinates[index]![0]!, lon: coordinates[index]![1]!,
-  docks: 20, bikes: [21, 0, 18, 2, 24, 1, 0, 0][index]!, observedAt,
-  forecastBikes: [25, -4, 24, 0, 30, -2, -1, null][index],
+// Reference identity/location from analysis/out/ref_stations.csv (N02).
+// Inventory, forecast, route and observations below remain synthetic offline fixtures.
+const referenceStations = [
+  {"stationId": "ST-102", "name": "자양사거리 광진아크로텔 앞", "lat": 37.53701019, "lon": 127.08224487, "docks": 11, "elevationM": 30.0, "role": "VARIABLE"},
+  {"stationId": "ST-1660", "name": "건대입구역 사거리(롯데백화점)", "lat": 37.5392952, "lon": 127.07078552, "docks": 10, "elevationM": 21.0, "role": "FIXED_PICKUP"},
+  {"stationId": "ST-97", "name": "어린이대공원역 3번출구 앞", "lat": 37.54697037, "lon": 127.07466888, "docks": 5, "elevationM": 30.0, "role": "VARIABLE"},
+  {"stationId": "ST-253", "name": "군자역 7번출구 베스트샵 앞", "lat": 37.55603027, "lon": 127.0786438, "docks": 8, "elevationM": 25.0, "role": "VARIABLE"},
+  {"stationId": "ST-3121", "name": "성수역 1번출구 주변", "lat": 37.54555893, "lon": 127.05336761, "docks": 8, "elevationM": 23.0, "role": "VARIABLE"},
+  {"stationId": "ST-2309", "name": "구의역 리버비스타 오피스텔", "lat": 37.53780746, "lon": 127.08976746, "docks": 15, "elevationM": 27.0, "role": "VARIABLE"},
+  {"stationId": "ST-3390", "name": "한강버스 뚝섬 선착장", "lat": 37.52961349, "lon": 127.06626129, "docks": 30, "elevationM": 8.0, "role": "VARIABLE"},
+  {"stationId": "ST-988", "name": "신양초교앞 교차로", "lat": 37.5352211, "lon": 127.06839752, "docks": 12, "elevationM": 24.0, "role": "VARIABLE"}
+] as const
+export const demoStations: Station[] = referenceStations.map((station, index) => ({
+  ...station, bikes: [21, 0, 18, 2, 24, 1, 0, 0][index]!, observedAt,
+  forecastBikes: [25, 0, 24, 0, 30, 0, 0, null][index],
   risk: [0, 2, 4].includes(index) ? 'OVERFLOW' : 'EMPTY',
-  role: [0, 2, 4].includes(index) ? 'FIXED_PICKUP' : index === 7 ? 'VARIABLE' : 'FIXED_DROPOFF',
-  elevationM: index === 7 ? null : 12 + index * 2,
 }))
 export const demoPlan: Plan = {
   planId: 'demo-plan-001-v1', shiftId: DEMO_SHIFT, version: 1, status: 'PROPOSED', provisional: false,
   explanation: '회수 거점과 빈 대여소를 연결한 검토용 시연 계획입니다. 실제 관측·예측·도로 계산 결과가 아닙니다.',
   routes: [
+<<<<<<< HEAD
     { truckId: 'TR-01', capacity: 15, startLoad: 4, stops: [
       { seq: 1, stationId: 'ST-101', action: 'PICKUP', bikes: 6, loadAfter: 10, eta: '2026-10-21T08:20:00+09:00', status: 'PENDING', reason: '과적재 위험 거점에서 회수해 서울숲 거점에 보충합니다. (시연)' },
       { seq: 2, stationId: 'ST-102', action: 'DROPOFF', bikes: 7, loadAfter: 3, eta: '2026-10-21T08:40:00+09:00', status: 'PENDING', reason: '예상 재고가 부족한 거점입니다. (시연)' },
@@ -32,11 +38,25 @@ export const demoPlan: Plan = {
       { seq: 3, stationId: 'ST-203', action: 'DROPOFF', bikes: 4, loadAfter: 0, eta: '2026-10-21T09:10:00+09:00', status: 'PENDING' },
     ] },
     { truckId: 'TR-03', capacity: 15, startLoad: 3, stops: [] },
+=======
+    { truckId: 'TR-03', capacity: 15, startLoad: 4, stops: [
+      { seq: 1, stationId: 'ST-102', action: 'PICKUP', bikes: 6, loadAfter: 10, eta: '2026-10-21T08:20:00+09:00', status: 'PENDING', reason: '과적재 위험 거점에서 회수해 빈 대여소에 보충합니다. (시연)' },
+      { seq: 2, stationId: 'ST-1660', action: 'DROPOFF', bikes: 7, loadAfter: 3, eta: '2026-10-21T08:40:00+09:00', status: 'PENDING', reason: '예상 재고가 부족한 거점입니다. (시연)' },
+      { seq: 3, stationId: 'ST-97', action: 'PICKUP', bikes: 5, loadAfter: 8, eta: '2026-10-21T09:00:00+09:00', status: 'PENDING' },
+      { seq: 4, stationId: 'ST-253', action: 'DROPOFF', bikes: 4, loadAfter: 4, eta: '2026-10-21T09:20:00+09:00', status: 'PENDING' },
+    ] },
+    { truckId: 'TR-04', capacity: 15, startLoad: 0, stops: [
+      { seq: 1, stationId: 'ST-3121', action: 'PICKUP', bikes: 10, loadAfter: 10, eta: '2026-10-21T08:25:00+09:00', status: 'PENDING' },
+      { seq: 2, stationId: 'ST-2309', action: 'DROPOFF', bikes: 6, loadAfter: 4, eta: '2026-10-21T08:50:00+09:00', status: 'PENDING' },
+      { seq: 3, stationId: 'ST-3390', action: 'DROPOFF', bikes: 4, loadAfter: 0, eta: '2026-10-21T09:10:00+09:00', status: 'PENDING' },
+    ] },
+    { truckId: 'TR-05', capacity: 15, startLoad: 3, stops: [] },
+>>>>>>> 2b4b4e8491d564abe346b6cc9934c8eb91e82ede
   ],
   unserved: [
-    { stationId: 'ST-301', priority: 91.5, reason: 'CAPACITY_EXCEEDED' },
-    { stationId: 'ST-302', stationName: '자양사거리 (시연)', priority: 60.2, reason: 'NOT_SELECTED' },
-    { stationId: 'ST-303', stationName: '공사 구간 (시연)', priority: 80, reason: 'BLOCKED' },
+    { stationId: 'ST-988', priority: 91.5, reason: 'CAPACITY_EXCEEDED' },
+    { stationId: 'ST-98', stationName: '광진문화예술회관 앞', priority: 60.2, reason: 'NOT_SELECTED' },
+    { stationId: 'ST-114', stationName: '광진메디칼 앞', priority: 80, reason: 'BLOCKED' },
   ],
 }
 export function demoTask(plan: Plan = demoPlan): Task {
@@ -64,7 +84,7 @@ export function createDemoSource(): PlanReviewSource {
     async readPlan(shiftId, signal) { await pause(signal); return shiftId === plan.shiftId ? structuredClone(plan) : null },
     async readStations(regionId, horizonH, signal) {
       await pause(signal)
-      if (regionId !== DEMO_REGION || horizonH !== 3) throw new ReviewError('시연 데이터는 기본 권역의 3시간 예측만 제공합니다.')
+      if (regionId !== DEMO_REGION || horizonH !== 3) throw new ReviewError('시연 데이터는 N02 구역의 3시간 예측만 제공합니다.')
       return structuredClone(demoStations)
     },
     async readTask(taskId, signal) {

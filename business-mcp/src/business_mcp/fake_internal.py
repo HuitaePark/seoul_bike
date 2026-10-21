@@ -5,7 +5,8 @@
 """M1용 가짜 /internal/** 구현 (docs/specs/internal-api.yaml 형식).
 
 백엔드가 준비되기 전에 에이전트와 MCP를 함께 개발하기 위한 대역이다.
-**대여소 이름·좌표·재고는 모두 가짜 값**이며 실제 운영 근거로 쓰지 않는다.
+**재고·계획·현장 보고·감사 기록은 가짜 값**이고, 대여소 ID·이름·좌표·거치대·역할은 N02의 실제 기준 정보다(아래 STATIONS).
+실제 운영 근거로 쓰지 않는다.
 업무 규칙(위험 판정, 변경 등급, 승인 확인, 버전 충돌)은 백엔드의 몫이라 여기서는 흉내만 낸다.
 """
 
@@ -20,30 +21,32 @@ from .errors import InternalApiError
 Json = dict[str, Any]
 
 FIXED_NOW = datetime.fromisoformat("2026-10-21T08:05:00+09:00")
-REGION_ID = "gwangjin-seongdong"
+REGION_ID = "N02"  # 강북-02 (광진·성동). 구역 ID는 N01~N08, S01~S09
 SHIFT_ID = f"{REGION_ID}:2026-10-21:AM"
 SHIFT_END = "2026-10-21T10:00:00+09:00"
 TRUCK_CAPACITY = 15
 FORECAST_MODEL = "baseline-avg-2026-10-21"
 
-# netPerH: 시간당 순유입(반납 - 대여) 가짜 값. 음수면 비어 가는 대여소.
+# 실제 구역 N02(강북-02, 광진·성동)의 실제 대여소다 (docs/data/agreements.md 결정 1·2, analysis/out/ref_stations.csv).
+# ID·이름·좌표·거치대 수·역할·고도는 기준 정보 그대로이고, bikes(현재 재고)와 netPerH(시간당 순유입, 반납 - 대여.
+# 음수면 비어 가는 대여소)만 시연 시나리오의 가짜 값이다.
 STATIONS: dict[str, Json] = {
-    "ST-1023": {"name": "뚝섬유원지역 1번출구", "district": "광진구", "lat": 37.5316, "lon": 127.0669,
-                "docks": 20, "bikes": 1, "role": "FIXED_DROPOFF", "elevationM": 18, "netPerH": -3},
-    "ST-1031": {"name": "뚝섬유원지역 3번출구", "district": "광진구", "lat": 37.5307, "lon": 127.0661,
-                "docks": 15, "bikes": 4, "role": "VARIABLE", "elevationM": 17, "netPerH": -1},
-    "ST-1050": {"name": "구의역 1번출구", "district": "광진구", "lat": 37.5370, "lon": 127.0857,
-                "docks": 15, "bikes": 6, "role": "VARIABLE", "elevationM": 24, "netPerH": -2},
-    "ST-1077": {"name": "군자역 7번출구", "district": "광진구", "lat": 37.5573, "lon": 127.0794,
-                "docks": 12, "bikes": 2, "role": "FIXED_DROPOFF", "elevationM": 31, "netPerH": -2},
-    "ST-1188": {"name": "자양사거리", "district": "광진구", "lat": 37.5349, "lon": 127.0820,
-                "docks": 10, "bikes": 0, "role": "FIXED_DROPOFF", "elevationM": 22, "netPerH": -1},
-    "ST-2011": {"name": "건대입구역 사거리", "district": "광진구", "lat": 37.5404, "lon": 127.0700,
-                "docks": 25, "bikes": 38, "role": "FIXED_PICKUP", "elevationM": 20, "netPerH": 4},
-    "ST-2240": {"name": "어린이대공원역 3번출구", "district": "광진구", "lat": 37.5481, "lon": 127.0745,
-                "docks": 15, "bikes": 29, "role": "FIXED_PICKUP", "elevationM": 27, "netPerH": 2},
-    "ST-2302": {"name": "성수역 3번출구", "district": "성동구", "lat": 37.5446, "lon": 127.0560,
-                "docks": 10, "bikes": 17, "role": "FIXED_PICKUP", "elevationM": 19, "netPerH": 1},
+    "ST-3390": {"name": "한강버스 뚝섬 선착장", "district": "광진구", "lat": 37.5296, "lon": 127.0663,
+               "docks": 30, "bikes": 1, "role": "VARIABLE", "elevationM": 8, "netPerH": -3},
+    "ST-988": {"name": "신양초교앞 교차로", "district": "광진구", "lat": 37.5352, "lon": 127.0684,
+               "docks": 12, "bikes": 4, "role": "VARIABLE", "elevationM": 24, "netPerH": -1},
+    "ST-2309": {"name": "구의역 리버비스타 오피스텔", "district": "광진구", "lat": 37.5378, "lon": 127.0898,
+               "docks": 15, "bikes": 6, "role": "VARIABLE", "elevationM": 27, "netPerH": -2},
+    "ST-253": {"name": "군자역 7번출구 베스트샵 앞", "district": "광진구", "lat": 37.5560, "lon": 127.0786,
+               "docks": 8, "bikes": 2, "role": "VARIABLE", "elevationM": 25, "netPerH": -2},
+    "ST-102": {"name": "자양사거리 광진아크로텔 앞", "district": "광진구", "lat": 37.5370, "lon": 127.0822,
+               "docks": 11, "bikes": 0, "role": "VARIABLE", "elevationM": 30, "netPerH": -1},
+    "ST-1660": {"name": "건대입구역 사거리(롯데백화점)", "district": "광진구", "lat": 37.5393, "lon": 127.0708,
+               "docks": 10, "bikes": 14, "role": "FIXED_PICKUP", "elevationM": 21, "netPerH": 4},
+    "ST-97": {"name": "어린이대공원역 3번출구 앞", "district": "광진구", "lat": 37.5470, "lon": 127.0747,
+               "docks": 5, "bikes": 12, "role": "VARIABLE", "elevationM": 30, "netPerH": 2},
+    "ST-3121": {"name": "성수역 1번출구 주변", "district": "성동구", "lat": 37.5456, "lon": 127.0534,
+               "docks": 8, "bikes": 14, "role": "VARIABLE", "elevationM": 23, "netPerH": 1},
 }
 
 
@@ -66,19 +69,19 @@ def _initial_plan() -> Json:
         "planId": _plan_id(3), "shiftId": SHIFT_ID, "version": 3, "status": "ACTIVE", "provisional": False,
         "routes": [
             {"truckId": "TR-01", "capacity": TRUCK_CAPACITY, "startLoad": 0, "stops": [
-                _stop(1, "ST-2011", "PICKUP", 12, 12, t("07:12"), "과적재 예상 +12대", "DONE"),
-                _stop(2, "ST-1023", "DROPOFF", 8, 4, t("07:40"), "07:40 빈 대여소 예상", "DONE"),
-                _stop(3, "ST-1031", "DROPOFF", 4, 0, t("07:55"), "빈 대여소 위험", "DONE"),
-                _stop(4, "ST-2240", "PICKUP", 10, 10, t("08:20"), "과적재 예상 +10대", "PENDING"),
-                _stop(5, "ST-1077", "DROPOFF", 10, 0, t("08:45"), "출근 시간 빈 대여소 위험", "PENDING"),
+                _stop(1, "ST-1660", "PICKUP", 12, 12, t("07:12"), "과적재 예상 +12대", "DONE"),
+                _stop(2, "ST-3390", "DROPOFF", 8, 4, t("07:40"), "07:40 빈 대여소 예상", "DONE"),
+                _stop(3, "ST-988", "DROPOFF", 4, 0, t("07:55"), "빈 대여소 위험", "DONE"),
+                _stop(4, "ST-97", "PICKUP", 10, 10, t("08:20"), "과적재 예상 +10대", "PENDING"),
+                _stop(5, "ST-253", "DROPOFF", 10, 0, t("08:45"), "출근 시간 빈 대여소 위험", "PENDING"),
             ]},
             {"truckId": "TR-02", "capacity": TRUCK_CAPACITY, "startLoad": 0, "stops": [
-                _stop(1, "ST-2302", "PICKUP", 12, 12, t("07:20"), "과적재 예상 +7대", "DONE"),
-                _stop(2, "ST-1050", "DROPOFF", 6, 6, t("08:10"), "빈 대여소 위험", "PENDING"),
+                _stop(1, "ST-3121", "PICKUP", 12, 12, t("07:20"), "과적재 예상 +7대", "DONE"),
+                _stop(2, "ST-2309", "DROPOFF", 6, 6, t("08:10"), "빈 대여소 위험", "PENDING"),
             ]},
             {"truckId": "TR-03", "capacity": TRUCK_CAPACITY, "startLoad": 0, "stops": []},
         ],
-        "unserved": [{"stationId": "ST-1188", "stationName": STATIONS["ST-1188"]["name"], "priority": 21.0,
+        "unserved": [{"stationId": "ST-102", "stationName": STATIONS["ST-102"]["name"], "priority": 21.0,
                       "reason": "NOT_SELECTED"}],
         "explanation": "광진구 북부의 출근 시간 빈 대여소 위험을 우선 해소했습니다. (가짜 데이터)",
     }
@@ -89,11 +92,11 @@ TRUCK_POSITIONS = {"TR-01": (37.5395, 127.0712, 0), "TR-02": (37.5370, 127.0857,
 
 def _initial_reports() -> list[Json]:
     return [
-        {"reportId": "FR-883", "truckId": "TR-01", "driver": "TR-01 기사", "stationId": "ST-1031", "actualBikes": 1,
+        {"reportId": "FR-883", "truckId": "TR-01", "driver": "TR-01 기사", "stationId": "ST-988", "actualBikes": 1,
          "issue": None, "memo": None, "reportedAt": "2026-10-21T07:57:00+09:00"},
-        {"reportId": "FR-881", "truckId": "TR-01", "driver": "TR-01 기사", "stationId": "ST-1023", "actualBikes": 0,
+        {"reportId": "FR-881", "truckId": "TR-01", "driver": "TR-01 기사", "stationId": "ST-3390", "actualBikes": 0,
          "issue": "INVENTORY_MISMATCH", "memo": "앱 3대, 실제 0대", "reportedAt": "2026-10-21T07:41:00+09:00"},
-        {"reportId": "FR-880", "truckId": "TR-02", "driver": "TR-02 기사", "stationId": "ST-2302", "actualBikes": 17,
+        {"reportId": "FR-880", "truckId": "TR-02", "driver": "TR-02 기사", "stationId": "ST-3121", "actualBikes": 14,
          "issue": None, "memo": None, "reportedAt": "2026-10-21T07:22:00+09:00"},
     ]
 
@@ -102,10 +105,10 @@ def _initial_audit() -> list[Json]:
     return [
         {"auditId": "AU-5501", "occurredAt": "2026-10-21T06:52:00+09:00", "type": "PLAN_ACTIVATED",
          "actor": {"role": "MANAGER", "display": "관리자"}, "targetId": _plan_id(3),
-         "detail": "오전 계획 v3 승인. 회수 3곳, 배치 4곳, 포기 1곳(ST-1188, 시간 한계)"},
+         "detail": "오전 계획 v3 승인. 회수 3곳, 배치 4곳, 포기 1곳(ST-102, 시간 한계)"},
         {"auditId": "AU-5502", "occurredAt": "2026-10-21T07:41:00+09:00", "type": "FIELD_REPORT",
          "actor": {"role": "DRIVER", "display": "TR-01 기사"}, "targetId": "FR-881",
-         "detail": "ST-1023 실제 재고 0대 (앱 3대)"},
+         "detail": "ST-3390 실제 재고 0대 (앱 3대)"},
     ]
 
 
@@ -159,7 +162,7 @@ class FakeInternalApi:
             target = int(digits) if digits else 0
             near = sorted(STATIONS, key=lambda sid: abs(int(sid[3:]) - target))[:3]
             raise _problem(404, "STATION_NOT_FOUND",
-                           f"'{station_id}' 대여소가 없습니다. 권역 안의 비슷한 대여소: {', '.join(near)}", near)
+                           f"'{station_id}' 대여소가 없습니다. 구역 안의 비슷한 대여소: {', '.join(near)}", near)
         return STATIONS[station_id]
 
     def _shift(self, shift_id: str) -> None:
@@ -206,7 +209,7 @@ class FakeInternalApi:
     # ── 조회 ─────────────────────────────────────────────
     async def risk_stations(self, region_id, horizon_h, limit):
         if region_id != REGION_ID:
-            raise _problem(404, "REGION_NOT_FOUND", f"'{region_id}' 권역이 없습니다. 사용할 수 있는 권역: {REGION_ID}",
+            raise _problem(404, "REGION_NOT_FOUND", f"'{region_id}' 구역이 없습니다. 사용할 수 있는 구역: {REGION_ID}",
                            [REGION_ID])
         rows = []
         for sid, s in STATIONS.items():

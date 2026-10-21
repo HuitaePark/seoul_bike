@@ -205,6 +205,38 @@ services:
       retries: 10
     restart: unless-stopped
 
+  collector:
+    # 6번 실시간 재고 수집기를 서버에서 돌린다 (합의 12, analysis/collect/live_db.py). 5분마다 따릉이 재고를
+    # live.station_status에 넣고 backend는 읽기만 한다. SEOUL_API_KEY가 비어 있으면 수집하지 않고 기다린다(healthy).
+    # 키 넣는 법: infra/README "collector". 공개 포트는 없다.
+    build:
+      context: ..
+      dockerfile: infra/collector/Dockerfile
+    environment:
+      SEOUL_API_KEY: ${SEOUL_API_KEY:-}
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-seoulbike}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 .env에 필요하다}
+      PGDATABASE: ${POSTGRES_DB:-seoulbike}
+      COLLECTOR_INTERVAL_SECONDS: ${COLLECTOR_INTERVAL_SECONDS:-300}
+      COLLECTOR_RETENTION_DAYS: ${COLLECTOR_RETENTION_DAYS:-14}
+      # 로그 시각을 서울 시각으로 (수집 시각 자체는 코드가 +09:00으로 정한다)
+      TZ: Asia/Seoul
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # live.station_status는 backend의 Flyway(V11)가 만든다
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # 매 주기(키가 없을 때도) 갱신하는 파일. 15분 넘게 그대로면 수집 루프가 멈춘 것이다
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/collector-alive') > 900)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+
   optimizer:
     # 경로 최적화 실행기 (역할 5, or-tools/, docs/specs/optimizer.md). solve.requests·solve.requests.retry를 소비해
     # solve.results를 발행하고, 처리 못 한 요청은 solve.requests.dlq로 보낸다. 공개 포트는 없다.

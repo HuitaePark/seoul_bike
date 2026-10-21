@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal
 
 # [읽는 법] 이 파일은 "데이터를 담는 그릇"만 정의한다. 계산 로직은 없다.
@@ -24,7 +25,7 @@ class Station:
     name: str
     lat: float  # 위도
     lon: float  # 경도
-    capacity: int  # 대여소 용량: 자전거를 세울 수 있는 거치대 수
+    docks: int  # 대여소 거치대 수. Truck.capacity(트럭 적재 용량)와 구분
     bikes: int  # 지금 대여소에 세워져 있는 자전거 수
     operating_limit: int | None = None  # 운영상 목표 상한. None이면 거치대 수를 초기값으로 사용
 
@@ -53,16 +54,25 @@ class Truck:
 
 @dataclass(frozen=True)
 class Forecast:
-    """한 대여소의 '예측 구간' 동안의 예상 수요. AI 모델이 내놓는 값이다.
+    """Hourly expected demand from a caller-supplied KST start, before integer quantities.
 
-    예측 구간 = 예측값이 몇 시간 동안의 대여·반납 수인지를 정하는 시간 길이(N시간).
-    이 클래스는 N을 정하지 않는다. 예측기가 쓰는 시간 단위가 곧 N이다.
-    (mock 예측기는 hour 단위로 예측하므로 N=1시간이다.)
-    rentals와 returns는 반드시 같은 구간을 기준으로 해야 한다.
+    rentals_h[i] and returns_h[i] cover [start+i hours, start+(i+1) hours).
+    Local forecast timestamps are naive KST, matching the data module's tables.
+    Values are expectations; quantity conversion belongs to compute_imbalances.
     """
 
-    rentals: int  # 예측 구간 동안 대여되어 대여소에서 나갈 것으로 예상되는 자전거 수
-    returns: int  # 예측 구간 동안 반납되어 대여소로 들어올 것으로 예상되는 자전거 수
+    start: datetime
+    rentals_h: tuple[float, ...]
+    returns_h: tuple[float, ...]
+    model_version: str
+
+    @property
+    def rentals(self) -> float:
+        return sum(self.rentals_h)
+
+    @property
+    def returns(self) -> float:
+        return sum(self.returns_h)
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@
 공통 모듈 이전과 운영 배포 연결은 포함하지 않는다.
 공통 메시지를 처리하는 [독립 Kafka 실행기](../../infra/optimizer/KAFKA.md)는 별도로 제공한다.
 독립 실행용 [OSRM 개발 환경](../../infra/optimizer/README.md)은 별도로 제공한다.
-[S05 참조 시드 검증](../../infra/optimizer/seeds/README.md)도 제공한다.
+[서울 17개 구역 참조 시드 검증](../../infra/optimizer/seeds/README.md)도 제공한다.
 MCP 실행·검증은 역할 3의 [MCP 명세](../MCP.md)와 기존 공통 CI를 따른다.
 
 ## 실행
@@ -20,6 +20,7 @@ cd or-tools
 ../.venv/bin/python -m pytest -q
 ../.venv/bin/python -m rebalancing --hour 8 --trucks 3
 ../.venv/bin/python -m rebalancing --hour 18 --trucks 2 --start-load 7 --json
+../.venv/bin/python -m rebalancing --start 2026-10-21T07:00:00+09:00 --horizon-h 3 --json
 ```
 
 `requirements.txt`는 루트에 있고, Python 패키지는 `or-tools/`에 있다.
@@ -43,13 +44,38 @@ cd or-tools
 | 결과 | 도착·작업 종료 상대 시각, 적재량, 복귀 포함 운행 시간, 미처리 사유, 전체 처리 상태 |
 
 부족/과적재 가중치 2:1은 **검증 전의 실험 기본값**이다. 수요 강도·임박도를
-반영한 정식 우선순위는 데이터 담당과 계약을 맞춰 전달해야 한다. 현재 예측기는
-구간 합계만 돌려주므로 시간별 재고 궤적, 빈 시각, 예측 구간 중간의 안전은 계산하지 않는다.
+반영한 정식 우선순위는 데이터 담당과 계약을 맞춰 전달해야 한다. 예측기는 날짜·시간별 실수 배열을
+제공하며 기본 필요량은 구간 끝 합계 정책으로 계산한다. 선택형 `inventory_policy="hourly"`는 시작점·매시 경계도 검사한다. 도착 전 안전이나 실제 운영 관측 정렬을 보장하지 않는다.
 현재 재경로는 완료/진입 불가 제외와 새 위치·적재량 반영까지이며, 이동 중인
 다음 정류장의 방문 순서 고정은 후속 작업이다. 차량 배정 제한은 두 정책에 반영했다.
 
 기본 출발 적재량은 두 정책 모두 0대다. 차고지에 충분한 재고가 있다는 이유로
 솔버가 임의로 자전거를 만들어 싣지 않는다. 차고지 재적재·부분 처리는 아직 지원하지 않는다.
+
+합의 16~20을 반영해 기본 예측 3시간, `Station.docks`, 직선거리 ×1.3/시속 20km를 적용했다.
+시뮬레이터의 대여소 필드와 이동 공급자도 같은 구현을 사용한다. 구역 참조 benchmark는 트럭 수를 생략하면
+`trucks_min`을 쓰며 명시한 값이 우선한다. 운영 fleet은 생산자가 현재 가용 차량으로 구성한다.
+[설정·300곳 검증 기록](benchmarks/agreed-policy-300.md)과 [PR 준비 상태](pr-readiness.md)를 따른다.
+
+## 시간별 데이터 예측기 사용
+
+`compute_imbalances(stations, predictor, start, horizon_h=3, safety=2)`로 호출한다.
+`predictor`에는 데이터 파트의 BaselinePredictor·LightGBMPredictor·NowcastPredictor처럼
+`predict(station, start, horizon_h)`를 제공하는 객체를 넣는다. 학습·파일 로딩은 호출자가 미리 수행한다.
+
+`start`는 정시이며 naive datetime은 KST다. UTC나 다른 시간대를 주면 KST로 바꿔 데이터 표의 키와 맞춘다.
+예측 구간은 1~5시간이며 기본은 3시간이다. `--hour` 데모는 재현용 고정 날짜 2026-10-20을 사용하고,
+`--start`·`--horizon-h`로 날짜·구간을 명시할 수 있다. 두 시각 옵션은 함께 사용하지 않는다.
+CLI는 계속 규칙 기반 시연이며 `--start`만으로 학습 모델이나 운영 데이터를 불러오지 않는다.
+
+실수 예측은 따로 반올림하지 않고 시간별 Decimal 합계로 목표 구간을 계산한다.
+최소 재고 목표는 올림, 최대 재고 목표는 내림해 부족 보충량을 줄이거나 회수 가능량을 과대평가하지 않는다.
+시간별 배열의 길이·시작 시각·버전·값을 검사하며 잘못된 입력을 정상 수요 0으로 대체하지 않는다.
+합의 16의 중간 시간 검사는 `compute_imbalances(..., inventory_policy="hourly")` 또는
+`python -m rebalancing --inventory-policy hourly --json`으로 선택한다. 시작점·시간별 누적 수요의 목표 교집합을 사용하며,
+하한/상한 충돌에서는 기존 안전 하한을 우선한다. 기본 `endpoint`와 운영 worker의 생산자 필요량·우선순위는 유지한다.
+운영 StationRisk의 비정시 관측 정렬·재고/거치대 이동량 제한과 같은 정책으로 취급하지 않는다.
+상세 경계와 다음 협의 항목은 [역할 명세](../specs/optimizer.md#로컬-수요-예측-연결)에 있다.
 
 ## 이동 시간 공급자
 
@@ -58,7 +84,9 @@ cd or-tools
 - 행/열은 요청받은 `points` 순서를 그대로 따른다. 좌표는 `(위도, 경도)`다.
 - `distances_m`: 정수 미터, `durations_s`: 정수 초. 비대칭 행렬을 허용한다.
 - `None`, 음수, 잘못된 크기는 거부한다. 도달 불가 구간을 0으로 바꾸면 안 된다.
-- 기본 공급자는 하버사인 거리와 시속 30km로 만든 **개발용 추정치**다. 실제 도로 경로나 실시간 교통이 아니다.
+- 기본 공급자는 하버사인 거리 ×1.3, 시속 20km의 **개발용 추정치**다. 거리·시간을 각각 정수로 올림한다.
+  실제 도로 경로나 실시간 교통이 아니다. `--speed-kph`·`--detour-factor`로 명시 설정을 바꿀 수 있다.
+  속도·보정계수가 캐시 namespace와 benchmark 입력 해시에 포함된다. OSRM 행렬에는 이 보정을 다시 적용하지 않는다.
 - `OsrmTravelTime`은 OSRM Table API의 도로 거리·시간을 연결한다. 초·미터는 올림하여 정수로 만들고,
   중복 좌표를 한 번만 조회한 뒤 원래 순서로 복원한다. 기본 100개 좌표 한도를 넘으면 두 축을 분할한다.
 - `CachedTravelTime`은 메모리 LRU와 선택적 디스크 캐시를 제공한다. 두 저장소 모두 최대 16개 행렬,
@@ -76,7 +104,8 @@ cd or-tools
 실행 예시와 지도 파일 준비는 [독립 개발 환경](../../infra/optimizer/README.md)을 따른다.
 공통 메시지는 [AsyncAPI](../specs/asyncapi.yaml)를 따른다. 변환·계산 함수와 실행 설정은
 [역할 5 명세](../specs/optimizer.md)에 있다. Kafka 실행기는 전용 파일 상태로 결과를 재사용하며,
-요청의 제한 재시도·DLQ도 제공한다. 실제 backend 연결·운영 토픽/관제·분산 중복 방지 저장소는 후속 작업이다.
+요청의 제한 재시도·DLQ도 제공한다. 실제 요청 조립과 backend 임시안은 PR #89에 구현됐다.
+실데이터를 통한 왕복·운영 토픽/관제·분산 중복 방지 저장소는 후속 작업이다.
 
 ## 미처리 사유
 
@@ -130,7 +159,7 @@ replan은 먼저 초기 경로를 계산하고, 사용 차량마다 첫 작업�
 | timings.non_matrix | 엔진 호출에서 matrix 시간을 뺀 나머지. 순수 솔버 시간과 다름 |
 | stages.prepare_problem/build_model/search/extract_plan | --profile-stages에서만 추가하는 단계별 표본·중앙값·p95. matrix/provider는 prepare_problem 안에 포함 |
 | cache_hits·cache_misses·provider_calls | 측정 구간의 횟수. warm 준비 호출은 제외. provider_calls는 matrix 호출 수이며 OSRM 분할 HTTP 횟수가 아님 |
-| input_sha256·plan_sha256 | 같은 입력인지, 반복·캐시 모드에서 같은 계획이 나오는지 확인 |
+| input_sha256·plan_sha256 | 계산 사례와 이동 설정 namespace, 전체 계획의 SHA-256. 반복·캐시 모드에서 결과 일치 확인 |
 
 compare는 캐시 없이 매번 공급자 호출(none), 매번 새 메모리 캐시(cold), 한 번 준비한 캐시(warm)를 비교한다.
 warm의 사전 엔진 호출은 warmup_s에 별도로 남기고 표본·캐시 횟수·공급자 횟수에서 제외한다.
@@ -143,14 +172,15 @@ Kafka 대기·backend·LLM을 포함한 "현장 보고부터 변경안 생성까
 
 거리·작업시간·적재 변화는 native 행렬/벡터로 등록해 탐색 중 Python 반복 호출을 줄였다.
 원본 공급자/캐시 행렬은 보존하고 실제 복귀·용량·근무시간·탐색 설정을 유지한다.
-가상 200곳·5대·warm 재경로 20회에서 p95 5984.98→1043.75ms와 동일한 전체 계획 해시를 확인했다.
+이전 운행 설정의 가상 200곳·5대·warm 재경로 20회에서 p95 5984.98→1043.75ms와 동일한 전체 계획 해시를 확인했다.
 [전후 측정·재현·한계](benchmarks/native-transit.md)와 [검증 기록](validation.md)에 상세를 남겼다.
 실제 도로·운영 서버의 성능 보장으로 사용하지 않는다.
 
 ## 다음 연결 작업
 
 1. [역할 5 명세](../specs/optimizer.md)의 실행 설정 공급·중복 처리 책임을 담당자와 확인한다.
-2. 확정 권역의 실제 OSRM 도로망과 캐시에서 200곳·5대 입력을 검증한다.
+2. 확정 구역의 실제 OSRM 도로망과 캐시에서 N01 265곳·가상 300곳·5대 입력을 검증한다.
+   [OSRM 선택 구성](../../infra/optimizer/compose.osrm.yaml)과 [마무리 인계](final-handoff.md)의 준비 조건을 따른다.
 3. 메시지의 depot/asOf에 실제 권역·스냅샷 값을 공급하고, 운영 토픽·DLQ 관제와 backend SolveGateway를 실제 worker에 연결한다.
 4. 구현된 지도·계획 검토를 backend 대여소/계획 API·후보 승인과 통합한다.
    실제 도로 경로선은 OSRM Route 조회·공개 응답을 역할 4와 맞추며 승인 순서는 requiredApprovers를 따른다.
@@ -162,3 +192,17 @@ Kafka 대기·backend·LLM을 포함한 "현장 보고부터 변경안 생성까
 같은 자전거가 회수와 보충에서 각각 집계될 수 있으므로 고유 자전거 수로 해석하지 않는다.
 기본 탐색량 50은 빠른 응답을 위한 초기 설정이며 처리량·거리의 최선은 아니다.
 평가 때는 탐색량을 바꾼 결과의 미처리 대수·거리·시간을 함께 비교한다.
+
+
+## 현재 PR 준비와 다음 통합 작업
+
+[PR 준비 상태](pr-readiness.md)에 현재 브랜치의 검증 범위, PR 제출 시 확인할 항목,
+실데이터·도로·팀 정책 결정이 필요한 후속 작업을 구분해 둔다.
+
+현재 기본 3시간은 구간 끝 정책에 적용한다. backend의 StationRisk(내부 API 0.8)는 별도의 관측 시각·시간별 궤적 규칙으로
+neededBikes와 priority를 만든다. worker는 그 계산된 값을 그대로 소비하며 로컬 예측 데모의 정책으로 다시 계산하지 않는다.
+
+
+PR #89의 운영 SolveRequest는 이미 계산된 neededBikes/priority를 받으므로 비정시 asOf도 허용한다.
+위 로컬 예측기의 정시 start 조건과 별개다. 결과에 생략한 미사용 트럭의 빈 경로, 이전 완료/건너뜀 방문과의 병합,
+최종 seq 번호 및 탐욕 임시안 후보는 backend가 처리한다. [명세의 경계](../specs/optimizer.md#backend-입력후보-저장과의-경계-pr-89)를 따른다.

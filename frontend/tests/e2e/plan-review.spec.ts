@@ -79,15 +79,23 @@ test('공개 시연: API 호출 없이 경로·상세·빈 트럭·필터를 탐
   page.on('request', r => { if (new URL(r.url()).pathname.startsWith('/api/')) apiRequests.push(r.url()) })
   await page.goto('/plans/review/demo')
   await expect(page.getByText('시연 데이터 · 실제 계획에 반영되지 않습니다')).toBeVisible()
+<<<<<<< HEAD
   await expect(page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-01' })).toBeVisible()
   await page.screenshot({ path: 'test-results/plan-review-desktop.png', fullPage: true })
   await page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-02' }).click()
   await expect(page.getByRole('heading', { name: '건대입구역' })).toBeVisible()
   await page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-03' }).click()
+=======
+  await expect(page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-03' })).toBeVisible()
+  await page.screenshot({ path: 'test-results/plan-review-desktop.png', fullPage: true })
+  await page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-04' }).click()
+  await expect(page.getByRole('heading', { name: '성수역 1번출구 주변' })).toBeVisible()
+  await page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-05' }).click()
+>>>>>>> 2b4b4e8491d564abe346b6cc9934c8eb91e82ede
   await expect(page.getByText('이 트럭에 배정된 작업이 없습니다.')).toBeVisible()
-  await page.getByRole('button', { name: /공사 구간 \(시연\).*ST-303/ }).click()
+  await page.getByRole('button', { name: /광진메디칼\ 앞.*ST-114/ }).click()
   await expect(page.getByText('이 거점의 대여소 현황이 제공되지 않았습니다.', { exact: false })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '공사 구간 (시연)' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '광진메디칼 앞' })).toBeVisible()
   await page.getByLabel('이름·ID 검색').fill('없는 거점')
   await expect(page.getByText('검색 조건에 맞는 대여소가 없습니다.')).toBeVisible()
   await page.getByLabel('이름·ID 검색').clear()
@@ -99,7 +107,7 @@ test('제외 후 새 버전을 다시 검토해야 최종 승인할 수 있다',
   await page.goto('/plans/review/demo')
   const confirm = page.getByRole('checkbox', { name: /현재 v1의/ })
   await confirm.check()
-  await page.getByRole('checkbox', { name: '성수역 2번 출구 제외', exact: true }).check()
+  await page.getByRole('checkbox', { name: '자양사거리 광진아크로텔 앞 제외', exact: true }).check()
   await expect(confirm).not.toBeChecked()
   await expect(page.getByRole('button', { name: '현재 안 최종 승인' })).toBeDisabled()
   await page.getByRole('button', { name: '제외 후 새 안 요청' }).click()
@@ -115,6 +123,22 @@ test('제외 후 새 버전을 다시 검토해야 최종 승인할 수 있다',
   await expect(page.getByRole('checkbox', { name: /현재 v1의/ })).toBeVisible()
   await page.getByRole('button', { name: '현재 안 거절' }).click()
   await expect(page.getByText('거절됨', { exact: true })).toBeVisible()
+})
+test('계획 검토는 계약 상한인 5시간까지 선택하고 조회한다', async ({ page }) => {
+  await mockApi(page)
+  const horizons: string[] = []
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/stations')) horizons.push(url.searchParams.get('horizonH') ?? '')
+  })
+  await page.goto(liveUrl)
+  const horizon = page.getByRole('combobox', { name: /^예측 구간/ })
+  await expect(horizon).toHaveValue('3')
+  await expect(horizon.locator('option[value="6"]')).toHaveCount(0)
+  await horizon.selectOption('5')
+  await page.getByRole('button', { name: '계획 조회', exact: true }).click()
+  await expect.poll(() => horizons.includes('5')).toBe(true)
+  expect(horizons).not.toContain('6')
 })
 test('실제 모드: 명세의 공개 API·승인 ID로 한 번만 결정한다', async ({ page }) => {
   const calls = await mockApi(page)
@@ -156,7 +180,11 @@ test('서버 오류는 가짜 계획으로 대체하지 않으며 재조회할 �
   const calls = await mockApi(page, { planStatus: 500 })
   await page.goto(liveUrl)
   await expect(page.getByRole('heading', { name: '계획을 불러오지 못했습니다' })).toBeVisible()
+<<<<<<< HEAD
   await expect(page.getByText('TR-01', { exact: true })).toHaveCount(0)
+=======
+  await expect(page.getByText('TR-03', { exact: true })).toHaveCount(0)
+>>>>>>> 2b4b4e8491d564abe346b6cc9934c8eb91e82ede
   const count = calls.filter(c => c.path.endsWith('/plan')).length
   await page.getByRole('button', { name: '다시 시도' }).click()
   await expect.poll(() => calls.filter(c => c.path.endsWith('/plan')).length).toBe(count + 1)
@@ -169,14 +197,18 @@ test('선택 필드 누락·예측 0과 현황 실패를 정직하게 표시한�
   await page.goto(liveUrl)
   await expect(page.locator('.route-meta')).toContainText('용량 미제공대')
   await expect(page.locator('.route-panel tbody tr').first()).toContainText('미제공 / 미제공대')
-  await page.locator('.route-panel').getByRole('button', { name: '성수동 주민센터 상세' }).click()
+  await page.locator('.route-panel').getByRole('button', { name: '군자역 7번출구 베스트샵 앞 상세' }).click()
   await expect(page.locator('.detail .facts div').filter({ hasText: '3시간 후 예상 재고' }).locator('dd')).toHaveText('0')
   await expect(page.locator('.detail .facts div').filter({ hasText: '예상 빈 대여소 시각' }).locator('dd')).toHaveText('미제공')
   const degraded = await page.context().newPage()
   await mockApi(degraded, { stationStatus: 503 })
   await degraded.goto(liveUrl)
   await expect(degraded.getByText('대여소 현황 조회 실패:', { exact: false })).toBeVisible()
+<<<<<<< HEAD
   await expect(degraded.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-01' })).toBeVisible()
+=======
+  await expect(degraded.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-03' })).toBeVisible()
+>>>>>>> 2b4b4e8491d564abe346b6cc9934c8eb91e82ede
 })
 test('다른 계획의 카드·오래된 결정은 승인할 수 없다', async ({ page }) => {
   const task = demoTask(); task.pendingApproval!.planId = 'another-plan'
@@ -217,11 +249,11 @@ test('제외 요청 202로 확정하지 않고 SSE의 새 후보를 재조회한
     return route.fulfill({ json: path.endsWith('/plan') ? plan : demoStations })
   })
   await page.goto(liveUrl); await linkTask(page)
-  await page.getByRole('checkbox', { name: '성수역 2번 출구 제외', exact: true }).check()
+  await page.getByRole('checkbox', { name: '자양사거리 광진아크로텔 앞 제외', exact: true }).check()
   await page.getByRole('button', { name: '제외 후 새 안 요청' }).click()
   await expect(page.getByText('처리 중', { exact: true })).toBeVisible()
   await expect(page.getByText('운영 중', { exact: true })).toHaveCount(0)
-  expect(body).toEqual({ approvalId: demoTask().pendingApproval!.approvalId, decision: 'REJECT', excludeStationIds: ['ST-101'] })
+  expect(body).toEqual({ approvalId: demoTask().pendingApproval!.approvalId, decision: 'REJECT', excludeStationIds: ['ST-102'] })
   publishCandidate = true
   const confirm = page.getByRole('checkbox', { name: /현재 v2의/ })
   await expect(confirm).toBeVisible()
@@ -275,10 +307,17 @@ test('늦게 도착한 이전 근무조 응답이 새 조회를 덮어쓰지 않
 test('모바일에서 전체 페이지가 가로로 넘치지 않고 경로표를 탐색할 수 있다', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/plans/review/demo')
+<<<<<<< HEAD
   await expect(page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-01' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-02' }).click()
   await expect(page.getByRole('heading', { name: '건대입구역' })).toBeVisible()
+=======
+  await expect(page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-03' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-04' }).click()
+  await expect(page.getByRole('heading', { name: '성수역 1번출구 주변' })).toBeVisible()
+>>>>>>> 2b4b4e8491d564abe346b6cc9934c8eb91e82ede
   await page.screenshot({ path: 'test-results/plan-review-mobile.png', fullPage: true })
 })
 
@@ -297,10 +336,11 @@ test('지도 마커·경로표·방문 번호·상세가 같은 거점을 선택
       return r.left >= bounds.left && r.right <= bounds.right && r.top >= bounds.top && r.bottom <= bounds.bottom
     })
   })).toBe(true)
-  const marker = map.getByRole('button', { name: '지도에서 서울숲 입구 선택', exact: true })
+  const marker = map.getByRole('button', { name: '지도에서 건대입구역 사거리(롯데백화점) 선택', exact: true })
   await marker.focus(); await marker.press('Enter')
   await expect(marker).toHaveAttribute('aria-pressed', 'true')
   await expect(marker).toBeFocused()
+<<<<<<< HEAD
   await expect(page.getByRole('heading', { name: '서울숲 입구', exact: true })).toBeVisible()
   await expect(map.locator('.map-selection')).toContainText('서울숲 입구')
   await map.getByRole('combobox', { name: '지도 트럭 선택' }).selectOption('TR-02')
@@ -312,6 +352,19 @@ test('지도 마커·경로표·방문 번호·상세가 같은 거점을 선택
   await expect(map.getByRole('button', { name: '지도에서 어린이대공원 정문 선택', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await page.locator('.route-panel').getByRole('button', { name: '화양사거리 상세' }).click()
   await expect(map.getByRole('button', { name: '지도에서 화양사거리 선택', exact: true })).toHaveAttribute('aria-pressed', 'true')
+=======
+  await expect(page.getByRole('heading', { name: '건대입구역 사거리(롯데백화점)', exact: true })).toBeVisible()
+  await expect(map.locator('.map-selection')).toContainText('건대입구역 사거리(롯데백화점)')
+  await map.getByRole('combobox', { name: '지도 트럭 선택' }).selectOption('TR-04')
+  await expect(page.getByRole('button', { name: 'TR-04 3곳', exact: false })).toHaveAttribute('aria-pressed', 'true')
+  await expect(map.getByRole('button', { name: 'TR-04 1번 성수역 1번출구 주변 선택' })).toBeVisible()
+  await expect(map.getByRole('button', { name: '지도에서 성수역 1번출구 주변 선택', exact: true }).locator('span')).toHaveText('1')
+  await map.getByRole('button', { name: 'TR-04 2번 구의역 리버비스타 오피스텔 선택' }).click()
+  await expect(page.getByRole('heading', { name: '구의역 리버비스타 오피스텔', exact: true })).toBeVisible()
+  await expect(map.getByRole('button', { name: '지도에서 구의역 리버비스타 오피스텔 선택', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.locator('.route-panel').getByRole('button', { name: '한강버스 뚝섬 선착장 상세' }).click()
+  await expect(map.getByRole('button', { name: '지도에서 한강버스 뚝섬 선착장 선택', exact: true })).toHaveAttribute('aria-pressed', 'true')
+>>>>>>> 2b4b4e8491d564abe346b6cc9934c8eb91e82ede
   await expect(map.getByText('점선은 방문 순서 연결선입니다.', { exact: true })).toBeVisible()
   await map.screenshot({ path: 'test-results/plan-map-desktop.png' })
   expect(errors).toEqual([])
@@ -323,12 +376,12 @@ test('지도 검색·필터와 제외 선택·새 후보의 방문 번호를 갱
   await expect(map.locator('.map-station-marker')).toHaveCount(8)
   await page.getByLabel('위험 분류', { exact: true }).selectOption('OVERFLOW')
   await expect(map.locator('.map-station-marker')).toHaveCount(3)
-  await page.getByLabel('이름·ID 검색').fill('건대')
+  await page.getByLabel('이름·ID 검색').fill('성수역')
   await expect(map.locator('.map-station-marker')).toHaveCount(1)
   await page.getByLabel('이름·ID 검색').clear()
   await page.getByLabel('위험 분류', { exact: true }).selectOption('ALL')
-  const original = map.getByRole('button', { name: '지도에서 성수역 2번 출구 선택', exact: true })
-  await page.getByRole('checkbox', { name: '성수역 2번 출구 제외', exact: true }).check()
+  const original = map.getByRole('button', { name: '지도에서 자양사거리 광진아크로텔 앞 선택', exact: true })
+  await page.getByRole('checkbox', { name: '자양사거리 광진아크로텔 앞 제외', exact: true }).check()
   await expect(original).toHaveClass(/is-excluded/)
   await expect(original.locator('span')).toHaveText('1')
   await page.getByRole('button', { name: '제외 후 새 안 요청' }).click()
@@ -341,9 +394,9 @@ test('좌표가 없는 거점의 위치를 만들지 않고 지도 없는 환경
   await page.goto('/plans/review/demo')
   const map = page.getByRole('region', { name: '대여소와 방문 순서', exact: true })
   await expect(map.locator('.map-station-marker')).toHaveCount(8)
-  await page.getByRole('button', { name: /공사 구간 \(시연\).*ST-303/ }).click()
+  await page.getByRole('button', { name: /광진메디칼\ 앞.*ST-114/ }).click()
   await expect(map.getByText('선택한 거점의 좌표가 없어 지도 위치를 표시하지 않습니다.', { exact: false })).toBeVisible()
-  await expect(map.getByRole('button', { name: '지도에서 공사 구간 (시연) 선택', exact: true })).toHaveCount(0)
+  await expect(map.getByRole('button', { name: '지도에서 광진메디칼 앞 선택', exact: true })).toHaveCount(0)
   const blocked = await page.context().newPage()
   await blocked.addInitScript(() => {
     const original = HTMLCanvasElement.prototype.getContext
@@ -398,9 +451,15 @@ test('모바일 지도 선택·확대와 목록 이동에서도 가로 넘침이
   await page.goto('/plans/review/demo')
   const map = page.getByRole('region', { name: '대여소와 방문 순서', exact: true })
   await expect(map.locator('.map-station-marker')).toHaveCount(8)
+<<<<<<< HEAD
   await map.getByRole('combobox', { name: '지도 트럭 선택' }).selectOption('TR-02')
   await map.getByRole('button', { name: '선택 트럭 보기', exact: true }).click()
   await map.getByRole('button', { name: 'TR-02 1번 건대입구역 선택' }).click()
+=======
+  await map.getByRole('combobox', { name: '지도 트럭 선택' }).selectOption('TR-04')
+  await map.getByRole('button', { name: '선택 트럭 보기', exact: true }).click()
+  await map.getByRole('button', { name: 'TR-04 1번 성수역 1번출구 주변 선택' }).click()
+>>>>>>> 2b4b4e8491d564abe346b6cc9934c8eb91e82ede
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await map.screenshot({ path: 'test-results/plan-map-mobile.png' })
 })
@@ -449,4 +508,64 @@ test('로드된 배경지도 타일 실패 후 같은 스타일을 다시 불러
   await expect(map.getByText('배경지도 불러오는 중…')).toHaveCount(0)
   await expect.poll(() => tiles, { timeout: 5000 }).toBeGreaterThan(initialTiles)
   await expect(retry).toHaveCount(0)
+})
+
+
+
+test('대여소 API: 관측 없는 실제 구역의 빈 목록을 오류나 시연 자료로 바꾸지 않는다', async ({ page }) => {
+  const calls = await mockApi(page, { planStatus: 404, stations: [] })
+  await page.goto('/plans/review?regionId=N01&shiftId=N01%3A2026-10-21%3AAM')
+  await expect(page.getByRole('heading', { name: '이 근무조의 계획이 아직 없습니다' })).toBeVisible()
+  await expect(page.getByText('표시할 대여소 현황이 없습니다.')).toBeVisible()
+  await expect(page.locator('.plan-review [role="alert"]')).toHaveCount(0)
+  await expect(page.locator('.demo-banner')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'TR-03', exact: true })).toHaveCount(0)
+  expect(calls.some(c => c.path === '/api/regions/N01/stations')).toBe(true)
+  expect(calls.every(c => c.method === 'GET')).toBe(true)
+})
+
+test('대여소 API: 예측이 없는 실제 ST-ID의 null 값을 0으로 표시하지 않는다', async ({ page }) => {
+  const station: Station = { ...structuredClone(demoStations[0]!), stationId: 'ST-144', name: '탑골공원 앞',
+    lat: 37.57039642, lon: 126.9881897, docks: 11, bikes: 2, role: 'VARIABLE', risk: 'EMPTY',
+    forecastBikes: null, observedAt: '2026-10-21T07:05:00+09:00' }
+  await mockApi(page, { planStatus: 404, stations: [station] })
+  await page.goto('/plans/review?regionId=N01&shiftId=N01%3A2026-10-21%3AAM')
+  const table = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: '현재 / 거치대' }) })
+  const row = table.locator('tbody tr')
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('탑골공원 앞')
+  await expect(row).toContainText('ST-144')
+  await expect(row.locator('td').nth(2)).toHaveText('미제공')
+  await expect(row).toContainText('빈 대여소 위험')
+  await row.getByRole('button', { name: '탑골공원 앞 상세' }).click()
+  await expect(page.locator('.detail h2')).toHaveText('탑골공원 앞')
+  await expect(page.locator('.detail .facts div').filter({ hasText: '3시간 후 예상 재고' }).locator('dd')).toHaveText('미제공')
+  await expect(page.getByRole('button', { name: '현재 안 최종 승인' })).toHaveCount(0)
+  await expect(page.locator('.plan-review [role="alert"]')).toHaveCount(0)
+})
+
+
+
+test('PR89 후보: 완료·건너뜀 뒤의 순서와 빈 트럭·탐욕 임시안을 그대로 검토한다', async ({ page }) => {
+  const plan = structuredClone(demoPlan)
+  const route = plan.routes[0]!
+  const [done, skipped, pending] = route.stops
+  route.stops = [{ ...pending!, seq: 6, status: 'PENDING', eta: '2026-10-21T19:40:00+09:00' },
+    { ...done!, seq: 2, status: 'DONE' }, { ...skipped!, seq: 5, status: 'SKIPPED' }]
+  plan.provisional = true
+  plan.explanation = '최적화가 제한 시간 안에 답하지 않아 가까운 순 탐욕 규칙으로 만든 임시안이다.'
+  plan.routes[2]!.startLoad = 0
+  await mockApi(page, { plan })
+  await page.goto(liveUrl)
+  await expect(page.locator('.plan-overview')).toContainText('임시 계획입니다.')
+  await expect(page.locator('.explanation')).toHaveText(plan.explanation)
+  await expect(page.locator('.route-panel .sequence')).toHaveText(['2', '5', '6'])
+  await expect(page.locator('.route-panel tbody tr').nth(1)).toContainText('건너뜀')
+  await expect(page.locator('.route-panel tbody tr').nth(2)).toContainText('19:40')
+  await page.getByRole('group', { name: '트럭 선택' }).getByRole('button', { name: 'TR-05' }).click()
+  await expect(page.getByText('이 트럭에 배정된 작업이 없습니다.')).toBeVisible()
+  await expect(page.locator('.route-meta')).toContainText('시작 적재 0대')
+  await linkTask(page)
+  await page.getByRole('checkbox', { name: /현재 v1의/ }).check()
+  await expect(page.getByRole('button', { name: '현재 안 최종 승인' })).toBeEnabled()
 })

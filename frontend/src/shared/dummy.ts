@@ -3,12 +3,14 @@
 // 관제 대시보드와 기사 앱이 같은 근무조를 보도록 한 곳에 둔다.
 
 import type { Schemas } from './api/client'
+import { todayInSeoul } from './region/regions'
 
 type StationStatus = Schemas['StationStatus']
 type Plan = Schemas['Plan']
 
-export const DUMMY_REGION = { id: 'gwangjin-seongdong', name: '광진·성동' }
-const today = new Date().toISOString().slice(0, 10)
+// 가짜 MCP(business-mcp fake)가 아는 근무조와 같아야 업무 도구가 동작한다: N02, 오늘(서울 날짜), 오전.
+export const DUMMY_REGION = { id: 'N02', name: '강북-02 (광진·성동)' }
+const today = todayInSeoul()
 export const DUMMY_SHIFT_ID = `${DUMMY_REGION.id}:${today}:AM`
 
 // 기존 기사 계정의 truck-N은 인증 정보 그대로 두고 더미 화면에서만 새 시연 ID로 읽는다.

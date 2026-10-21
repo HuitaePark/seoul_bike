@@ -19,6 +19,7 @@ class KafkaTransport:
                                   "auto.offset.reset": "earliest", "allow.auto.create.topics": False})
         self.producer = Producer({"bootstrap.servers": bootstrap_servers, "acks": "all",
                                   "enable.idempotence": True,
+                                  "partitioner": "murmur2_random",  # Match the backend Java producer for keyed records.
                                   "message.timeout.ms": int(delivery_timeout_s * 1000)})
         self.consumer.subscribe([REQUEST_TOPIC, RETRY_TOPIC])
 

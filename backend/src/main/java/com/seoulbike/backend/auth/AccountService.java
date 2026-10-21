@@ -90,6 +90,8 @@ class AccountService {
 			throw ApiException.conflict("SIGNUP_REJECTED",
 					"승인된 적 없는 계정(거절한 가입 신청)이라 다시 열 수 없다. 다시 가입을 받거나 새로 발급한다");
 		}
+		// 기사는 트럭 목록(ref.trucks)에 있는 활성 트럭을 가져야 한다. 목록 밖 트럭(예전 형식 등)을 가진 채로 다시 열지 않는다.
+		requireTruck(user.role(), user.truckId());
 		if (!users.enable(userId)) {
 			throw ApiException.conflict("ACCOUNT_NOT_DISABLED", "비활성 상태가 아니다");
 		}
@@ -109,14 +111,24 @@ class AccountService {
 		return users.findById(userId).orElseThrow(() -> ApiException.notFound("ACCOUNT_NOT_FOUND", "계정 " + userId + "가 없다"));
 	}
 
-	/** 기사는 트럭이 있어야 경로·승인을 받을 수 있다. 다른 역할의 트럭 값은 버린다. */
-	private static String requireTruck(Role role, String truckId) {
+	/**
+	 * 기사는 트럭이 있어야 경로·승인을 받을 수 있다. 다른 역할의 트럭 값은 버린다.
+	 * 트럭은 트럭 목록(ref.trucks)의 활성 트럭이어야 한다 (합의 30). 오타 난 트럭으로 승인하면 그 기사는 경로를 영영 받지 못한다.
+	 */
+	private String requireTruck(Role role, String truckId) {
 		if (role != Role.DRIVER) {
 			return null;
 		}
 		if (truckId == null || truckId.isBlank()) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "TRUCK_REQUIRED", "기사 계정은 truckId가 필요하다");
 		}
-		return truckId.trim();
+		String truck = truckId.trim();
+		List<String> trucks = users.activeTruckIds();
+		if (!trucks.contains(truck)) {
+			// 구역 ID처럼 고를 수 있는 트럭 ID를 suggestions로 준다 (서울 전체 35대 안팎).
+			throw new ApiException(HttpStatus.BAD_REQUEST, "TRUCK_NOT_FOUND",
+					"트럭 " + truck + "이 트럭 목록에 없거나 운행하지 않는다. 트럭 ID는 TR-NN 꼴이다 (예: TR-01)", trucks);
+		}
+		return truck;
 	}
 }

@@ -101,7 +101,7 @@ def prepare_problem(
     for station in stations:
         require_int("station.id", station.id)
         if isinstance(station, Station):
-            require_int("station.capacity", station.capacity, minimum=1)
+            require_int("station.docks", station.docks, minimum=1)
             require_int("station.bikes", station.bikes)
             if station.operating_limit is not None:
                 require_int("station.operating_limit", station.operating_limit)

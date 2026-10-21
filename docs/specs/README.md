@@ -45,7 +45,8 @@
 | `/internal/**` 서비스 토큰(`X-Internal-Token`) · 현장 보고 조회(`get_field_reports`) · 제약 추가(`add_constraint`) · 감사 기록(`get_audit`) | 구현 (internal-api v0.5) |
 | 현재 계획(`get_current_plan`) · 계획 활성화(`submit_plan`) · 경로 적용(`propose_route_change`) | 구현 (internal-api v0.6). 승인 하나에 한 번 실행하고 재시도는 처음 결과(`plans.activated_by_approval`). 활성 계획이 후보의 기준 버전에서 바뀌었으면 409. 경로 적용은 활성 계획에서 그 트럭 경로만 바꾼 새 버전을 ACTIVE로 만든다 |
 | `solve.requests` 발행 · `solve.results` 소비 · 계획 후보 저장 | 구현 (backend 안쪽). `requestId`(`{shiftId}:{planVersion}:{seq}`)와 요청·결과를 `solve_requests`에, OK 결과는 `plans`에 후보(`PROPOSED`)로 남기고 활성 계획과 비교한 `diffs`·`grade`·`requiredApprovers`를 붙인다. 같은 결과가 두 번 와도 후보는 하나. `app.solve.timeout`(60초)을 넘기면 기다림을 그만두고, 늦은 결과는 요청 기록에만 남는다. `solve.results` 소비는 **재시도(`solve.results.retry`) → `solve.results.dlq`** (형식 오류는 바로 dlq) |
-| 나머지 `/internal/**`(트럭·경로 계산) | 계약만. 경로 계산 `/internal/plans/solve`는 위 왕복을 부르기만 하면 되지만, 입력(대여소 `neededBikes`·`priority`, 트럭 위치·적재)을 만들 대여소 데이터(PR #10)를 기다린다. 시간 초과 임시안(`provisional`)도 그때 |
+| 경로 계산 `request_route_plan` (`POST /internal/plans/solve`) | 구현 (internal-api v0.8.2). 근무조의 위험 대여소(관측 재고 + 예측, 제약 반영), 트럭(PLAN은 `ref.trucks`가 차고지에서 빈 채로, REPLAN은 활성 계획의 트럭이 마지막으로 끝낸 정류장에서 그 적재로, 남은 정류장 고정), 차고지·근무조 끝으로 입력을 만든다. optimizer가 60초 안에 답하지 않거나 실패하면 가까운 순 탐욕 임시안(`TIMEOUT_PROVISIONAL`, `provisional: true`)을 같은 승인 흐름의 후보로 남긴다 |
+| 트럭 상태 `get_truck_status` (`GET /internal/shifts/{shiftId}/trucks`) | 구현 (internal-api v0.8.3). 활성 계획이 있으면 마지막으로 끝낸 정류장의 위치·적재와 남은 정류장, 없으면 구역 트럭이 차고지에 빈 채로. 재경로 입력과 같은 계산(`TruckStates`). 선택 쿼리 `truckId` |
 | 변경 등급 규칙 · 경로 변경 승인 순서 확인 | 구현 (등급 기준은 `application.properties`의 `app.route-change.*`). 적용 API `/internal/routes/{truckId}/apply`가 등급을 다시 계산해 이 규칙을 부른다. 가짜 에이전트도 같은 규칙을 부른다 |
 
 ## 이 초안이 정한 것
@@ -59,7 +60,7 @@
 - LangGraph `thread_id`는 **작업 단위 `{shiftId}:{taskId}`**다. backend가 `TaskCommand.threadId`로 보내고 agent는 직접 만들지 않고 그대로 쓴다. 근무조 상태(계획)의 원본은 DB다. (근무조 단위로 쓰면 같은 근무조 작업끼리 대기 중인 승인이 섞인다. HARNESS ISS-03)
 - 기사 작업은 `requestedBy.truckId`로 그 트럭에 한정한다 (NFR-06). backend는 JWT의 트럭으로 채운다.
 - SSE로는 계약 `TaskEvent` 필드만 보낸다. agent의 `harness` 같은 확장 필드는 저장·전달하지 않는다.
-- **감사 기록(`audit_events`)은 append-only**다 (DB 트리거가 수정·삭제·TRUNCATE를 막는다). 승인·거절·되돌림과 제약 추가는 그 변경과 같은 트랜잭션에서, 현장 보고는 보고가 확정되는 마지막 단계(저장 또는 재경로 작업 연결)와 같은 트랜잭션에서 남긴다. 사람 이름 대신 "관리자", "truck-1 기사"로 가린다. FR-18 "무승인 변경 0건"의 증거다.
+- **감사 기록(`audit_events`)은 append-only**다 (DB 트리거가 수정·삭제·TRUNCATE를 막는다). 승인·거절·되돌림과 제약 추가는 그 변경과 같은 트랜잭션에서, 현장 보고는 보고가 확정되는 마지막 단계(저장 또는 재경로 작업 연결)와 같은 트랜잭션에서 남긴다. 사람 이름 대신 "관리자", "TR-01 기사"로 가린다. FR-18 "무승인 변경 0건"의 증거다.
 - **현장 보고 작업(FIELD_REPORT)은 기사의 `POST /api/reports`로만 생긴다** (`issue`가 있을 때). 작업 API로는 만들지 않는다(400 `USE_REPORTS_API`). 명령에 `reportId`와 보고 값 `report`를 싣는다 (AGENT-GRAPH G13·G2).
 
 ## 확인이 필요한 것 (담당자에게)

@@ -165,6 +165,8 @@ async function start() {
     map.addControl(new library.NavigationControl({ showCompass: false }), 'top-right')
     map.addControl(new library.ScaleControl({ unit: 'metric' }))
     map.on('style.load', () => {
+      // Finish initial framing before enabling controls so load cannot undo a user's view.
+      if (!ready.value) fitTruck()
       ready.value = true
       if (styleChanging) {
         styleChanging = false; clearTimeout(styleTimer)
@@ -172,7 +174,7 @@ async function start() {
       }
       syncOverlays()
     })
-    map.once('load', () => { fitTruck(); void loadBasemap() })
+    map.once('load', () => { void loadBasemap() })
     map.on('error', () => { baseState.value = 'failed' })
     map.on('webglcontextlost', () => { fatal.value = true })
     observer = new ResizeObserver(() => map?.resize())

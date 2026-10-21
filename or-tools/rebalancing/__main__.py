@@ -8,9 +8,10 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, replace
+from datetime import datetime
 
 from .baseline import plan_greedy
-from .forecast import HeuristicPredictor
+from .forecast import HeuristicPredictor, forecast_window
 from .imbalance import compute_imbalances
 from .mock_data import DEPOT, make_stations, make_trucks
 from .models import Plan
@@ -18,7 +19,7 @@ from .matrix_cache import CachedTravelTime
 from .osrm import OsrmTravelTime, TravelTimeError
 from .planner import plan_routes
 from .problem import PlanningOptions
-from .travel_time import HaversineTravelTime
+from .travel_time import DEFAULT_DETOUR_FACTOR, DEFAULT_SPEED_KPH, HaversineTravelTime
 
 
 def print_plan(plan: Plan, names: dict[int, str]) -> None:
@@ -37,13 +38,19 @@ def print_plan(plan: Plan, names: dict[int, str]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hour", type=int, default=8, help="hour of day to plan for (0-23)")
+    when = ap.add_mutually_exclusive_group()
+    when.add_argument("--hour", type=int, default=8, help="mock hour on fixed 2026-10-20 KST (0-23)")
+    when.add_argument("--start", help="explicit whole-hour ISO datetime; naive values mean KST")
+    ap.add_argument("--horizon-h", type=int, default=3, choices=range(1, 6), help="forecast hours (default 3)")
+    ap.add_argument("--inventory-policy", choices=("endpoint", "hourly"), default="endpoint",
+                    help="local mock targets: endpoint (compatible default) or hourly boundaries")
     ap.add_argument("--trucks", type=int, default=3)
     ap.add_argument("--truck-capacity", type=int, default=15)
     ap.add_argument("--start-load", type=int, default=0)
     ap.add_argument("--shift-minutes", type=int, default=180)
     ap.add_argument("--solution-limit", type=int, default=50)
-    ap.add_argument("--speed-kph", type=float, default=30, help="development travel estimate, not live traffic")
+    ap.add_argument("--speed-kph", type=float, default=DEFAULT_SPEED_KPH, help="development travel estimate, not live traffic")
+    ap.add_argument("--detour-factor", type=float, default=DEFAULT_DETOUR_FACTOR, help="straight-line distance multiplier (default 1.3)")
     ap.add_argument("--osrm-url", help="OSRM server URL; omit to use the development estimate")
     ap.add_argument("--osrm-data-version", default="unversioned", help="road/profile/engine version; required for disk cache")
     ap.add_argument("--osrm-max-locations", type=int, default=100)
@@ -60,19 +67,29 @@ def main() -> None:
     if args.matrix_cache_dir and (not args.osrm_url or args.osrm_data_version == "unversioned"):
         ap.error("disk cache requires --osrm-url and an explicit --osrm-data-version")
 
+    if args.start and "T" not in args.start and " " not in args.start:
+        ap.error("--start must include both a date and a time")
+    try:
+        start = forecast_window(datetime.fromisoformat(args.start) if args.start
+                                else datetime(2026, 10, 20, args.hour), args.horizon_h)
+    except ValueError as error:
+        ap.error(str(error))
+    args.hour = start.hour
+
     stations, kinds = make_stations(seed=args.seed)
     if args.operating_limit is not None:
         stations = [replace(s, operating_limit=args.operating_limit) for s in stations]
     trucks = [replace(t, load=args.start_load, available_time_s=args.shift_minutes * 60)
               for t in make_trucks(args.trucks, args.truck_capacity)]
     try:
-        provider = HaversineTravelTime(args.speed_kph)
+        provider = HaversineTravelTime(args.speed_kph, args.detour_factor)
         if args.osrm_url:
             road = OsrmTravelTime(args.osrm_url, data_version=args.osrm_data_version,
                                   max_locations=args.osrm_max_locations, timeout_s=args.osrm_timeout_seconds,
                                   budget_s=args.osrm_budget_seconds, snap_radius_m=args.osrm_snap_radius_metres)
             provider = CachedTravelTime(road, namespace=road.cache_namespace, cache_dir=args.matrix_cache_dir)
-        imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), args.hour)
+        imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), start, args.horizon_h,
+                                        inventory_policy=args.inventory_policy)
         kwargs = {"options": PlanningOptions(solution_limit=args.solution_limit),
                   "travel_time": provider}
         plans = [plan_greedy(DEPOT, stations, imbalances, trucks, **kwargs),
@@ -83,10 +100,13 @@ def main() -> None:
         ap.error(f"travel time [{error.code}, retryable={error.retryable}]: {error}")
     travel_settings = ({"travel_source": "osrm", "data_version": args.osrm_data_version,
                         "cache_hits": provider.hits, "cache_misses": provider.misses}
-                       if args.osrm_url else {"travel_source": "haversine-estimate", "speed_kph": args.speed_kph})
+                       if args.osrm_url else {"travel_source": "haversine-estimate", "speed_kph": args.speed_kph,
+                                             "detour_factor": args.detour_factor})
     if args.json:
         print(json.dumps({"hour": args.hour, "seed": args.seed,
-                          "settings": {"truck_capacity": args.truck_capacity, "start_load": args.start_load,
+                          "settings": {"forecast_start_kst": start.isoformat(), "forecast_horizon_h": args.horizon_h,
+                                       "inventory_policy": args.inventory_policy,
+                                       "truck_capacity": args.truck_capacity, "start_load": args.start_load,
                                        "shift_seconds": args.shift_minutes * 60, "solution_limit": args.solution_limit,
                                        **travel_settings},
                           "plans": [asdict(p) for p in plans]},

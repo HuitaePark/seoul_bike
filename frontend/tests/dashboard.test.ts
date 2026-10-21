@@ -86,13 +86,13 @@ test('근무조 ID는 권역·날짜·시간대를 합치고 날짜는 서울 �
   // 서울 07:30(UTC 전날 22:30)에도 오늘 날짜다
   assert.equal(todayInSeoul(new Date('2026-10-20T22:30:00Z')), '2026-10-21')
   assert.deepEqual(searchRegions('강남-0').map((r) => r.id).slice(0, 2), ['S01', 'S02'])
-  assert.deepEqual(searchRegions('광진').map((r) => r.id), ['gwangjin-seongdong'])
-  assert.equal(searchRegions('').length, 18)
+  assert.deepEqual(searchRegions('광진').map((r) => r.id), ['N02'])
+  assert.equal(searchRegions('').length, 17)
 })
 
 test('권역 칸은 ID나 이름과 정확히 같은 글자만 권역으로 받는다', () => {
   assert.equal(exactRegion(' s05 ')?.id, 'S05')
-  assert.equal(exactRegion('광진·성동')?.id, 'gwangjin-seongdong')
+  assert.equal(exactRegion('강북-02')?.id, 'N02')
   assert.equal(exactRegion('강남-05')?.id, 'S05')
   // 고르다 만 검색어는 값이 되지 않는다 (예전에는 `광진:날짜:AM`이 나갔다)
   assert.equal(exactRegion('광진'), undefined)

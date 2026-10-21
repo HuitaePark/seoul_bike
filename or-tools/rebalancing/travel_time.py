@@ -7,6 +7,9 @@ from typing import Protocol
 
 from .geo import distance_matrix
 
+DEFAULT_SPEED_KPH = 20.0
+DEFAULT_DETOUR_FACTOR = 1.3
+
 LatLon = tuple[float, float]
 
 
@@ -63,15 +66,26 @@ class TravelTime(Protocol):
 class HaversineTravelTime:
     """Development estimate, NOT live road or traffic data. Replace via TravelTime."""
 
-    speed_kph: float = 30.0
+    speed_kph: float = DEFAULT_SPEED_KPH
+    detour_factor: float = DEFAULT_DETOUR_FACTOR
+
+    def __post_init__(self):
+        for name, value, minimum in (("speed_kph", self.speed_kph, 0), ("detour_factor", self.detour_factor, 1)):
+            if type(value) not in (int, float) or not isfinite(value) or value < minimum or value == 0:
+                raise ValueError(f"{name} must be finite and {'positive' if minimum == 0 else 'at least 1'}")
+
+    @property
+    def cache_namespace(self) -> str:
+        return f"haversine:rounded-metres:v2:speed={float(self.speed_kph)!r}:detour={float(self.detour_factor)!r}"
 
     def matrix(self, points: list[LatLon]) -> TravelMatrix:
-        if not isfinite(self.speed_kph) or self.speed_kph <= 0:
-            raise ValueError("speed_kph must be finite and positive")
-        distances = distance_matrix(points)
+        direct = distance_matrix(normalized_points(points))
+        adjusted = [[value * self.detour_factor for value in row] for row in direct]
         speed_mps = self.speed_kph / 3.6
+        # Apply the same unrounded detour to distance and time; round once at
+        # each integer output boundary, as the simulator does for travel time.
         return TravelMatrix(
-            distances_m=distances,
-            durations_s=[[ceil(value / speed_mps) for value in row] for row in distances],
+            distances_m=[[ceil(value) for value in row] for row in adjusted],
+            durations_s=[[ceil(value / speed_mps) for value in row] for row in adjusted],
             source="haversine-estimate",
         )

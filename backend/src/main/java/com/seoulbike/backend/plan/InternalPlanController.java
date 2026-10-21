@@ -1,5 +1,6 @@
 package com.seoulbike.backend.plan;
 
+import java.util.List;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
@@ -10,12 +11,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
- * business-mcp `get_current_plan`·`submit_plan`·`propose_route_change` (internal-api). 서비스 토큰으로만 연다 (SecurityConfig).
+ * business-mcp `get_current_plan`·`get_truck_status`·`request_route_plan`·`submit_plan`·`propose_route_change` (internal-api).
+ * 서비스 토큰으로만 연다 (SecurityConfig).
  */
 @RestController
 class InternalPlanController {
@@ -28,10 +31,36 @@ class InternalPlanController {
 	record RouteApplyRequest(@NotNull UUID approvalId, @NotNull UUID taskId, @NotBlank @Size(max = 64) String candidateId) {
 	}
 
-	private final PlanService plans;
+	/** 계약 SolveRequest. */
+	record SolveRequest(@NotBlank @Size(max = 100) String shiftId, @NotNull SolveGateway.Kind kind,
+			@Size(max = 50) List<@NotBlank String> truckIds, @Size(max = 200) List<@NotBlank String> excludeStationIds,
+			@Valid RequestedBy requestedBy) {
+	}
 
-	InternalPlanController(PlanService plans) {
+	record RequestedBy(@NotNull UUID taskId) {
+	}
+
+	private final PlanService plans;
+	private final PlanSolver solver;
+	private final TruckStates trucks;
+
+	InternalPlanController(PlanService plans, PlanSolver solver, TruckStates trucks) {
 		this.plans = plans;
+		this.solver = solver;
+		this.trucks = trucks;
+	}
+
+	/** get_truck_status. 계약 TruckState 배열. */
+	@GetMapping("/internal/shifts/{shiftId}/trucks")
+	List<TruckStates.State> trucks(@PathVariable String shiftId, @RequestParam(required = false) String truckId) {
+		return trucks.status(shiftId, truckId);
+	}
+
+	/** 트랜잭션 밖에서 결과를 최대 app.solve.timeout 기다린다. */
+	@PostMapping("/internal/plans/solve")
+	ObjectNode solve(@Valid @RequestBody SolveRequest req) {
+		return solver.solve(new PlanSolver.Command(req.shiftId(), req.kind(), req.truckIds(), req.excludeStationIds(),
+				req.requestedBy() == null ? null : req.requestedBy().taskId()));
 	}
 
 	@GetMapping("/internal/shifts/{shiftId}/plan")

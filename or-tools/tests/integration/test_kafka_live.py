@@ -208,3 +208,63 @@ raise SystemExit(worker.main(sys.argv[2:]))
     finally:
         observer.close()
         offsets.close()
+
+
+def test_real_kafka_outputs_match_java_partitions_and_keep_key_order(monkeypatch):
+    from confluent_kafka import Consumer, TopicPartition
+    from confluent_kafka.admin import AdminClient, NewTopic
+    from rebalancing import kafka_transport
+
+    # Oracle: Kafka Java 4.2.1 Utils.toPositive(Utils.murmur2(UTF_8(key))) % 6.
+    # Generated with the backend's Java client, not a second Python hash implementation.
+    expected = {
+        "S01:2026-10-21:AM": 0, "N03:2026-10-21:PM": 1,
+        "N06:2026-10-21:EVE": 2, "S05:2026-10-21:AM": 3,
+        "S03:2026-10-21:AM": 4, "S04:2026-10-21:AM": 5,
+        "서울:2026-10-21:AM": 0,
+    }
+    unique = uuid4().hex
+    names = {name: f"partition-test-{unique}-{suffix}" for name, suffix in (
+        ("REQUEST_TOPIC", "request"), ("RESULT_TOPIC", "result"),
+        ("RETRY_TOPIC", "retry"), ("DLQ_TOPIC", "dlq"))}
+    admin = AdminClient({"bootstrap.servers": BOOTSTRAP})
+    for future in admin.create_topics([NewTopic(t, num_partitions=6, replication_factor=1)
+                                      for t in names.values()], request_timeout=10).values():
+        future.result(timeout=15)
+    transport = observer = None
+    try:
+        for name, topic in names.items():
+            monkeypatch.setattr(kafka_transport, name, topic)
+        transport = kafka_transport.KafkaTransport(BOOTSTRAP, f"partition-worker-{unique}")
+        observer = Consumer({"bootstrap.servers": BOOTSTRAP, "group.id": f"partition-observer-{unique}",
+                             "enable.auto.commit": False, "enable.auto.offset.store": False})
+        outputs = [names[n] for n in ("RESULT_TOPIC", "RETRY_TOPIC", "DLQ_TOPIC")]
+        observer.assign([TopicPartition(t, p, 0) for t in outputs for p in range(6)])
+        for seq in range(2):
+            for key in expected:
+                for topic in outputs:
+                    transport.forward(topic=topic, key=key.encode(), value=str(seq).encode(),
+                                      headers=[("traceparent", b"partition-probe")])
+        received = {}
+        count, target = 0, len(expected) * len(outputs) * 2
+        deadline = monotonic() + 15
+        while count < target and monotonic() < deadline:
+            message = observer.poll(1)
+            if message is None:
+                continue
+            assert not message.error(), message.error()
+            key = message.key().decode()
+            assert message.partition() == expected[key], (key, message.topic(), message.partition())
+            assert message.headers() == [("traceparent", b"partition-probe")]
+            received.setdefault((message.topic(), key), []).append(message.value())
+            count += 1
+        assert count == target
+        assert all(received[(t, key)] == [b"0", b"1"] for t in outputs for key in expected)
+    finally:
+        if observer is not None:
+            observer.close()
+        if transport is not None:
+            transport.close()
+        # Delete only the unique topics this test created, never the shared development topics.
+        for future in admin.delete_topics(list(names.values()), request_timeout=10).values():
+            future.result(timeout=15)

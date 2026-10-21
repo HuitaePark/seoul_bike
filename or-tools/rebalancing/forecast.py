@@ -11,20 +11,54 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from .models import Forecast, Station
+from .problem import require_int
+
+
+class HourlyForecast(Protocol):
+    """Structural interface shared with the data module's separate Forecast class."""
+
+    @property
+    def start(self) -> datetime: ...
+
+    @property
+    def rentals_h(self) -> Sequence[float]: ...
+
+    @property
+    def returns_h(self) -> Sequence[float]: ...
+
+    @property
+    def model_version(self) -> str: ...
 
 
 class DemandPredictor(Protocol):
-    """'예측기'가 갖춰야 할 모양. predict 메서드 하나만 있으면 된다.
+    """Date-aware predictors return hourly expectations without accessing business state."""
 
-    Protocol은 상속 없이도 "이 메서드만 있으면 예측기로 인정한다"는 약속이다.
-    그래서 팀 AI 모델은 이 클래스를 상속할 필요 없이 predict(station, hour)만 구현하면 된다.
-    hour는 하루 중 몇 시인지(0~23)이고, 반환값은 그 시간대의 예상 대여·반납 수다.
-    """
+    def predict(self, station: Station, start: datetime, horizon_h: int) -> HourlyForecast: ...
 
-    def predict(self, station: Station, hour: int) -> Forecast: ...
+
+def forecast_window(start: datetime, horizon_h: int) -> datetime:
+    """Normalize aware timestamps to naive KST; never infer the date or round an hour."""
+    require_int("horizon_h", horizon_h, minimum=1)
+    if horizon_h > 5:
+        raise ValueError("horizon_h must be in [1, 5]")
+    if not isinstance(start, datetime):
+        raise ValueError("forecast start must be an explicit datetime")
+    try:
+        if start.utcoffset() is not None:
+            start = start.astimezone(timezone(timedelta(hours=9)))
+        start = start.replace(tzinfo=None)
+        if start.minute or start.second or start.microsecond:
+            raise ValueError("forecast start must align to a whole KST hour")
+        # Validate the entire requested window before calling a predictor.
+        start + timedelta(hours=horizon_h)
+    except OverflowError as error:
+        raise ValueError("forecast window exceeds the datetime range") from error
+    return start
 
 
 # [mock 규칙] 출퇴근 패턴을 흉내 낸다.
@@ -41,9 +75,15 @@ class HeuristicPredictor:
         self._kinds = kinds  # 대여소 id -> 유형("business" / "residential" / "leisure")
         self._rng = random.Random(seed)  # seed가 같으면 항상 같은 숫자가 나온다(재현 가능)
 
-    def predict(self, station: Station, hour: int) -> Forecast:
-        base = max(2, station.capacity // 5)  # 평소(출퇴근이 아닐 때)의 대여·반납 수
-        peak = station.capacity // 2  # 출퇴근 때 한쪽으로 추가로 몰리는 양
+    def predict(self, station: Station, start: datetime, horizon_h: int) -> Forecast:
+        start = forecast_window(start, horizon_h)
+        values = [self._one_hour(station, (start + timedelta(hours=i)).hour) for i in range(horizon_h)]
+        return Forecast(start=start, rentals_h=tuple(r for r, _ in values),
+                        returns_h=tuple(t for _, t in values), model_version="heuristic-v1")
+
+    def _one_hour(self, station: Station, hour: int) -> tuple[int, int]:
+        base = max(2, station.docks // 5)  # 평소(출퇴근이 아닐 때)의 대여·반납 수
+        peak = station.docks // 2  # 출퇴근 때 한쪽으로 추가로 몰리는 양
         kind = self._kinds.get(station.id, "leisure")  # 유형을 모르면 평범한 곳(leisure)으로 본다
 
         rentals = returns = base
@@ -60,4 +100,4 @@ class HeuristicPredictor:
 
         # 실제 예측처럼 약간 틀리게 만들기 위해 -1~+1대의 무작위 오차를 더한다(0 미만은 0으로).
         jitter = lambda v: max(0, v + self._rng.randint(-1, 1))  # noqa: E731
-        return Forecast(rentals=jitter(rentals), returns=jitter(returns))
+        return jitter(rentals), jitter(returns)

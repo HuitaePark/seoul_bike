@@ -172,3 +172,4 @@ jobs:
           sh -n infra/optimizer/prepare-osrm.sh
           docker compose -f infra/optimizer/compose.dev.yaml --profile prepare --profile tools config -q
           docker compose -f infra/optimizer/compose.kafka.yaml config -q
+          docker compose --env-file infra/.env.example -f infra/compose.yaml -f infra/optimizer/compose.osrm.yaml config -q

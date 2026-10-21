@@ -3,6 +3,7 @@ package com.seoulbike.backend.ref;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -76,7 +77,7 @@ class RefDataLoaderTest {
 
 		var again = loader.load(REGIONS, STATIONS);
 
-		assertThat(again).isEqualTo(new RefDataLoader.Result(17, 2716, 0, 0));
+		assertThat(again).isEqualTo(new RefDataLoader.Result(17, 2716, 0, 0, 35, 0));
 		assertThat(jdbc.sql("select max(updated_at)::text from ref.stations").query(String.class).single())
 			.isEqualTo(before);
 		assertThat(count("select count(*) from ref.stations where active")).isEqualTo(2716);
@@ -149,6 +150,86 @@ class RefDataLoaderTest {
 
 		assertThat(result).isNotNull();
 		assertThat(count("select count(*) from ref.stations where active")).isEqualTo(2716);
+	}
+
+	@Test
+	void 시작하면_트럭_35대가_구역별_trucks_min만큼_파일_행_순서대로_TR_번호를_받는다() {
+		assertThat(count("select count(*) from ref.trucks where active")).isEqualTo(35);
+		assertThat(count("select count(distinct region_id) from ref.trucks where active")).isEqualTo(17);
+		assertThat(count("""
+				select count(*) from ref.regions r
+				where r.trucks_min <> (select count(*) from ref.trucks t where t.region_id = r.region_id and t.active)
+				""")).isZero();
+		// 파일 첫 행 N01(2대)이 TR-01·TR-02, 다음 N02(3대)가 TR-03~05, 마지막 S09(1대)가 TR-35다.
+		assertThat(activeTrucks("N01")).containsExactly("TR-01", "TR-02");
+		assertThat(activeTrucks("N02")).containsExactly("TR-03", "TR-04", "TR-05");
+		assertThat(activeTrucks("S09")).containsExactly("TR-35");
+		assertThat(count("select count(*) from ref.trucks where capacity <> 15")).isZero(); // 합의 19
+	}
+
+	@Test
+	void 트럭_표가_비어_있으면_파일이_같아도_같은_번호로_다시_채운다() {
+		// V12를 처음 배포한 운영 DB: 구역·대여소 파일 해시는 지난번과 같지만 트럭 표는 비어 있다.
+		var before = jdbc.sql("select truck_id || '=' || region_id from ref.trucks where active order by truck_id")
+			.query(String.class)
+			.list();
+		jdbc.sql("delete from ref.trucks").update();
+
+		var result = loader.loadIfChanged(REGIONS, STATIONS);
+
+		assertThat(result).isNotNull();
+		assertThat(result.trucks()).isEqualTo(35);
+		assertThat(jdbc.sql("select truck_id || '=' || region_id from ref.trucks where active order by truck_id")
+			.query(String.class)
+			.list()).isEqualTo(before);
+	}
+
+	@Test
+	void trucks_min이_바뀌면_번호를_다시_매기지_않고_다음_번호를_더하거나_남는_트럭을_비활성으로_둔다() {
+		String changed = withTrucksMin(withTrucksMin(REGIONS, "N01", 4), "N02", 1);
+		try {
+			var result = loader.load(changed, STATIONS);
+
+			assertThat(result.trucks()).isEqualTo(35);
+			assertThat(result.changedTrucks()).isEqualTo(4);
+			// 늘어난 N01은 서울 전체 다음 번호(TR-36·37)를 받고, 줄어든 N02는 번호 큰 트럭부터 쉰다. 다른 구역 번호는 그대로다.
+			assertThat(activeTrucks("N01")).containsExactly("TR-01", "TR-02", "TR-36", "TR-37");
+			assertThat(activeTrucks("N02")).containsExactly("TR-03");
+			assertThat(count("select count(*) from ref.trucks where truck_id in ('TR-04', 'TR-05') and not active"))
+				.isEqualTo(2);
+			assertThat(activeTrucks("N03")).containsExactly("TR-06", "TR-07");
+
+			// 원래 파일로 돌아오면 N02는 쉬던 TR-04·05를 다시 쓰고(새 번호 없음), N01의 TR-36·37은 쉰다.
+			var back = loader.load(REGIONS, STATIONS);
+			assertThat(back.changedTrucks()).isEqualTo(4);
+			assertThat(activeTrucks("N01")).containsExactly("TR-01", "TR-02");
+			assertThat(activeTrucks("N02")).containsExactly("TR-03", "TR-04", "TR-05");
+			assertThat(count("select count(*) from ref.trucks where truck_id in ('TR-36', 'TR-37') and not active"))
+				.isEqualTo(2);
+		}
+		finally {
+			// 테스트끼리 DB를 같이 쓰므로 원래 파일로 되돌리고 시험으로 생긴 트럭을 지운다.
+			loader.load(REGIONS, STATIONS);
+			jdbc.sql("delete from ref.trucks where truck_id in ('TR-36', 'TR-37')").update();
+		}
+		assertThat(count("select count(*) from ref.trucks")).isEqualTo(35);
+	}
+
+	private List<String> activeTrucks(String regionId) {
+		return jdbc.sql("""
+				select truck_id from ref.trucks where region_id = :r and active
+				order by substring(truck_id from 4)::int
+				""")
+			.param("r", regionId)
+			.query(String.class)
+			.list();
+	}
+
+	/** 구역 CSV에서 한 구역의 trucks_min(마지막 열)만 바꾼다. */
+	private static String withTrucksMin(String regionsCsv, String regionId, int trucksMin) {
+		return regionsCsv.lines()
+			.map(line -> line.startsWith(regionId + ",") ? line.substring(0, line.lastIndexOf(',') + 1) + trucksMin : line)
+			.collect(Collectors.joining("\n"));
 	}
 
 	private String stationsSha() {
