@@ -343,8 +343,32 @@ depot·asOf·오류/미처리 사유 계약 추가는 역할 4의 계약 PR에 �
 역할 5의 retry/DLQ·runtime 대응과 데이터 PR #10의 datetime 인터페이스 통합은 후속 작업이다.
 이 기록은 그 운영 연결을 완료했다는 뜻이 아니다.
 
+## hyunmoo 요청 재시도 · DLQ 검증 — main f3e5cd7 기준
+
+- PR #29 병합 후 `hyunmoo`에서 개발했다. 공개 API 0.8·내부 API 0.5·Kafka 0.4와
+  메시지 schemaVersion 1을 유지했다. backend·frontend·공통 YAML·운영 Compose·CI는 바꾸지 않았다.
+- worker가 solve.requests와 solve.requests.retry를 소비한다. 기본 최초 + 추가 3회·처리 전 2초 대기,
+  독성 메시지·ID 충돌 즉시 DLQ, 횟수 소진 DLQ와 헤더 검사를 구현했다.
+- key·원문 bytes(tombstone 포함)·trace 헤더·최초 입력 위치를 보존하며 전달 ACK 후 원본 offset을 commit한다.
+  retry 횟수는 레코드 헤더에 남아 프로세스가 재시작해도 유지된다. 정상 FAILED/TIMEOUT은 재계산하지 않는다.
+- 저장소 손상·기록 실패, 원본 commit·retry/DLQ 발행 실패는 원본을 미완료로 두고 종료한다.
+  손상된 저장 기록과 정상 기록에 대한 ID 내용 충돌을 구분했다. 파일 형식·identity 버전은 유지한다.
+- Python 3.12 최적화 전체 검사에 실제 Kafka 검사를 포함해 **242개·24개 subtest 통과**.
+  새 요청 복구 검사는 39개이며 깨진 JSON/UTF-8/키·tombstone, 재시작 횟수 유지·runtime 복구,
+  저장 결과 재사용, 헤더 오류·횟수 0·상한, 저장/전달/commit 실패와 종료 중 대기 중단을 검사했다.
+- 독립 Redpanda의 실제 Kafka 검사 **2개 통과**: 기존 결과 중복 제거·재시작과 신규 독성 요청 격리,
+  정상 후속 요청 처리, 프로세스 3회 시작에 걸친 retry 1→2→3→DLQ, 원본/retry offset을 확인했다.
+  각 테스트는 두 입력 토픽의 시작 offset을 지정해 이전 검사 데이터와 분리한다.
+- 개발용 초기화는 4개 토픽을 생성하고 두 번 실행해도 안전하다. 기존 CI의 Kafka 검사 단계에서
+  같은 검사 파일을 사용하므로 별도 CI 작업은 추가하지 않았다.
+
+운영 토픽 6파티션·보존/관제·수동 재처리, runtime 자동 공급과 실제 backend→worker 통합은 후속이다.
+ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exactly-once나 복수 전달 체인 전체의
+시도 횟수 상한, 실제 도로·업무 흐름의 10초 목표를 보장하지 않는다.
+
 ## 아직 검증하지 않은 범위
 
-운영 backend의 실제 solve 요청/응답, retry/DLQ·분산 중복 방지·볼륨 유실 복구,
+운영 backend와 실제 worker 사이의 solve 요청/응답, 운영 retry/DLQ 토픽·관제·재처리,
+분산 중복 방지·볼륨 유실 복구,
 실제 OSRM 도로망·전처리·컨테이너, 서버 배포,
 실제 예측과 시뮬레이터, 실제 업무 서버와의 계획 승인·도로 경로선 통합, Linux GitHub 호스팅 러너에서의 실제 CI 실행.

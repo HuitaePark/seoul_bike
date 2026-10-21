@@ -76,7 +76,7 @@ cd or-tools
 실행 예시와 지도 파일 준비는 [독립 개발 환경](../../infra/optimizer/README.md)을 따른다.
 공통 메시지는 [AsyncAPI](../specs/asyncapi.yaml)를 따른다. 변환·계산 함수와 실행 설정은
 [역할 5 명세](../specs/optimizer.md)에 있다. Kafka 실행기는 전용 파일 상태로 결과를 재사용하며,
-실제 backend 연결·운영 중복 방지 저장소·retry/DLQ는 후속 작업이다.
+요청의 제한 재시도·DLQ도 제공한다. 실제 backend 연결·운영 토픽/관제·분산 중복 방지 저장소는 후속 작업이다.
 
 ## 미처리 사유
 

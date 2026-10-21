@@ -19,7 +19,8 @@
 Kafka 실행기가 권역·스냅샷 메타데이터에서 이 설정을 얻는 연결은 남아 있다.
 독립 worker는 Kafka 결과 발행·offset commit과 단일 상태 볼륨의 파일 중복 방지를 구현했다.
 발행 직후 장애에서는 같은 결과 eventId가 재전달될 수 있어 backend 소비자 중복 제거도 필요하다.
-retry/DLQ·운영 상태 저장·배포 정책은 담당자와 연결해야 한다. 순수 계산 함수 자체는 저장하지 않는다.
+worker의 요청 제한 재시도·DLQ를 구현했다. 운영 토픽·상태 저장·관제·배포 정책은 담당자와 연결해야 한다.
+순수 계산 함수 자체는 저장하지 않는다.
 
 테스트는 공통 YAML을 직접 읽어 정상·부분 처리·오류·타임아웃 결과를 검증한다.
 실제 도로 품질·서버 배포·전체 응답시간 완료를 의미하지 않는다.
@@ -29,7 +30,9 @@ retry/DLQ·운영 상태 저장·배포 정책은 담당자와 연결해야 한�
 공통 문서 버전은 올라갔지만 Envelope·SolveStation·SolveTruck·SolveRequest·SolveResult와
 공개 Route·Stop·Unserved 모델은 이전 검토와 동일하다. 입력·결과 변환 동작은 유지한다.
 내부 SolveRequest·PlanCandidate도 동일하다. 이번 main의 현장 보고·내부 인증·감사 로그와
-ai.events 재시도/DLQ는 backend 변경이며 solve.* 실행기에 재시도/DLQ가 추가된 것은 아니다.
+ai.events 재시도/DLQ와 solve.results 재시도/DLQ는 backend가 담당한다.
+요청 측 solve.requests.retry → .dlq는 역할 5 worker가 처리한다. 횟수·헤더·실패 분류는
+[실행 안내](../../infra/optimizer/KAFKA.md#제한-재시도--dlq)에 기록하며 공통 payload는 유지한다.
 경로 변경 승인 순서는 backend의 requiredApprovers를 따르며 optimizer가 결정하지 않는다.
 작업 threadId는 backend가 정하는 작업 단위 값이며 optimizer의 메시지 키는 계속 shiftId다.
 새 TaskEvent.code를 SolveResult에 추가하지 않는다.

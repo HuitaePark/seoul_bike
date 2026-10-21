@@ -25,6 +25,15 @@ class Message:
         self._key = key if key is not None else payload["shiftId"].encode()
         self.raw = canonical(payload) if raw is None else raw
 
+    def topic(self):
+        return "solve.requests"
+
+    def partition(self):
+        return 0
+
+    def offset(self):
+        return 0
+
     def key(self):
         return self._key
 

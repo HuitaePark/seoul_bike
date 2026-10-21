@@ -12,10 +12,11 @@ from threading import Event
 from time import monotonic
 
 from .contract import _correlation, solve_request
-from .journal import FileJournal, canonical
+from .journal import FileJournal, RequestConflict, canonical
 from .kafka_transport import KafkaTransport, REQUEST_TOPIC, RESULT_TOPIC
 from .matrix_cache import CachedTravelTime
 from .osrm import OsrmTravelTime
+from .recovery import Recovery
 from .runtime import Contexts, reject_constant
 from .travel_time import HaversineTravelTime
 
@@ -43,7 +44,7 @@ def result_error_code(result):
 
 
 def process_message(message, *, transport, journal: FileJournal, contexts: Contexts,
-                    travel_time, policy: str = "ortools", solve=solve_request) -> str:
+                    travel_time, policy: str = "ortools", solve=solve_request, recovery=None, delivery=None) -> str:
     started = monotonic()
     stage, correlation, computed, compute_ms = "decode", {}, False, 0.0
     cache_before = cache_counters(travel_time)
@@ -107,14 +108,21 @@ def process_message(message, *, transport, journal: FileJournal, contexts: Conte
         codes = {"decode": "INVALID_ENVELOPE", "validate": "INVALID_REQUEST", "lookup": "JOURNAL_ERROR",
                  "context": "RUNTIME_CONTEXT_ERROR", "compute": "COMPUTATION_ERROR", "prepare": "JOURNAL_ERROR",
                  "publish": "PUBLISH_FAILED", "mark_published": "JOURNAL_ERROR", "commit": "COMMIT_FAILED"}
-        log_event("solve.failed", level=logging.ERROR, **fields(),
-                  errorCode=codes[stage], errorType=type(error).__name__)
+        code = "IDENTITY_CONFLICT" if isinstance(error, RequestConflict) else codes[stage]
+        log_event("solve.failed", level=logging.ERROR, **fields(), errorCode=code, errorType=type(error).__name__)
+        if recovery is not None:
+            outcome = recovery.handle(message, delivery, stage=stage, error=error, code=code)
+            if outcome is not None:
+                log_event("solve.routed", **fields(), outcome=outcome,
+                          attempt=delivery.attempt + (outcome == "retry"), errorCode=code)
+                return outcome
         raise
 
 
 def run(transport, *, journal, contexts, travel_time, policy="ortools", stop: Event | None = None,
-        max_messages: int = 0, idle_timeout_s: float = 0):
+        max_messages: int = 0, idle_timeout_s: float = 0, retry_attempts: int = 3, retry_delay_s: float = 2):
     stopping = stop or Event()
+    recovery = Recovery(transport, attempts=retry_attempts, delay_seconds=retry_delay_s)
     processed = 0
     last_message = monotonic()
     while not stopping.is_set() and (max_messages == 0 or processed < max_messages):
@@ -123,8 +131,16 @@ def run(transport, *, journal, contexts, travel_time, policy="ortools", stop: Ev
             if idle_timeout_s and monotonic() - last_message >= idle_timeout_s:
                 raise TimeoutError("worker idle timeout; requested message count was not reached")
             continue
-        process_message(message, transport=transport, journal=journal, contexts=contexts,
-                        travel_time=travel_time, policy=policy)
+        try:
+            delivery = recovery.inspect(message)
+        except ValueError:
+            recovery.route(message, recovery.source(message), stage="retry", code="INVALID_RETRY_METADATA")
+            log_event("solve.routed", stage="retry", outcome="dead_letter", errorCode="INVALID_RETRY_METADATA")
+        else:
+            if delivery.attempt and stopping.wait(recovery.delay_seconds):
+                break  # Leave this offset uncommitted when shutdown interrupts the backoff.
+            process_message(message, transport=transport, journal=journal, contexts=contexts,
+                            travel_time=travel_time, policy=policy, recovery=recovery, delivery=delivery)
         processed += 1
         last_message = monotonic()
     return processed
@@ -143,6 +159,8 @@ def parser():
     cli.add_argument("--matrix-cache-dir", type=Path)
     cli.add_argument("--max-messages", type=int, default=0, help="0 means continuous processing")
     cli.add_argument("--idle-timeout-seconds", type=float, default=0)
+    cli.add_argument("--retry-attempts", type=int, default=3, help="additional attempts, 0..10")
+    cli.add_argument("--retry-delay-seconds", type=float, default=2, help="delay before each retry, 0..60")
     return cli
 
 
@@ -154,6 +172,7 @@ def main(argv=None) -> int:
     if not args.bootstrap_servers.strip() or not args.group_id.strip():
         cli.error("bootstrap-servers and group-id must be non-empty")
     try:
+        Recovery(None, attempts=args.retry_attempts, delay_seconds=args.retry_delay_seconds)
         contexts = Contexts.load(args.contexts)
         if args.travel_source == "osrm":
             if not args.osrm_url or not args.osrm_data_version or args.osrm_data_version == "unversioned":
@@ -177,7 +196,8 @@ def main(argv=None) -> int:
             try:
                 log_event("worker.started", travelSource=args.travel_source, policy=args.policy)
                 processed = run(transport, journal=journal, contexts=contexts, travel_time=travel, policy=args.policy,
-                                stop=stop, max_messages=args.max_messages, idle_timeout_s=args.idle_timeout_seconds)
+                                stop=stop, max_messages=args.max_messages, idle_timeout_s=args.idle_timeout_seconds,
+                                retry_attempts=args.retry_attempts, retry_delay_s=args.retry_delay_seconds)
             finally:
                 transport.close()
         log_event("worker.stopped", outcome="clean", processed=processed)

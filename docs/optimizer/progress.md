@@ -2,8 +2,8 @@
 
 ## 확인 기준
 
-- 최초 확인 origin/main: 221caf5. 현재 45dcc4a의 공개 API v0.8·내부 API v0.5·Kafka v0.4까지 반영했다.
-- 개인 브랜치: `feat/optimizer-core`.
+- 최초 확인 origin/main: 221caf5. 현재 main f3e5cd7의 공개 API v0.8·내부 API v0.5·Kafka v0.4까지 반영했다.
+- 현재 개발 브랜치: `hyunmoo`(main f3e5cd7에서 시작). 기존 `feat/optimizer-core`의 PR #29는 병합 완료됐다.
 - 기존 원격 작업: `aeaa62c`(최적화 코어), `e0d3d36`(실행 안내·명세 초안).
 - `9460226`에서 최신 main을 개인 브랜치에 충돌 없이 병합했다.
 - OSRM 후속 구현은 로컬 `8c38ee1`로 저장했고, 이후 추가된 공통 명세도 병합했다.
@@ -29,7 +29,8 @@ Spring Boot 백엔드는 backend/로 이동했고 Vue 공통 뼈대는 frontend/
 관리자 대시보드·기사 앱·성과 리포트 더미 화면과 역할별 첫 화면이 추가됐다. Harness 현장 보고 fixture 수정으로 기존 CI 테스트 제외도 해제됐다.
 ai.events 소비의 retry/DLQ와 로그인 실패·승인 대기 가입 수 제한도 반영됐다.
 현장 보고 생성, 내부 서비스 토큰, 현장 보고 조회·제약 추가·감사 로그가 구현됐다.
-대여소·계획·성과 API, 나머지 내부 API와 backend의 solve.* 연결은 아직 계약 단계다.
+PR #32로 backend의 SolveGateway·SolveResultConsumer·요청 상태 저장과 solve 토픽이 추가됐다.
+실제 worker와의 통합은 runtime 자동 공급·운영 배포가 남아 있다. 대여소·계획·성과 API와 나머지 내부 API는 아직 계약 단계다.
 비활성화한 계정은 기존 JWT도 다음 요청부터 401이며, 이미 열린 SSE는 즉시 종료하지 않는다.
 backend 포트는 서버 로컬로 제한했고 화면 nginx에는 지도 외부 자원을 고려한 보안 헤더가 반영됐다.
 경로 변경은 backend가 정한 requiredApprovers 순서로 승인한다. MINOR는 기사, MAJOR는 관리자 → 기사다.
@@ -48,6 +49,7 @@ backend 포트는 서버 로컬로 제한했고 화면 nginx에는 지도 외부
 | 이번 캐시 | 순서·좌표·지도 버전별 메모리/디스크 캐시, 만료·손상 복구, 파일 수 제한 | 다른 프로세스 재사용·오류 시나리오 검증 |
 | 이번 독립 인프라 | 고정 OSRM 이미지, CH 전처리, 로컬 Compose, 최적화 컨테이너, CI 구성 검사 | 구성·스크립트 검사 통과. OSRM 실구동 미검증 |
 | Kafka 실행기 | solve 요청 소비·결과 발행, shiftId 키, trace 전달, ACK 후 offset commit, 파일 상태로 완료 결과 재사용 | 실제 독립 브로커·재시작 검증. 단일 worker·동일 상태 볼륨 전제 |
+| 요청 복구 | 추가 3회·2초 기본 재시도, 독성 요청·ID 충돌·횟수 소진 DLQ, 원본/추적 헤더 보존, ACK 후 commit | 단위 검사와 실제 브로커의 3회 프로세스 재시작 검증. 운영 토픽/관제는 후속 |
 | Kafka 개발 인프라 | 개발용 브로커·solve 토픽 초기화·worker Compose, 필수 requestId별 실행 설정 | 실제 이미지 빌드·컨테이너 구동 검증. 운영 backend 미연결 |
 | 실행 추적 | JSON 로그에 입력·결과 상관관계, UTC 시각, 처리·계산 시간, 실패 단계와 캐시 횟수 기록 | 실제 Kafka·재시작·중복 요청과 예외 본문 비노출 검사 |
 | 성능 측정 확장 | PLAN·REPLAN, 메모리 캐시 none/cold/warm 비교, nearest-rank p95·구간별 시간·표본·입력 해시 | 가상 200곳·5대 조건별 20회. 실제 도로·전체 업무 흐름과 별도 |
@@ -58,7 +60,7 @@ backend 포트는 서버 로컬로 제한했고 화면 nginx에는 지도 외부
 최적화 코어는 업무 DB에 직접 접근하거나 LLM을 호출하지 않는다. 기존 CLI는 가상 대여소·예측 데모다.
 별도 contract.solve_request()는 공통 메시지의 계산된 neededBikes를 받으며,
 명시적 SolveContext와 이동 공급자가 필요하다. 별도 worker는 외부 runtime 파일에서
-requestId별 설정을 받고 Kafka를 처리한다. 실제 backend 요청 생성·결과 소비는 아직 연결하지 않았다.
+requestId별 설정을 받고 Kafka를 처리한다. backend 요청 생성·결과 소비 구현은 main에 있지만 실제 worker와 운영 통합 검증은 남아 있다.
 
 ## 협의·연결이 필요한 항목
 
@@ -67,13 +69,13 @@ requestId별 설정을 받고 Kafka를 처리한다. 실제 backend 요청 생�
 계획 검토 화면에 MapLibre·OpenFreeMap 지도·마커·방문 순서를 연결했다. 실제 도로선·업무 데이터 연결은 남아 있다.
 아래 운영 통합 항목은 아직 남아 있다.
 백엔드 제안에 동의해 depot{lat,lon}·시간대 있는 asOf·오류/미처리 사유 enum의 계약 PR은 역할 4가 맡고,
-역할 5는 확정된 계약의 runtime 대응과 solve.requests.retry → .dlq를 이어서 구현한다.
+역할 5는 solve.requests.retry → .dlq를 구현·검증했다. 확정된 계약의 runtime 대응은 후속이다.
 운영 토픽 6파티션·backend healthy 이후 시작·배포 연결은 역할 4와 맞추고, 데이터 PR #10의 datetime 예측 인터페이스도 공동 반영한다.
 
 1. **운영 설정·backend 연결:** [공통 대응 명세](../specs/optimizer.md)를 기준으로
    권역·스냅샷의 차고지·기준 시각을 자동 공급하는 경로를 담당자와 확인한다.
    로컬 worker는 저장 결과를 재사용하지만 발행 직후 장애에서는 동일 결과 eventId가 재전달될 수 있다.
-   backend 결과 소비 중복 제거·운영 저장소·보존·재시도/DLQ 정책을 확정하고 실제 흐름에 연결한다.
+   backend 결과 소비 중복 제거와 시간 초과 정책을 확인하고 운영 저장소·토픽 보존·DLQ 관제/재처리를 실제 흐름에 연결한다.
 2. **역할 6과 권역·정책 확정:** 도로 파일 범위와 버전, 운영 상한, 우선순위,
    근무시간·작업시간을 확정한다. 그 입력으로 실제 도로의 200곳·5대 성능을 측정한다.
    S05 참조 시드는 준비했으나 중심 좌표는 대여소 좌표 평균이다. 실제 운영 차고지와 관측 시각·재고는 별도로 받아야 한다.
