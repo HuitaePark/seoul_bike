@@ -54,3 +54,4 @@
 | ISS-R12 | `FAILED` 이벤트에 실패 코드 없음 (구 ISS-05) | 계약 `code` 필드. Harness가 `FAILED.code`로 발행 | `4157927` |
 | ISS-R13 | `get_audit` 도구 없음 (구 ISS-06) | internal-api v0.5 `GET /internal/shifts/{shiftId}/audit`, business-mcp `get_audit`. `qa` 허용 목록에 추가, SC-07 | `4157927` |
 | ISS-R14 | MCP 도구 인자 이름 규칙 (구 ISS-17) | 실제 business-mcp가 Harness와 같은 snake_case 인자, `approval_id`·`task_id`는 Harness가 채우는 인자로 구현됨 | main `business-mcp/` |
+| ISS-R15 | 기사 질문(`qa`)으로 다른 트럭의 현장 보고·관리자 승인·제약 감사 기록이 모델에 보임 (NFR-06, PR 리뷰) | `tools.driver_deny: [business_get_audit]`로 기사 작업에는 도구를 주지 않고, 그래프 캐시 키에 요청자 역할 추가. `test_driver_question_never_reads_the_shift_audit` | `1a9475c` |
