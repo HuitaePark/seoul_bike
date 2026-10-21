@@ -6,13 +6,13 @@ import { roleLabel } from './shared/labels'
 
 const auth = useAuth()
 const route = useRoute()
-// 기사 앱은 모바일 전용 틀을 직접 그린다 (상단 바 없음).
-const mobile = computed(() => route.meta.layout === 'mobile')
+// 기사 앱과 로그인·회원가입은 틀을 직접 그린다 (상단 바 없음).
+const bare = computed(() => route.meta.layout !== undefined)
 const initial = computed(() => auth.user?.name.slice(0, 1) ?? '')
 </script>
 
 <template>
-  <RouterView v-if="mobile" />
+  <RouterView v-if="bare" />
   <template v-else>
     <header class="topbar">
       <RouterLink to="/" class="brand">
