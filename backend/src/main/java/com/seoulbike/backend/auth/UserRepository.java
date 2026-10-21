@@ -56,6 +56,15 @@ class UserRepository {
 			.optional();
 	}
 
+	int countPending() {
+		return jdbc.sql("select count(*) from users where status = 'PENDING'").query(Integer.class).single();
+	}
+
+	/** 가입 신청을 한 줄로 세운다. 트랜잭션이 끝나면 풀린다. */
+	void lockSignups() {
+		jdbc.sql("select pg_advisory_xact_lock(hashtext('users.signup'))").query((rs, row) -> 1).single();
+	}
+
 	List<StoredUser> list(AccountStatus status) {
 		return jdbc.sql("select " + COLUMNS + """
 				 from users where (cast(:status as varchar) is null or status = :status)
