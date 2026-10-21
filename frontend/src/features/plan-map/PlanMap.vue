@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { GeoJSONSource, Map as MapLibreMap, Marker, StyleSpecification } from 'maplibre-gl'
+import type { GeoJSONSource, Map as MapLibreMap, Marker } from 'maplibre-gl'
 import type * as MapLibreModule from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { emptyStyle, fetchBasemap } from '../../shared/map/basemap.ts'
 import { mapData, position, truckColor, type MapPoint, type Position } from './map-model.ts'
 import { label, numberText, riskLabels, roleLabels, stationName, type Plan, type Station } from './model.ts'
 
@@ -26,8 +27,6 @@ const selectedStops = computed(() => [...(props.plan?.routes.find(r => r.truckId
 const stationsById = computed(() => new Map(props.stations.map(s => [s.stationId, s])))
 const color = computed(() => truckColor(props.plan, props.selectedTruck))
 const selectedMissing = computed(() => props.selectedStation && !position(selected.value))
-const emptyStyle: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'plain', type: 'background', paint: { 'background-color': '#edf2f7' } }] }
-const styleUrl = import.meta.env.VITE_PLAN_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/liberty'
 let map: MapLibreMap | undefined
 let library: typeof MapLibreModule | undefined
 let observer: ResizeObserver | undefined
@@ -106,9 +105,6 @@ function teardown() {
   for (const entry of markers.values()) entry.marker.remove()
   markers.clear(); map?.remove(); map = undefined; ready.value = false; styleChanging = false
 }
-function assetUrl(value: string, base: URL): string {
-  return new URL(value, base).href.replace(/%7B/gi, '{').replace(/%7D/gi, '}')
-}
 async function loadBasemap() {
   if (!map || fatal.value) return
   styleController?.abort(); clearTimeout(styleTimer)
@@ -123,21 +119,8 @@ async function loadBasemap() {
     }
   }, 10_000)
   try {
-    const url = new URL(styleUrl)
-    if (!['https:', 'http:'].includes(url.protocol)) throw new Error('Unsupported style URL')
-    const response = await fetch(url, { signal: controller.signal, credentials: 'omit' })
-    if (!response.ok) throw new Error('Style request failed')
-    const style = await response.json() as StyleSpecification
-    if (style.version !== 8 || !style.sources || !Array.isArray(style.layers)) throw new Error('Invalid style')
+    const style = await fetchBasemap(controller.signal)
     if (styleController !== controller || map !== currentMap || controller.signal.aborted) return
-    // Resolve provider-relative assets before passing the fetched style object to MapLibre.
-    if (typeof style.sprite === 'string') style.sprite = assetUrl(style.sprite, url)
-    else if (Array.isArray(style.sprite)) style.sprite = style.sprite.map(s => ({ ...s, url: assetUrl(s.url, url) }))
-    if (style.glyphs) style.glyphs = assetUrl(style.glyphs, url)
-    for (const source of Object.values(style.sources)) {
-      if ('url' in source && typeof source.url === 'string') source.url = assetUrl(source.url, url)
-      if ('tiles' in source && Array.isArray(source.tiles)) source.tiles = source.tiles.map(tile => assetUrl(tile, url))
-    }
     styleChanging = true
     currentMap.setStyle(style, { diff: false })
   } catch {

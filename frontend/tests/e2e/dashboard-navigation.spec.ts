@@ -9,6 +9,10 @@ async function openDashboard(page: Page) {
     user: { userId: 'fixture-manager', loginId: 'fixture', name: '검토자', role: 'MANAGER', status: 'ACTIVE' },
   })))
   await page.route('**/api/ai/tasks?**', route => route.fulfill({ json: { items: [] } }))
+  // 평면 지도 배경은 외부(OpenFreeMap)에서 받는다. 시험은 네트워크에 기대지 않게 빈 스타일을 준다
+  await page.context().route('https://tiles.openfreemap.org/**', route => route.fulfill({ json: {
+    version: 8, sources: {}, layers: [{ id: 'test-background', type: 'background', paint: { 'background-color': '#e8eef4' } }],
+  } }))
   await mockBoard(page)
   await page.goto('/dashboard')
   // 개발 서버가 대시보드(3D 뷰·지도)를 처음 컴파일하면 5초를 넘길 수 있다. CI는 늘 캐시 없이 돈다.
@@ -97,7 +101,7 @@ test('권역 상태 색 버튼은 그 위험 종류의 대여소만 지도·재�
   await expect(page.locator('svg.iso .col')).toHaveCount(18)
 })
 
-test('지도는 실제 거리 비율로 그리고 격자 한 칸이 몇 m인지 적는다', async ({ page }) => {
+test('지도는 실제 거리 비율로 그리고 축척을 적는다', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openDashboard(page)
   const map = page.locator('svg.iso')
@@ -110,11 +114,10 @@ test('지도는 실제 거리 비율로 그리고 격자 한 칸이 몇 m인지 
   expect(await grid3d()).toBe(100)
   await expect(page.locator('.zoom-ctl .grid-scale')).toContainText('100m')
   expect(far).toBeGreaterThan(100)
-  // 평면 지도: 축척 칸
+  // 평면 지도: 실제 지도(MapLibre)의 축척 막대
   await page.getByRole('tab', { name: '평면 지도' }).click()
-  const scale = page.locator('.flat-map .scale')
-  await expect(scale).toContainText(/한 칸 = \d+(m|km)/)
-  expect(Number(await scale.getAttribute('data-grid-m'))).toBeGreaterThanOrEqual(100)
+  await expect(page.locator('.flat-map .station-map')).toHaveAttribute('data-map-state', 'ready')
+  await expect(page.locator('.flat-map .maplibregl-ctrl-scale')).toHaveText(/^\d+\s?(m|km)$/)
 })
 
 test('3D 관제 뷰: 휠로 확대·축소, 끌어서 이동(끈 뒤 클릭은 선택이 아님), 버튼·전체 보기', async ({ page }) => {
