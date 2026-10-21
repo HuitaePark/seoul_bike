@@ -13,9 +13,10 @@ on:
       - "agent/**"
       - "business-mcp/**"
       - "rag-mcp/**"
-      # optimizer 이미지 (루트 context: requirements.txt + or-tools/)
+      # optimizer 이미지 (루트 context: requirements.txt + or-tools/, 루트 .dockerignore가 context를 정한다)
       - "or-tools/**"
       - "requirements.txt"
+      - ".dockerignore"
       - "docs/specs/**"
       - "docs/evidence/**"
       - ".github/workflows/deploy.yml"
