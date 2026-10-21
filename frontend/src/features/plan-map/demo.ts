@@ -34,9 +34,9 @@ export const demoPlan: Plan = {
     { truckId: 'truck-3', capacity: 15, startLoad: 3, stops: [] },
   ],
   unserved: [
-    { stationId: 'ST-301', priority: 91.5, reason: 'capacity_exceeded' },
-    { stationId: 'ST-302', stationName: '자양사거리 (시연)', priority: 60.2, reason: 'not_selected' },
-    { stationId: 'ST-303', stationName: '공사 구간 (시연)', priority: 80, reason: 'blocked' },
+    { stationId: 'ST-301', priority: 91.5, reason: 'CAPACITY_EXCEEDED' },
+    { stationId: 'ST-302', stationName: '자양사거리 (시연)', priority: 60.2, reason: 'NOT_SELECTED' },
+    { stationId: 'ST-303', stationName: '공사 구간 (시연)', priority: 80, reason: 'BLOCKED' },
   ],
 }
 export function demoTask(plan: Plan = demoPlan): Task {
@@ -89,7 +89,7 @@ export function createDemoSource(): PlanReviewSource {
           route.stops = route.stops.filter(s => !excluded.has(s.stationId)).filter(s => {
             const next = load + (s.action === 'PICKUP' ? s.bikes : -s.bikes)
             if (next < 0 || next > (route.capacity ?? 0)) {
-              plan.unserved.push({ stationId: s.stationId, priority: 50, reason: 'not_selected' })
+              plan.unserved.push({ stationId: s.stationId, priority: 50, reason: 'NOT_SELECTED' })
               return false
             }
             load = next; s.loadAfter = load

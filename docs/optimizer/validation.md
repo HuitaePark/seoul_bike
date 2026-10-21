@@ -343,8 +343,74 @@ depot·asOf·오류/미처리 사유 계약 추가는 역할 4의 계약 PR에 �
 역할 5의 retry/DLQ·runtime 대응과 데이터 PR #10의 datetime 인터페이스 통합은 후속 작업이다.
 이 기록은 그 운영 연결을 완료했다는 뜻이 아니다.
 
+## hyunmoo 요청 재시도 · DLQ 검증 — main f3e5cd7 기준
+
+- PR #29 병합 후 `hyunmoo`에서 개발했다. 공개 API 0.8·내부 API 0.5·Kafka 0.4와
+  메시지 schemaVersion 1을 유지했다. backend·frontend·공통 YAML·운영 Compose·CI는 바꾸지 않았다.
+- worker가 solve.requests와 solve.requests.retry를 소비한다. 기본 최초 + 추가 3회·처리 전 2초 대기,
+  독성 메시지·ID 충돌 즉시 DLQ, 횟수 소진 DLQ와 헤더 검사를 구현했다.
+- key·원문 bytes(tombstone 포함)·trace 헤더·최초 입력 위치를 보존하며 전달 ACK 후 원본 offset을 commit한다.
+  retry 횟수는 레코드 헤더에 남아 프로세스가 재시작해도 유지된다. 정상 FAILED/TIMEOUT은 재계산하지 않는다.
+- 저장소 손상·기록 실패, 원본 commit·retry/DLQ 발행 실패는 원본을 미완료로 두고 종료한다.
+  손상된 저장 기록과 정상 기록에 대한 ID 내용 충돌을 구분했다. 파일 형식·identity 버전은 유지한다.
+- Python 3.12 최적화 전체 검사에 실제 Kafka 검사를 포함해 **242개·24개 subtest 통과**.
+  새 요청 복구 검사는 39개이며 깨진 JSON/UTF-8/키·tombstone, 재시작 횟수 유지·runtime 복구,
+  저장 결과 재사용, 헤더 오류·횟수 0·상한, 저장/전달/commit 실패와 종료 중 대기 중단을 검사했다.
+- 독립 Redpanda의 실제 Kafka 검사 **2개 통과**: 기존 결과 중복 제거·재시작과 신규 독성 요청 격리,
+  정상 후속 요청 처리, 프로세스 3회 시작에 걸친 retry 1→2→3→DLQ, 원본/retry offset을 확인했다.
+  각 테스트는 두 입력 토픽의 시작 offset을 지정해 이전 검사 데이터와 분리한다.
+- 개발용 초기화는 4개 토픽을 생성하고 두 번 실행해도 안전하다. 기존 CI의 Kafka 검사 단계에서
+  같은 검사 파일을 사용하므로 별도 CI 작업은 추가하지 않았다.
+
+운영 토픽 6파티션·보존/관제·수동 재처리, runtime 자동 공급과 실제 backend→worker 통합은 후속이다.
+ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exactly-once나 복수 전달 체인 전체의
+시도 횟수 상한, 실제 도로·업무 흐름의 10초 목표를 보장하지 않는다.
+
+## hyunmoo 탐색 평가 성능 개선 — f297ac4 기준
+
+- 최신 origin/main은 f3e5cd7로 이전 기준과 같았다. 원격 contract/solve-depot-codes에 계약 변경이
+  올라온 것을 확인했으나 main 반영 전이므로 이번 계산 성능 변경과 섞지 않았다.
+- cProfile에서 5회 계산에 Python 시간 평가 56,230,864회·거리 평가 26,546,738회를 확인했다.
+  거리/작업시간 포함 이동시간/적재 변화는 native 행렬/벡터로 등록하고 탐색·벌점·물리 제약을 유지했다.
+- `--profile-stages`에서 입력 준비·모델 구성·탐색·결과 정리의 단계별 표본과 p95를 추가한다.
+  진단 딕셔너리는 Plan/SolveResult 밖에 두며, 솔버를 건너뛰면 모델/탐색 시간은 0이다.
+- seed 1/7/19 × PLAN/REPLAN × 해 개수 1/50의 12조건에서 native 평가와 같은 런타임의
+  Python 콜백 평가의 전체 계획이 같았다. 일부 조건은 고정 배정·서로 다른 차량 용량도 포함한다.
+  비대칭 행렬·복귀/작업시간·원격 미사용 차량·원본 행렬 재사용과 진단 초기화도 검사했다.
+- Python 3.12에서 실제 Kafka를 포함한 최적화 전체 **257개·24개 subtest 통과**.
+  계산 변경 후 기존 요청 결과·영속 중복 제거·재시작·요청 retry/DLQ 검사도 함께 통과했다.
+- 가상 대여소 200곳·트럭 5대·준비된 메모리 캐시에서 전후 각 20회 측정했다.
+  PLAN p95 **84.77→29.37ms**, REPLAN p95 **5984.98→1043.75ms**.
+  각 시나리오의 전후 입력/전체 계획 해시·작업량·미처리량·거리가 같았다.
+- cProfile 시간은 계측 비용이 커서 위 지연 비교에 사용하지 않았다. 원시 표본·단계 시간·소스 해시,
+  기준 커밋에 적용할 측정용 패치와 한계는 [성능 기록](benchmarks/native-transit.md)에 남겼다.
+  측정용 패치를 별도 기준 소스에 적용하고 원시 기록의 소스와 일치함을 확인했다.
+
+운영 backend·frontend·공통 YAML·운영 Compose·CI는 변경하지 않았다. 실제 OSRM·운영 서버·업무 전체
+10초 완료는 이번 가상 입력 측정의 대상이 아니며 운영 통합 이후 검증한다.
+
+## PR #34 계약 대응 — 35e5b48 기준
+
+- 계약 브랜치를 hyunmoo에 반영하고 공개 API 0.9·Kafka 0.5·payload schemaVersion 1에 맞췄다.
+- depot·시간대 있는 asOf를 메시지에서 읽어 SolveContext를 만들고 requestId별 runtime 파일/CLI 인자/마운트를 제거했다.
+  유효한 봉투의 계산 입력 오류는 FAILED·INVALID_REQUEST·retryable=false이며 소비 시각을 대입하지 않는다.
+- FAILED/TIMEOUT의 code·retryable·error, OSRM_REJECTED 변환, 외부 미처리 사유 대문자 enum을 반영했다.
+  worker 완료 로그는 code를 사용하고 정상 실패 결과를 전달 재시도하지 않는다.
+- 지도 시연·사유 문장 변환·공통 더미 값을 갱신했다. 기존 대시보드도 코드 대신 같은 사유 문장을 표시한다.
+- Python 3.12에서 실제 Kafka 포함 **267개·24개 subtest 통과**. runtime 없이 새 requestId 처리,
+  depot/asOf 검증·동일 시각의 ETA, 실패 필드·사유 enum과 기존 중복 제거·ACK/commit·재시작을 검사했다.
+  runtime 누락 재시도 검사는 결과 발행 실패 주입으로 바꿨으며 retry/DLQ 전달과 offset은 실제 브로커를 사용한다.
+  저장된 구형 실패 필드/소문자 사유는 재발행하지 않고 중단하는 검사도 통과했다.
+- 생성 API 타입 일치·화면 빌드·단위 **15개**, Chromium 브라우저 **24개 통과**.
+  초기 브라우저 실행 파일 경로 문제는 기존 설치 캐시를 지정해 해결했다.
+- 독립 Kafka Compose 구성·변경 공백·문서 링크를 확인했다. 검사 전용 브로커·볼륨은 정리했다.
+
+추가 기능·계산 정책 변경·운영 배포·새 CI는 포함하지 않았다. backend 변경은 PR #34의 기존 커밋이며
+이번 대응에서 새 업무 로직을 추가하지 않았다. 실제 운영 backend·도로 연결의 검증 범위는 아래와 같다.
+
 ## 아직 검증하지 않은 범위
 
-운영 backend의 실제 solve 요청/응답, retry/DLQ·분산 중복 방지·볼륨 유실 복구,
+운영 backend와 실제 worker 사이의 solve 요청/응답, 운영 retry/DLQ 토픽·관제·재처리,
+분산 중복 방지·볼륨 유실 복구,
 실제 OSRM 도로망·전처리·컨테이너, 서버 배포,
 실제 예측과 시뮬레이터, 실제 업무 서버와의 계획 승인·도로 경로선 통합, Linux GitHub 호스팅 러너에서의 실제 CI 실행.

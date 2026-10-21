@@ -5,9 +5,9 @@
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.8.0-draft |
+| 공개 API (OpenAPI) | 0.9.0-draft |
 | 내부 API (OpenAPI) | 0.5.0-draft |
-| Kafka (AsyncAPI) | 0.4.0-draft |
+| Kafka (AsyncAPI) | 0.5.0-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
 아래 구현 설명은 [계산 코드](../../or-tools/rebalancing/)와 같은 저장소의 실행기·화면을 기준으로 한다.
@@ -31,7 +31,8 @@ TaskEventMessage의 seq는 backend가 부여하는 작업 이벤트 정보이며
 
 `contract.solve_request()`는 변환·계산·결과 생성 함수이며 자체 저장·전송은 하지 않는다.
 별도 worker가 Kafka 소비·발행, 결과 파일 저장·중복 제거, offset commit을 맡는다.
-독립 개발용 solve 토픽 초기화도 제공한다. 운영 backend·배포 연결과 retry/DLQ는 후속 범위다.
+독립 개발용 solve·requests.retry·requests.dlq 토픽 초기화와 제한 재시도를 제공한다.
+main의 backend SolveGateway·SolveResultConsumer 구현과 실제 worker를 잇는 운영 연결은 후속 범위다.
 
 ## 공통 요청 대응
 
@@ -47,7 +48,7 @@ TaskEventMessage의 seq는 backend가 부여하는 작업 이벤트 정보이며
 | capacity·load | 양의 정수 용량, 0 ≤ load ≤ capacity. 요청 값을 그대로 사용 |
 | availableUntil | 시간대 있는 근무 종료 시각. 명시 기준 시각부터 남은 초로 변환하고 소수 초는 내림. 이미 종료된 입력은 오류 |
 | fixedStationIds | 처리 시 지정 차량에만 배정. 다른 차량 이동·방문 순서 고정·방문 강제는 하지 않음. 불가능하면 미처리 |
-| blockedStationIds | 방문하지 않고 blocked 사유로 미처리. ID는 같은 요청 stations에 있어야 함 |
+| blockedStationIds | 방문하지 않고 BLOCKED 사유로 미처리. ID는 같은 요청 stations에 있어야 함 |
 | params.solutionLimit | 1..1e9 정수. 예시 기본값 50. 해 개수 제한 |
 | params.penaltyScale | 비음수 유한수, 생략 시 기존 기본값 3000. 포기 벌점 = ceil(priority × penaltyScale), 미터 비용. 벌점 상한 1e15 |
 | params.serviceMinutesBase | 기본 3분. 비음수 유한수, ceil(분 × 60)으로 초 변환 |
@@ -62,22 +63,18 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
 완료·관리자 제외 거점은 backend가 남은 후보를 구성할 때 제거한다.
 현재 wire에 없는 completedStationIds·excludeStationIds를 새로 정의하지 않는다.
 
-## payload 밖의 필수 실행 설정
+## 메시지의 계산 기준과 이동 공급자
 
-현재 AsyncAPI 0.4.0-draft의 SolveRequest에도 차고지와 입력 스냅샷 기준 시각 필드가 없다. 호출자가
-`SolveContext(depot, as_of)`와 `travel_time` 공급자를 명시한다.
-실행기는 권역 설정·입력 스냅샷 메타데이터에서 이를 제공해야 한다. 해당 연결은 아직 남아 있다.
+SolveRequest의 필수 `depot {lat, lon}`·`asOf`에서 SolveContext를 만든다.
+requestId별 runtime JSON·`--contexts`·별도 차고지 예시는 사용하지 않는다.
 
-현재 worker는 requestId별 shiftId·depot·asOf를 명시한 외부 runtime JSON을 시작 시 읽는다.
-설정이 없는 요청은 미완료로 두고 중단한다. 이 파일은 Kafka 메시지 스키마가 아니며
-운영 메타데이터를 자동으로 제공하는 연결은 아직 없다.
+- depot: 권역 복귀 차고지. (위도, 경도)로 검증하며 복귀 이동을 근무시간에 포함한다.
+- asOf: 시간대가 있는 RFC 3339 계산 기준 시각. 남은 근무시간과 ETA는 이 시각부터 계산한다.
+- travel_time: 호출자가 명시하는 이동 공급자. 운영은 고정 도로 버전의 OSRM·캐시, 개발은 하버사인 추정치를 선택한다.
 
-- depot: 권역 복귀 차고지 (위도, 경도). 근무시간에 복귀 이동을 포함한다.
-- as_of: 고정 계산 기준 시각. 남은 근무시간과 ETA가 모두 같은 기준을 사용한다.
-- travel_time: 운영 시 고정 도로 버전의 OSRM·캐시. 개발 추정도 호출자가 명시적으로 선택한다.
-
-데모 차고지·소비 시각·occurredAt을 자동 대입하지 않는다. occurredAt은 메시지 생성 시각이며,
-스냅샷 기준과 같은 시각인지는 생산자·실행기가 정한다. 재시도에서도 같은 기준 시각·도로 버전·설정을 사용한다.
+생산자는 권역 차고지와 실제 입력 스냅샷 시각을 메시지에 넣는다. 소비 시각·occurredAt·데모값으로 대체하지 않는다.
+봉투가 유효하면 depot/asOf 누락·잘못된 값은 FAILED·INVALID_REQUEST·retryable=false로 반환한다.
+재시도에서도 메시지의 같은 기준 시각·차고지와 같은 도로 버전을 사용한다.
 
 ## 결과
 
@@ -91,16 +88,23 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
 | stops[].loadAfter·eta·status | 작업 후 적재량, as_of + 상대 도착 초를 UTC 시각으로 변환, PENDING |
 | unserved[].stationId·priority·reason | 원래 ID·입력 우선순위·미처리 코드 |
 | stats.solveMs·bikesMoved | 변환·행렬·솔버·경로 직렬화까지 로컬 시간, 회수·보충 작업 대수 합 |
-| error | INVALID_REQUEST, NO_SOLUTION, OSRM 오류 코드와 재시도 가능 여부의 설명 |
+| code·retryable·error | FAILED/TIMEOUT에서 모두 필수. 고정 실패 코드·새 requestId로 재계산할 만한지·사람이 읽는 설명 |
 
 OK는 전량 처리 여부가 아니다. unserved를 함께 확인한다.
 공개 API Plan의 DRAFT·ACTIVE 등 업무 상태는 backend가 정하며 코어 상태로 덮어쓰지 않는다.
 관측하지 않은 stationName·방문 근거 문장을 만들지 않는다. 거리·운행시간·별도 completionStatus는 wire에
 임의로 추가하지 않고 코어 Plan에서 유지한다. 선택 필드 objective는 현재 생략한다.
 
-미처리 코드는 blocked, no_trucks, capacity_exceeded, not_selected, no_solution이다.
-고정 배정이면 해당 차량 용량으로 capacity_exceeded를 판단한다.
-not_selected의 원인을 시간 또는 적재량 하나로 단정하지 않는다.
+외부 미처리 코드는 BLOCKED, NO_TRUCKS, CAPACITY_EXCEEDED, NOT_SELECTED, NO_SOLUTION이다.
+내부 계산 코드는 기존 소문자를 유지하고 공통 응답에서 대문자로 변환한다.
+고정 배정이면 해당 차량 용량으로 CAPACITY_EXCEEDED를 판단한다.
+NOT_SELECTED의 원인을 시간 또는 적재량 하나로 단정하지 않는다.
+
+실패 코드는 INVALID_REQUEST, NO_SOLUTION, OSRM_BUDGET_EXCEEDED, OSRM_TIMEOUT,
+OSRM_DATA_CHANGED, OSRM_UNREACHABLE, OSRM_INVALID_RESPONSE, OSRM_HTTP_ERROR,
+OSRM_NETWORK_ERROR, OSRM_REJECTED다. 내부 osrm_error는 OSRM_REJECTED로 변환한다.
+TIMEOUT은 예산 초과·통신 시간 초과이며 그 외는 FAILED다. error 문자열로 분기하지 않는다.
+retryable은 새 requestId의 재계산에 대한 정보이며 정상 FAILED/TIMEOUT을 전달 재시도하지 않는다.
 부분 처리·거점 재방문·차고지 재적재·방문 순서 고정은 지원하지 않는다.
 
 ## OSRM · 캐시 · 인프라
@@ -114,7 +118,7 @@ OSRM 도로 거리·시간을 조회하며 중복 제거·요청 분할·순서 
 정적 car 프로필은 실시간 교통·트럭 높이/중량을 보장하지 않는다.
 
 [독립 개발 환경](../../infra/optimizer/README.md)은 OSRM 전처리·최적화 컨테이너를 제공한다.
-운영 Compose·backend 연결·retry/DLQ·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
+운영 Compose·backend 연결·운영 retry/DLQ 토픽·관제·실제 지도·서버 부하·전체 10초 검증은 후속 작업이다.
 CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리 스크립트 구문을 검사한다.
 
 ## Kafka 실행기
@@ -122,14 +126,20 @@ CI는 Python 테스트, 공통 스키마와 호환성, Compose 구성, 전처리
 [Kafka 실행 안내](../../infra/optimizer/KAFKA.md)를 따른다.
 키 shiftId 검증, traceId·traceparent 전달, 발행 ACK 후 해당 입력 offset의 동기 commit을 수행한다.
 eventId와 requestId의 저장 기록을 확인하며, 같은 requestId의 완료 결과를 새로 생성하지 않는다.
-계산 입력이 달라진 ID 재사용은 중단한다. 결과 파일은 업무 DB와 별개인 실행기 전용 상태다.
+계산 입력이 달라진 ID 재사용은 해당 메시지를 DLQ로 보낸다. 결과 파일은 업무 DB와 별개인 실행기 전용 상태다.
 
 동일한 상태 볼륨의 단일 worker가 전제다. 발행 ACK 직후 상태 저장 전 장애에서는
 **같은 결과 eventId가 재전달될 수 있으므로 backend도 eventId 중복 제거가 필요하다.**
 분산 exactly-once·수평 확장·상태 볼륨 유실 복구를 보장하지 않는다.
-잘못된 봉투·설정 누락·상태 손상·전송 실패는 미완료 입력을 commit하지 않고 중단한다.
+잘못된 봉투·키·ID 내용 충돌은 즉시 solve.requests.dlq로 보낸다. 계산 함수의 예외·결과 발행 실패는
+solve.requests.retry에서 기본 추가 3회·처리 전 2초 대기 후 재시도하며, 소진 시 DLQ로 보낸다.
+본문·키·상관관계는 유지하고 retry 횟수·최초 토픽/파티션/offset·실패 코드를 헤더로 전달한다.
+잘못된 retry 메타데이터는 바로 DLQ로 보내고 횟수를 초기화하지 않는다. 전달 ACK 후 원본 offset을 commit한다.
+상태 손상·기록 실패, 원본 commit·retry/DLQ 발행·수신 실패는 미완료로 두고 중단한다.
 FAILED·TIMEOUT도 같은 requestId의 최종 계산 결과이며, 새 계산은 새 requestId를 쓴다.
-자동 retry/DLQ의 횟수·간격·독성 메시지 처리는 담당자 합의 후 연결한다.
+retry/DLQ도 ACK와 commit 사이의 장애로 중복될 수 있고 원본과 retry 사이의 전체 순서는 보장하지 않는다.
+운영 6파티션 토픽·보존/관제·재처리 절차와 backend 시간 초과 정책은 역할 4와 연결한다.
+인자 범위·헤더·운영 한계는 [Kafka 실행 안내](../../infra/optimizer/KAFKA.md#제한-재시도--dlq)를 따른다.
 
 실행기 로그는 요청 상관관계·UTC 기록 시각·실패 단계·처리 시간과 결과 재사용 여부를 JSON으로 남긴다.
 durationMs는 저장·발행·offset commit까지이며 Kafka 대기는 제외한다. resultSolveMs는 저장 결과의
@@ -138,6 +148,10 @@ durationMs는 저장·발행·offset commit까지이며 Kafka 대기는 제외�
 
 benchmark는 초기 계획·재경로와 메모리 캐시 없음/빈 상태/준비 상태를 비교하고,
 nearest-rank p95·행렬/공급자/나머지 엔진 시간·표본·입력/계획 해시를 남긴다.
+`--profile-stages`는 입력/행렬 준비·모델 구성·탐색·결과 정리의 표본·중앙값·p95를 별도로 기록한다.
+거리·작업시간·적재 변화는 native 행렬/벡터로 전달해 탐색 중 Python 반복 평가를 줄인다.
+공급자/캐시 행렬·탐색 설정·차량 제약은 유지하며 진단 시간을 공통 Plan/SolveResult에 추가하지 않는다.
+[성능 비교](../optimizer/benchmarks/native-transit.md)에 기준과의 전체 계획 동등성·전후 원시 표본·한계를 기록한다.
 재경로는 초기 계획의 차량별 첫 작업을 마친 뒤 대기하는 가상 스냅샷이며, 위치·적재량·남은 근무시간과
 완료·진입 불가 거점을 반영한다. 기본 측정은 하버사인 추정치이며 실제 운영 10초 완료 기준을 대체하지 않는다.
 
@@ -161,9 +175,8 @@ ID와 정책의 팀 확정을 대체하지 않으며, wire 형식도 변경하�
 
 ## 예시와 단독 호출
 
-- [request.json](examples/optimizer/request.json): 공통 SolveRequest. 재고·거치대·asOf·depot 추가 없음.
+- [request.json](examples/optimizer/request.json): depot·asOf를 포함한 공통 SolveRequest. 재고·거치대 필드는 추가하지 않음.
 - [result.json](examples/optimizer/result.json): 해당 요청의 SolveResult 예시. solveMs는 성능 보장값이 아님.
-- [context.json](examples/optimizer/context.json): **함수 호출 설정 예시**, Kafka 메시지 스키마가 아님.
 
 [실행 안내](../optimizer/README.md)에 따라 Python 3.12 환경을 준비하고 저장소의 `or-tools/`에서 실행한다.
 
@@ -177,16 +190,13 @@ uv로 만든 환경은 pip 설치 명령 대신
 
 ```python
 import json
-from datetime import datetime
 from pathlib import Path
-from rebalancing.contract import SolveContext, solve_request
+from rebalancing.contract import solve_request
 from rebalancing.travel_time import HaversineTravelTime
 
 examples = Path("../docs/specs/examples/optimizer")
 request = json.loads((examples / "request.json").read_text())
-settings = json.loads((examples / "context.json").read_text())
-context = SolveContext(tuple(settings["depot"]), datetime.fromisoformat(settings["asOf"]))
-result = solve_request(request, context=context, travel_time=HaversineTravelTime())
+result = solve_request(request, travel_time=HaversineTravelTime())
 print(json.dumps(result, ensure_ascii=False, indent=2))
 ```
 

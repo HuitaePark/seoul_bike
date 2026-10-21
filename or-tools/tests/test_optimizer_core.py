@@ -1,5 +1,6 @@
 """Small physical scenarios with fixed travel times, independent of external services."""
 from dataclasses import asdict, replace
+import copy
 import unittest
 
 from rebalancing.baseline import plan_greedy
@@ -160,6 +161,51 @@ class PriorityAndRepeatabilityTest(unittest.TestCase):
         reordered = plan_routes(DEPOT, list(reversed(STATIONS)), list(reversed(args[2])), list(reversed(args[3])),
                                  travel_time=LineTravel())
         self.assertEqual(asdict(reordered), first)
+
+
+class NativeMatrixRegressionTest(unittest.TestCase):
+    def test_reused_directed_matrix_is_not_changed_and_keeps_physical_costs(self):
+        class ReusedTravel:
+            def __init__(self):
+                # depot, delivery, and two dedicated truck start nodes.
+                self.saved = TravelMatrix([[0, 100, 300, 400], [200, 0, 500, 600],
+                                           [700, 50, 0, 800], [900, 70, 1000, 0]],
+                                          [[0, 10, 30, 40], [20, 0, 50, 60],
+                                           [70, 5, 0, 80], [90, 7, 100, 0]])
+
+            def matrix(self, _points):
+                return self.saved
+
+        provider = ReusedTravel()
+        saved = copy.deepcopy(provider.saved)
+        trucks = [Truck(0, load=4, position=(37.01, 127), available_time_s=325),
+                  Truck(1, position=(38, 127), available_time_s=0)]
+        plans = [plan_routes(DEPOT, STATIONS, [Imbalance(2, -4)], trucks, travel_time=provider) for _ in range(2)]
+        self.assertEqual(provider.saved, saved)
+        self.assertEqual(asdict(plans[0]), asdict(plans[1]))
+        route, = plans[0].routes
+        self.assertEqual(route.truck_id, 0)
+        self.assertEqual((route.distance_m, route.duration_s), (250, 325))
+        self.assertEqual((route.stops[0].arrival_s, route.stops[0].departure_s), (5, 305))
+        # The used truck still needs its 20-second return. The unused, remote
+        # zero-budget truck must not take a mandatory start->depot trip.
+        late = plan_routes(DEPOT, STATIONS, [Imbalance(2, -4)],
+                           [replace(trucks[0], available_time_s=324), trucks[1]], travel_time=provider)
+        self.assertEqual(served(late), [])
+
+    def test_profile_is_separate_from_plan_and_resets_for_skipped_solver(self):
+        timings = {"previous": 123}
+        plan = plan_routes(DEPOT, STATIONS, [Imbalance(1, 4), Imbalance(2, -4)], [Truck(0)],
+                           travel_time=ConstantTravel(), timings=timings)
+        original = plan_routes(DEPOT, STATIONS, [Imbalance(1, 4), Imbalance(2, -4)], [Truck(0)],
+                               travel_time=ConstantTravel())
+        self.assertEqual(asdict(plan), asdict(original))
+        self.assertEqual(set(timings), {"prepare_problem", "build_model", "search", "extract_plan"})
+        self.assertTrue(all(value >= 0 for value in timings.values()))
+        for jobs, trucks in [([], [Truck(0)]), ([Imbalance(1, 4)], [])]:
+            skipped = plan_routes(DEPOT, STATIONS, jobs, trucks, timings=timings)
+            self.assertEqual(skipped.routes, [])
+            self.assertEqual((timings["build_model"], timings["search"]), (0, 0))
 
 
 class InventoryTargetTest(unittest.TestCase):

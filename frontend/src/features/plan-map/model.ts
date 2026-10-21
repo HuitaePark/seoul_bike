@@ -35,10 +35,10 @@ export const riskLabels: Record<string, string> = { EMPTY: '빈 대여소 위험
 export const roleLabels: Record<string, string> = { FIXED_PICKUP: '고정 회수', FIXED_DROPOFF: '고정 배치', VARIABLE: '변동' }
 export const stopLabels: Record<string, string> = { PENDING: '대기', DONE: '완료', SKIPPED: '건너뜀' }
 const reasons: Record<string, string> = {
-  blocked: '진입 불가로 지정됐습니다.', no_trucks: '사용 가능한 트럭이 없습니다.',
-  capacity_exceeded: '한 번의 작업량이 배정 가능한 트럭 용량을 넘습니다.',
-  not_selected: '이번 계산에서 선택되지 않았습니다. 시간·적재량 중 한 가지 원인으로 단정할 수 없습니다.',
-  no_solution: '설정된 탐색 범위에서 경로를 얻지 못했습니다.',
+  BLOCKED: '관리자 제외 또는 현장 차단으로 방문하지 않도록 지정됐습니다.', NO_TRUCKS: '사용 가능한 트럭이 없습니다.',
+  CAPACITY_EXCEEDED: '한 번의 작업량이 배정 가능한 트럭 용량을 넘습니다.',
+  NOT_SELECTED: '이번 계산에서 선택되지 않았습니다. 시간·적재량 중 한 가지 원인으로 단정할 수 없습니다.',
+  NO_SOLUTION: '설정된 탐색 범위에서 경로를 얻지 못했습니다.',
 }
 export function reasonText(value: string): string {
   return reasons[value] ?? value

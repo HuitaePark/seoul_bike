@@ -51,10 +51,10 @@ class BenchmarkCase:
     blocked: frozenset[int] = frozenset()
     snapshot_elapsed_s: int = 0
 
-    def solve(self, travel):
+    def solve(self, travel, *, timings=None):
         return plan_routes(DEPOT, self.stations, self.jobs, self.trucks, options=self.options,
                            travel_time=travel, completed_station_ids=self.completed,
-                           blocked_station_ids=self.blocked)
+                           blocked_station_ids=self.blocked, timings=timings)
 
     def fingerprint(self):
         document = {"depot": DEPOT, "stations": [asdict(s) for s in self.stations],
@@ -108,7 +108,7 @@ def summarize(samples):
             "p95_s": sorted(samples)[ceil(0.95 * len(samples)) - 1], "max_s": max(samples)}
 
 
-def measure(case, provider, *, repeats, cache_mode, namespace):
+def measure(case, provider, *, repeats, cache_mode, namespace, profile_stages=False):
     raw = TimedTravelTime(provider)
     cached = CachedTravelTime(raw, namespace=namespace)
     warmup_s = 0.0
@@ -117,6 +117,7 @@ def measure(case, provider, *, repeats, cache_mode, namespace):
         case.solve(cached)
         warmup_s = perf_counter() - started
     elapsed, matrix, upstream, non_matrix, fingerprints = [], [], [], [], []
+    stages = {name: [] for name in ("prepare_problem", "build_model", "search", "extract_plan")}
     provider_calls = hits = misses = 0
     for _ in range(repeats):
         if cache_mode == "cold":
@@ -125,8 +126,12 @@ def measure(case, provider, *, repeats, cache_mode, namespace):
         calls_before, raw_before = raw.calls, raw.elapsed_s
         hits_before, misses_before = cached.hits, cached.misses
         started = perf_counter()
-        plan = case.solve(travel)
+        timings = {} if profile_stages else None
+        plan = case.solve(travel, timings=timings)
         total = perf_counter() - started
+        if timings is not None:
+            for name in stages:
+                stages[name].append(timings[name])
         elapsed.append(total)
         matrix.append(travel.elapsed_s)
         upstream.append(raw.elapsed_s - raw_before)
@@ -136,7 +141,7 @@ def measure(case, provider, *, repeats, cache_mode, namespace):
         misses += cached.misses - misses_before
         fingerprints.append(fingerprint(asdict(plan)))
     required = sum(abs(j.delta) for j in case.jobs if j.station_id not in case.completed)
-    return {"elapsed_s": elapsed, "median_s": median(elapsed), "p95_s": summarize(elapsed)["p95_s"],
+    report = {"elapsed_s": elapsed, "median_s": median(elapsed), "p95_s": summarize(elapsed)["p95_s"],
             "max_s": max(elapsed), "same_plan_each_run": len(set(fingerprints)) == 1,
             "plan_sha256": fingerprints[0], "warmup_s": warmup_s,
             "provider_calls": provider_calls, "cache_hits": hits, "cache_misses": misses,
@@ -144,6 +149,9 @@ def measure(case, provider, *, repeats, cache_mode, namespace):
                         "non_matrix": summarize(non_matrix)},
             "used_trucks": len(plan.routes), "required_bikes": required, "handled_bikes": plan.bikes_moved,
             "unserved_bikes": plan.unserved_bikes, "distance_m": plan.total_distance_m}
+    if profile_stages:
+        report["stages"] = {name: summarize(samples) for name, samples in stages.items()}
+    return report
 
 
 def parser():
@@ -157,6 +165,7 @@ def parser():
     cli.add_argument("--scenario", choices=("plan", "replan"), default="plan")
     cli.add_argument("--cache-mode", choices=("none", "cold", "warm", "compare"), default="none")
     cli.add_argument("--travel-source", choices=("haversine", "osrm"), default="haversine")
+    cli.add_argument("--profile-stages", action="store_true", help="record prepare/model/search/extract samples")
     cli.add_argument("--osrm-url")
     cli.add_argument("--osrm-data-version")
     return cli
@@ -192,13 +201,15 @@ def main(argv=None):
               "operation": args.scenario.upper(), "solution_limit": args.solution_limit,
               "repeats": args.repeats, "p95_method": "nearest-rank", "travel_source": args.travel_source,
               "road_data_version": args.osrm_data_version, "cache_mode": args.cache_mode,
+              "profile_stages": args.profile_stages,
               "input_sha256": case.fingerprint(), "setup_s": setup_s,
               "completed_stations": len(case.completed), "blocked_stations": len(case.blocked),
               "snapshot_elapsed_s": case.snapshot_elapsed_s,
               "positioned_trucks": sum(t.position is not None for t in case.trucks),
               "start_loads": [t.load for t in case.trucks]}
     modes = ("none", "cold", "warm") if args.cache_mode == "compare" else (args.cache_mode,)
-    results = {mode: measure(case, provider, repeats=args.repeats, cache_mode=mode, namespace=namespace) for mode in modes}
+    results = {mode: measure(case, provider, repeats=args.repeats, cache_mode=mode, namespace=namespace,
+                             profile_stages=args.profile_stages) for mode in modes}
     same = all(r["same_plan_each_run"] for r in results.values()) and len({r["plan_sha256"] for r in results.values()}) == 1
     if args.cache_mode == "compare":
         report.update(cache_comparison=results, same_plan_across_cache_modes=same)

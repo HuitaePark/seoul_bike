@@ -1,0 +1,345 @@
+{
+  "measurement": "cProfile diagnostic only; not used for benchmark latency comparison",
+  "scope": "whole benchmark process: imports, initial PLAN setup, warm-up, and 3 REPLAN samples (5 solves)",
+  "reference_commit": "f297ac4",
+  "python_version": "3.12.13",
+  "ortools_version": "9.14.6206",
+  "before_planner_sha256": "3885bb999e154c2af4bbe2064012b334af62672cd7666b2726b1106903681864",
+  "after_planner_sha256": "2b073fdb41f5419e92239fa6fe3e4c4684d33fce0ff27d33713d4d2777e0933c",
+  "before": {
+    "total_calls": 751535944,
+    "total_s": 78.12732314200004,
+    "top_self_time": [
+      {
+        "file": "planner.py",
+        "line": 63,
+        "function": "time_cb",
+        "primitive_calls": 56230864,
+        "calls": 56230864,
+        "self_s": 17.436274135,
+        "cumulative_s": 50.767727544
+      },
+      {
+        "file": "pywrapcp.py",
+        "line": 4769,
+        "function": "IndexToNode",
+        "primitive_calls": 165707326,
+        "calls": 165707326,
+        "self_s": 11.408063833,
+        "cumulative_s": 19.705216689
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method ortools.constraint_solver._pywrapcp.RoutingModel_SolveWithParameters>",
+        "primitive_calls": 5,
+        "calls": 5,
+        "self_s": 10.926843821,
+        "cumulative_s": 77.799343875
+      },
+      {
+        "file": "problem.py",
+        "line": 47,
+        "function": "service_s",
+        "primitive_calls": 56231056,
+        "calls": 56231056,
+        "self_s": 8.880397894,
+        "cumulative_s": 12.556370012
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method ortools.constraint_solver._pywrapcp.RoutingIndexManager_IndexToNode>",
+        "primitive_calls": 165707326,
+        "calls": 165707326,
+        "self_s": 8.297152856,
+        "cumulative_s": 8.297152856
+      },
+      {
+        "file": "planner.py",
+        "line": 50,
+        "function": "distance_cb",
+        "primitive_calls": 26546738,
+        "calls": 26546738,
+        "self_s": 6.241730026000001,
+        "cumulative_s": 16.073205586
+      },
+      {
+        "file": "pywrapcp.py",
+        "line": 5912,
+        "function": "IsStart",
+        "primitive_calls": 82777602,
+        "calls": 82777602,
+        "self_s": 6.230083927000001,
+        "cumulative_s": 10.696447509
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method ortools.constraint_solver._pywrapcp.RoutingModel_IsStart>",
+        "primitive_calls": 82777602,
+        "calls": 82777602,
+        "self_s": 4.4663635820000005,
+        "cumulative_s": 4.4663635820000005
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method builtins.len>",
+        "primitive_calls": 56242582,
+        "calls": 56242929,
+        "self_s": 1.8443710850000001,
+        "cumulative_s": 1.844406645
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method builtins.abs>",
+        "primitive_calls": 54613223,
+        "calls": 54613223,
+        "self_s": 1.8323378890000002,
+        "cumulative_s": 1.8323378890000002
+      },
+      {
+        "file": "pywrapcp.py",
+        "line": 5916,
+        "function": "IsEnd",
+        "primitive_calls": 1659952,
+        "calls": 1659952,
+        "self_s": 0.12877943,
+        "cumulative_s": 0.22333807400000003
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method _imp.create_dynamic>",
+        "primitive_calls": 2,
+        "calls": 2,
+        "self_s": 0.105879332,
+        "cumulative_s": 0.10661524900000001
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method ortools.constraint_solver._pywrapcp.RoutingModel_IsEnd>",
+        "primitive_calls": 1659952,
+        "calls": 1659952,
+        "self_s": 0.09455864400000001,
+        "cumulative_s": 0.09455864400000001
+      },
+      {
+        "file": "geo.py",
+        "line": 10,
+        "function": "haversine_m",
+        "primitive_calls": 82436,
+        "calls": 82436,
+        "self_s": 0.052847532,
+        "cumulative_s": 0.08643532000000001
+      },
+      {
+        "file": "travel_time.py",
+        "line": 44,
+        "function": "validate",
+        "primitive_calls": 6,
+        "calls": 6,
+        "self_s": 0.022758379000000002,
+        "cumulative_s": 0.023280876000000002
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<method 'read' of '_io.BufferedReader' objects>",
+        "primitive_calls": 113,
+        "calls": 113,
+        "self_s": 0.014652585000000001,
+        "cumulative_s": 0.014652585000000001
+      },
+      {
+        "file": "planner.py",
+        "line": 59,
+        "function": "<lambda>",
+        "primitive_calls": 152281,
+        "calls": 152281,
+        "self_s": 0.013885055,
+        "cumulative_s": 0.031989825
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method math.radians>",
+        "primitive_calls": 329744,
+        "calls": 329744,
+        "self_s": 0.010320679000000001,
+        "cumulative_s": 0.010320679000000001
+      }
+    ]
+  },
+  "after": {
+    "total_calls": 1254806,
+    "total_s": 4.269532808000002,
+    "top_self_time": [
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method ortools.constraint_solver._pywrapcp.RoutingModel_SolveWithParameters>",
+        "primitive_calls": 5,
+        "calls": 5,
+        "self_s": 4.0303643760000005,
+        "cumulative_s": 4.0303643760000005
+      },
+      {
+        "file": "geo.py",
+        "line": 10,
+        "function": "haversine_m",
+        "primitive_calls": 82436,
+        "calls": 82436,
+        "self_s": 0.054147177000000005,
+        "cumulative_s": 0.087944801
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method _imp.create_dynamic>",
+        "primitive_calls": 2,
+        "calls": 2,
+        "self_s": 0.03424675,
+        "cumulative_s": 0.034938875
+      },
+      {
+        "file": "travel_time.py",
+        "line": 44,
+        "function": "validate",
+        "primitive_calls": 6,
+        "calls": 6,
+        "self_s": 0.023800878,
+        "cumulative_s": 0.024350835
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<method 'read' of '_io.BufferedReader' objects>",
+        "primitive_calls": 115,
+        "calls": 115,
+        "self_s": 0.013577704000000001,
+        "cumulative_s": 0.013577704000000001
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method math.radians>",
+        "primitive_calls": 329744,
+        "calls": 329744,
+        "self_s": 0.010313379000000001,
+        "cumulative_s": 0.010313379000000001
+      },
+      {
+        "file": "geo.py",
+        "line": 22,
+        "function": "distance_matrix",
+        "primitive_calls": 2,
+        "calls": 2,
+        "self_s": 0.008790157,
+        "cumulative_s": 0.09673495800000001
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method math.cos>",
+        "primitive_calls": 164872,
+        "calls": 164872,
+        "self_s": 0.006231100000000001,
+        "cumulative_s": 0.006231100000000001
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method math.sin>",
+        "primitive_calls": 164872,
+        "calls": 164872,
+        "self_s": 0.005956441000000001,
+        "cumulative_s": 0.005956441000000001
+      },
+      {
+        "file": "planner.py",
+        "line": 13,
+        "function": "plan_routes",
+        "primitive_calls": 5,
+        "calls": 5,
+        "self_s": 0.005139374,
+        "cumulative_s": 4.17746075
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method builtins.round>",
+        "primitive_calls": 82436,
+        "calls": 82436,
+        "self_s": 0.004970301,
+        "cumulative_s": 0.004970301
+      },
+      {
+        "file": "benchmark.py",
+        "line": 54,
+        "function": "solve",
+        "primitive_calls": 5,
+        "calls": 5,
+        "self_s": 0.0041474170000000005,
+        "cumulative_s": 4.181608167
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method marshal.loads>",
+        "primitive_calls": 111,
+        "calls": 111,
+        "self_s": 0.004083871,
+        "cumulative_s": 0.004083871
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method math.asin>",
+        "primitive_calls": 82436,
+        "calls": 82436,
+        "self_s": 0.003433208,
+        "cumulative_s": 0.003433208
+      },
+      {
+        "file": "travel_time.py",
+        "line": 68,
+        "function": "matrix",
+        "primitive_calls": 2,
+        "calls": 2,
+        "self_s": 0.003415257,
+        "cumulative_s": 0.10249150000000001
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method math.sqrt>",
+        "primitive_calls": 82438,
+        "calls": 82438,
+        "self_s": 0.002893487,
+        "cumulative_s": 0.002893487
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method builtins.exec>",
+        "primitive_calls": 1,
+        "calls": 184,
+        "self_s": 0.0023890310000000002,
+        "cumulative_s": 4.269881959
+      },
+      {
+        "file": "~",
+        "line": 0,
+        "function": "<built-in method math.ceil>",
+        "primitive_calls": 82441,
+        "calls": 82441,
+        "self_s": 0.002338534,
+        "cumulative_s": 0.002338534
+      }
+    ]
+  }
+}

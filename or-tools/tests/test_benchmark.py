@@ -1,5 +1,6 @@
 """Benchmark reports must measure real work and preserve the compared plans."""
 import json
+from dataclasses import asdict, replace
 
 import pytest
 
@@ -9,6 +10,7 @@ from rebalancing.models import Imbalance, RoutingStation, Truck
 from rebalancing.osrm import TravelTimeError
 from rebalancing.problem import PlanningOptions
 from rebalancing.travel_time import HaversineTravelTime
+from rebalancing.planner import pywrapcp
 
 
 @pytest.mark.parametrize("samples,expected", [(list(range(20, 0, -1)), 19), ([3, 1, 2], 3), ([7], 7)])
@@ -67,6 +69,64 @@ def test_original_cli_keeps_flat_output_and_adds_p95(capsys):
     assert json.loads(capsys.readouterr().out) == report
     assert report["operation"] == "PLAN" and report["cache_mode"] == "none"
     assert {"elapsed_s", "median_s", "max_s", "plan_sha256", "handled_bikes", "distance_m", "p95_s"} <= report.keys()
+    assert report["profile_stages"] is False and "stages" not in report
+
+
+def test_stage_profile_does_not_change_plan_and_stays_inside_call(capsys):
+    args = ["--stations", "30", "--trucks", "3", "--repeats", "2", "--all-candidates",
+            "--scenario", "replan", "--cache-mode", "compare"]
+    original = main(args)
+    report = main([*args, "--profile-stages"])
+    capsys.readouterr()
+    assert report["profile_stages"] is True and report["same_plan_across_cache_modes"]
+    assert original["input_sha256"] == report["input_sha256"]
+    for mode in ("none", "cold", "warm"):
+        measured = report["cache_comparison"][mode]
+        assert measured["plan_sha256"] == original["cache_comparison"][mode]["plan_sha256"]
+        assert set(measured["stages"]) == {"prepare_problem", "build_model", "search", "extract_plan"}
+        for i, total in enumerate(measured["elapsed_s"]):
+            accounted = sum(row["samples_s"][i] for row in measured["stages"].values())
+            assert 0 <= accounted <= total
+        for stage in measured["stages"].values():
+            assert len(stage["samples_s"]) == 2
+            assert 0 <= stage["median_s"] <= stage["p95_s"] <= stage["max_s"]
+
+
+@pytest.mark.parametrize("seed", [1, 7, 19])
+@pytest.mark.parametrize("scenario", ["plan", "replan"])
+@pytest.mark.parametrize("solution_limit", [1, 50])
+def test_native_evaluators_preserve_callback_plans(monkeypatch, seed, scenario, solution_limit):
+    args = parser().parse_args(["--stations", "30", "--trucks", "3", "--all-candidates",
+                               "--seed", str(seed), "--scenario", scenario,
+                               "--solution-limit", str(solution_limit)])
+    case = build_case(args, HaversineTravelTime())
+    if seed == 19:
+        eligible = [j.station_id for j in case.jobs if j.station_id not in case.completed | case.blocked]
+        case.trucks[0] = replace(case.trucks[0], fixed_station_ids=tuple(eligible[:2]))
+        case.trucks[1] = replace(case.trucks[1], capacity=10)
+    expected = asdict(case.solve(HaversineTravelTime()))
+    # Compare against Python callbacks in the same pinned OR-Tools runtime,
+    # including the old unknown-sign registration. No host-specific golden plans.
+    original_manager = pywrapcp.RoutingIndexManager
+    managers = []
+
+    def manager(*args):
+        result = original_manager(*args)
+        managers.append(result)
+        return result
+
+    def matrix(routing, values):
+        index = managers[-1]
+        return routing.RegisterTransitCallback(lambda a, b: values[index.IndexToNode(a)][index.IndexToNode(b)])
+
+    def vector(routing, values):
+        index = managers[-1]
+        return routing.RegisterUnaryTransitCallback(lambda a: values[index.IndexToNode(a)])
+
+    monkeypatch.setattr(pywrapcp, "RoutingIndexManager", manager)
+    monkeypatch.setattr(pywrapcp.RoutingModel, "RegisterTransitMatrix", matrix)
+    monkeypatch.setattr(pywrapcp.RoutingModel, "RegisterUnaryTransitVector", vector)
+    assert asdict(case.solve(HaversineTravelTime())) == expected
 
 
 def test_replan_cli_compares_same_snapshot_and_plans_in_all_cache_modes(capsys):

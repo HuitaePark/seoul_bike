@@ -1,4 +1,4 @@
-"""AsyncAPI 0.2 adapter (payload schemaVersion 1); no Kafka or database I/O."""
+"""AsyncAPI 0.5 adapter (payload schemaVersion 1); no Kafka or database I/O."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,6 +14,16 @@ from .osrm import TravelTimeError
 from .planner import plan_routes
 from .problem import PlanningOptions, require_int, require_number
 from .travel_time import LatLon, TravelTime, validate_point
+
+
+FAILURE_CODES = frozenset({"INVALID_REQUEST", "NO_SOLUTION", "OSRM_BUDGET_EXCEEDED", "OSRM_TIMEOUT",
+                           "OSRM_DATA_CHANGED", "OSRM_UNREACHABLE", "OSRM_INVALID_RESPONSE",
+                           "OSRM_HTTP_ERROR", "OSRM_NETWORK_ERROR", "OSRM_REJECTED"})
+UNSERVED_REASONS = frozenset({"BLOCKED", "NO_TRUCKS", "CAPACITY_EXCEEDED", "NOT_SELECTED", "NO_SOLUTION"})
+
+
+def reject_constant(value):
+    raise ValueError(f"non-JSON number: {value}")
 
 
 def _text(name: str, value) -> str:
@@ -72,12 +82,7 @@ def _minutes(name: str, value) -> int:
 
 @dataclass(frozen=True)
 class SolveContext:
-    """Required caller configuration, separate from the public Kafka payload.
-
-    The shared SolveRequest does not define depot or a snapshot/as-of timestamp. A caller
-    must supply the region's depot and stable snapshot time explicitly; neither
-    the demo depot nor the consumer's clock is substituted automatically.
-    """
+    """Validated depot and stable calculation time from SolveRequest."""
 
     depot: LatLon
     as_of: datetime
@@ -85,6 +90,11 @@ class SolveContext:
     def __post_init__(self):
         validate_point("context.depot", self.depot)
         _iso(self.as_of)
+
+    @classmethod
+    def from_request(cls, payload: dict):
+        depot = _object("depot", payload.get("depot"))
+        return cls((depot.get("lat"), depot.get("lon")), _timestamp("asOf", payload.get("asOf")))
 
 
 def _correlation(payload: dict) -> dict:
@@ -176,7 +186,7 @@ def _prepare(payload: dict, context: SolveContext):
     return stations, imbalances, trucks, frozenset(blocked), options, scale, station_ids, truck_ids
 
 
-def solve_request(payload: dict, *, context: SolveContext, travel_time: TravelTime,
+def solve_request(payload: dict, *, travel_time: TravelTime,
                   policy: str = "ortools", result_event_id: str | None = None,
                   result_time: datetime | None = None) -> dict:
     """Return a common SolveResult. Unknown additive fields are ignored.
@@ -185,8 +195,6 @@ def solve_request(payload: dict, *, context: SolveContext, travel_time: TravelTi
     result can be formed. With a valid envelope, invalid planning input returns
     FAILED. The function does not consume, publish, persist or deduplicate Kafka.
     """
-    if not isinstance(context, SolveContext):
-        raise ValueError("an explicit SolveContext is required")
     if travel_time is None:
         raise ValueError("an explicit travel_time provider is required")
     if policy not in ("ortools", "greedy"):
@@ -197,6 +205,7 @@ def solve_request(payload: dict, *, context: SolveContext, travel_time: TravelTi
         raise ValueError("result eventId must differ from request eventId")
     started = perf_counter()
     try:
+        context = SolveContext.from_request(payload)
         stations, jobs, trucks, blocked, options, scale, station_ids, truck_ids = _prepare(payload, context)
         kwargs = {"travel_time": travel_time, "options": options, "blocked_station_ids": blocked}
         if policy == "ortools":
@@ -213,14 +222,16 @@ def solve_request(payload: dict, *, context: SolveContext, travel_time: TravelTi
                                for seq, stop in enumerate(route.stops, start=1)]})
         result.update(status="FAILED" if plan.status == "no_solution" else "OK", routes=routes,
                       unserved=[{"stationId": station_ids[job.station_id], "priority": job.priority,
-                                 "reason": plan.unserved_reasons[job.station_id]} for job in plan.unserved],
+                                 "reason": plan.unserved_reasons[job.station_id].upper()} for job in plan.unserved],
                       stats={"solveMs": max(0, int((perf_counter() - started) * 1000)), "bikesMoved": plan.bikes_moved})
         if plan.status == "no_solution":
-            result["error"] = "NO_SOLUTION: solver returned no solution under the configured search"
+            result.update(code="NO_SOLUTION", retryable=False,
+                          error="solver returned no solution under the configured search")
     except ValueError as error:
-        result.update(status="FAILED", error=f"INVALID_REQUEST: {error}")
+        result.update(status="FAILED", code="INVALID_REQUEST", retryable=False, error=str(error))
     except TravelTimeError as error:
         result.update(status="TIMEOUT" if error.code in ("budget_exceeded", "timeout") else "FAILED",
-                      error=f"OSRM_{error.code}: retryable={str(error.retryable).lower()}; {error}")
+                      code="OSRM_REJECTED" if error.code == "osrm_error" else f"OSRM_{error.code.upper()}",
+                      retryable=error.retryable, error=str(error))
     result["occurredAt"] = _iso(result_time if result_time is not None else datetime.now(timezone.utc))
     return result

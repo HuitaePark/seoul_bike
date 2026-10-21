@@ -76,7 +76,7 @@ cd or-tools
 실행 예시와 지도 파일 준비는 [독립 개발 환경](../../infra/optimizer/README.md)을 따른다.
 공통 메시지는 [AsyncAPI](../specs/asyncapi.yaml)를 따른다. 변환·계산 함수와 실행 설정은
 [역할 5 명세](../specs/optimizer.md)에 있다. Kafka 실행기는 전용 파일 상태로 결과를 재사용하며,
-실제 backend 연결·운영 중복 방지 저장소·retry/DLQ는 후속 작업이다.
+요청의 제한 재시도·DLQ도 제공한다. 실제 backend 연결·운영 토픽/관제·분산 중복 방지 저장소는 후속 작업이다.
 
 ## 미처리 사유
 
@@ -108,6 +108,9 @@ OR-Tools 버전을 고정하고 입력의 대여소·트럭 순서를 정규화�
 # 같은 재경로 입력으로 캐시 없음·빈 캐시·준비된 메모리 캐시를 각각 20회 측정
 ../.venv/bin/python -m rebalancing.benchmark --stations 200 --trucks 5 --repeats 20 \
   --all-candidates --scenario replan --cache-mode compare
+# 입력 준비·모델 구성·탐색·결과 정리 구간을 추가 측정
+../.venv/bin/python -m rebalancing.benchmark --stations 200 --trucks 5 --repeats 20 \
+  --all-candidates --scenario replan --cache-mode warm --profile-stages
 ```
 
 기존 명령은 유지하며, 출력에 후보 수·계산 시간·버전·미처리량·반복 결과 해시와 p95를 남긴다.
@@ -125,6 +128,7 @@ replan은 먼저 초기 경로를 계산하고, 사용 차량마다 첫 작업�
 | timings.matrix | 공급자 또는 캐시에서 행렬을 얻는 시간 |
 | timings.provider | 캐시를 거치기 전 실제 공급자 호출 시간. matrix 시간에 포함됨 |
 | timings.non_matrix | 엔진 호출에서 matrix 시간을 뺀 나머지. 순수 솔버 시간과 다름 |
+| stages.prepare_problem/build_model/search/extract_plan | --profile-stages에서만 추가하는 단계별 표본·중앙값·p95. matrix/provider는 prepare_problem 안에 포함 |
 | cache_hits·cache_misses·provider_calls | 측정 구간의 횟수. warm 준비 호출은 제외. provider_calls는 matrix 호출 수이며 OSRM 분할 HTTP 횟수가 아님 |
 | input_sha256·plan_sha256 | 같은 입력인지, 반복·캐시 모드에서 같은 계획이 나오는지 확인 |
 
@@ -137,15 +141,19 @@ warm의 사전 엔진 호출은 warmup_s에 별도로 남기고 표본·캐시 �
 이 경우 행렬 시간에 OSRM HTTP가 포함되며 실패를 추정치로 대체하지 않는다.
 Kafka 대기·backend·LLM을 포함한 "현장 보고부터 변경안 생성까지 10초" 수용 기준은 별도로 검증한다.
 
-이번 변경의 테스트·측정 결과는 [검증 기록](validation.md)에 남겼다.
+거리·작업시간·적재 변화는 native 행렬/벡터로 등록해 탐색 중 Python 반복 호출을 줄였다.
+원본 공급자/캐시 행렬은 보존하고 실제 복귀·용량·근무시간·탐색 설정을 유지한다.
+가상 200곳·5대·warm 재경로 20회에서 p95 5984.98→1043.75ms와 동일한 전체 계획 해시를 확인했다.
+[전후 측정·재현·한계](benchmarks/native-transit.md)와 [검증 기록](validation.md)에 상세를 남겼다.
+실제 도로·운영 서버의 성능 보장으로 사용하지 않는다.
 
 ## 다음 연결 작업
 
 1. [역할 5 명세](../specs/optimizer.md)의 실행 설정 공급·중복 처리 책임을 담당자와 확인한다.
 2. 확정 권역의 실제 OSRM 도로망과 캐시에서 200곳·5대 입력을 검증한다.
-3. 합의된 요청/응답 스키마로 Kafka 실행기를 붙인다.
-4. frontend/의 준비된 Vue 공통 뼈대 위에 지도·계획 검토 화면을 만든다.
-   backend/가 업무 API를 제공하며 경로 변경 승인 순서는 requiredApprovers를 따른다.
+3. 메시지의 depot/asOf에 실제 권역·스냅샷 값을 공급하고, 운영 토픽·DLQ 관제와 backend SolveGateway를 실제 worker에 연결한다.
+4. 구현된 지도·계획 검토를 backend 대여소/계획 API·후보 승인과 통합한다.
+   실제 도로 경로선은 OSRM Route 조회·공개 응답을 역할 4와 맞추며 승인 순서는 requiredApprovers를 따른다.
 
 기존 `docs/or-tools/`의 거리 절감·트럭 수 표는 이전 기본값으로 실행한 역사적 예시다.
 현재의 출발 적재량·용량·시간 제약을 적용한 성능 수치로 인용하면 안 된다.

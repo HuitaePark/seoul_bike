@@ -5,6 +5,7 @@
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { reasonText } from '../plan-map/model'
 import { useRouter } from 'vue-router'
 import type { Schemas } from '../../shared/api/client'
 import { DUMMY_PENDING, DUMMY_PLAN, DUMMY_REGION, DUMMY_STATIONS, DUMMY_TRUCKS } from '../../shared/dummy'
@@ -191,7 +192,6 @@ function decide(body: ApprovalDecision) {
               @select="selected = $event"
             />
           </div>
-
           <div v-if="nextStop" class="next-card">
             <span class="label">다음 도착</span>
             <strong><i :style="{ background: colors[nextStop.truckId] }" />{{ nextStop.truckId.replace('truck-', 'T') }} → {{ nextStop.stationName }}</strong>
