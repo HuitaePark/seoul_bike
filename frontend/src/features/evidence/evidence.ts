@@ -42,9 +42,12 @@ export function parseDocUri(uri: string | null | undefined): { docId: string; se
   return { docId, section }
 }
 
-/** "문서 제목 · 절" 제목을 나눈다. 구분자가 없으면 절은 uri에서 찾는다. */
+/**
+ * "문서 제목 · 절" 제목을 나눈다. 그래프는 chunk에 절이 있을 때만 절 이름을 붙이고, 그때 uri에 #절이 있다.
+ * uri에 절이 없으면 나누지 않는다 (문서 제목 자체에 " · "가 있을 수 있다).
+ */
 function splitTitle(title: string, uriSection: string | null): { docTitle: string; section: string | null } {
-  const at = title.lastIndexOf(TITLE_SEPARATOR)
+  const at = uriSection ? title.lastIndexOf(TITLE_SEPARATOR) : -1
   if (at > 0) return { docTitle: title.slice(0, at).trim(), section: title.slice(at + TITLE_SEPARATOR.length).trim() || uriSection }
   return { docTitle: title.trim(), section: uriSection }
 }
