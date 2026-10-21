@@ -246,7 +246,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 권역 대여소 현황과 예측 (현황 지도) */
+        /**
+         * 권역 대여소 현황과 예측 (현황 지도)
+         * @description 로그인한 모든 역할(관리자·기사·책임자)이 본다. 운영 중인 대여소 가운데 실시간 재고 관측이 하나라도 있는 것만 대여소 ID 순으로 준다.
+         *     관측이 없는 대여소는 빠진다 (위험을 판단할 재고가 없다). 관측이 하나도 없는 구역은 빈 목록이다.
+         *     `bikes`·`docks`·`observedAt`은 대여소마다 **가장 최근 관측**이다.
+         *     예측은 `horizonH`가 같고 **아직 끝나지 않은 구간**(시작 + `horizonH`시간 > 지금) 중 시작이 가장 이른 것을 쓴다:
+         *     진행 중인 근무조의 예측이 있으면 그것, 없으면 다음 근무조 예측(시작 30분 전에 들어온다). 지난 근무조 예측은 쓰지 않는다.
+         *     고를 예측이 없으면 `forecastBikes`는 null이고 위험은 현재 재고로만 판단한다. 판단 기준은 `RiskKind`.
+         */
         get: operations["listRegionStations"];
         put?: never;
         post?: never;
@@ -560,20 +568,29 @@ export interface components {
         };
         /** @enum {string} */
         StationRole: "FIXED_PICKUP" | "FIXED_DROPOFF" | "VARIABLE";
-        /** @enum {string} */
+        /**
+         * @description 재고 궤적으로 판단한다. 궤적은 현재 재고에서 시작해 예측 순유입(반납 − 대여)을 더한 점들이다: 시간별 예측이 있으면 매시,
+         *     없으면 구간 끝 한 점 (각 점은 반올림한 대수, 현재 재고를 구간 시작 재고로 본다). 예측이 없으면 현재 재고 한 점.
+         *     `EMPTY`: 한 점이라도 **2대 이하** (빈 위험, 합의 27). `OVERFLOW`: EMPTY가 아니고 한 점이라도 **거치대 수를 넘음**
+         *     (운영 상한 초기값 = 거치대 수, PRD 7.1). `NONE`: 둘 다 아님.
+         * @enum {string}
+         */
         RiskKind: "EMPTY" | "OVERFLOW" | "NONE";
         StationStatus: {
             stationId: string;
             name: string;
             lat: number;
             lon: number;
-            /** @description 거치대 수 */
+            /** @description 거치대 수 (가장 최근 관측) */
             docks: number;
-            /** @description 현재 재고 */
+            /** @description 현재 재고 (가장 최근 관측) */
             bikes: number;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description 그 관측 시각
+             */
             observedAt: string;
-            /** @description horizonH 뒤 예상 재고 */
+            /** @description horizonH 뒤 예상 재고 = 재고 궤적의 끝 점 (0 밑으로 내려가지 않는다). 고를 예측이 없으면 null */
             forecastBikes?: number | null;
             risk: components["schemas"]["RiskKind"];
             role?: components["schemas"]["StationRole"];
@@ -1181,7 +1198,25 @@ export interface operations {
                     "application/json": components["schemas"]["StationStatus"][];
                 };
             };
+            /** @description `horizonH`가 1~5 밖 (INVALID_REQUEST) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
+            /** @description 없는 구역 (REGION_NOT_FOUND). `suggestions`에 구역 ID 17개 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getShiftPlan: {

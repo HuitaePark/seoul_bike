@@ -25,7 +25,11 @@ public class ProblemAdvice extends ResponseEntityExceptionHandler {
 
 	@ExceptionHandler(ApiException.class)
 	ProblemDetail api(ApiException e) {
-		return problem(e.status(), e.code(), e.getMessage());
+		ProblemDetail problem = problem(e.status(), e.code(), e.getMessage());
+		if (!e.suggestions().isEmpty()) {
+			problem.setProperty("suggestions", e.suggestions());
+		}
+		return problem;
 	}
 
 	/** 요청 본문(@Valid @RequestBody) 검증 실패. 화면이 그대로 보여줄 수 있게 필드별로 적는다. */
