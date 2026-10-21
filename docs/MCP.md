@@ -98,7 +98,7 @@ grade가 `NONE`이면 바꿀 것이 없으므로 `propose_route_change`를 부�
 | 4 | `get_current_plan` | 조회 | `GET /internal/shifts/{shiftId}/plan` | 전체 |
 | 5 | `get_truck_status` | 조회 | `GET /internal/shifts/{shiftId}/trucks` | 전체 |
 | 6 | `get_field_reports` | 조회 | `GET /internal/shifts/{shiftId}/reports` | 전체 |
-| 7 | `get_audit` | 조회 | `GET /internal/shifts/{shiftId}/audit` (계약 0.5.0, PR #20) | qa (harness.yaml에 다시 넣을지 2번 결정) |
+| 7 | `get_audit` | 조회 | `GET /internal/shifts/{shiftId}/audit` (계약 0.5.0, PR #20) | qa (2번 결정, PR #27) |
 | 8 | `request_route_plan` | 계산 | `POST /internal/plans/solve` | plan_draft, field_report, manager_request |
 | 9 | `add_constraint` | 변경 | `POST /internal/constraints` | manager_request |
 | 10 | `submit_plan` | 변경 | `POST /internal/plans/{planId}/activate` | plan_draft |
@@ -248,7 +248,6 @@ DB 없이 돌릴 때(`RAG_STORE=memory`)는 파일을 읽어 키워드 점수만
 
 | 항목 | 상대 | 내용 |
 | --- | --- | --- |
-| `get_audit` Harness 허용 | 2 Harness | 계약에 올라옴(0.5.0, PR #20). harness.yaml `qa`의 허용 목록에 `business_get_audit`을 다시 넣을지 |
 | 가짜 `/internal` 기본값 | 4 백엔드 | `/internal`이 다 열리면 기본값을 `http`로 바꾸고 `fake_internal.py`를 `tests/`로 옮김 (PR #12 리뷰). 그전에는 `hybrid`로 열린 API만 실제로 부를 수 있음 |
 | `Source`의 `citation`·`basis` | 4 백엔드, 화면 담당 | 근거 패널에 출처·등급을 보이려면 openapi `Source`에 필요 (PR #5 제안, 닫힘) |
 | 대여소 ID 형식 | 전원 | 6번 합의 1번 제안 `"108"`. MCP는 `ST-1023`과 `108` 둘 다 받는다. Harness `id_pattern`, 승인 카드 화면도 함께 바꿔야 함 |
