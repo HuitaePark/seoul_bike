@@ -3,6 +3,7 @@
 # Purpose: Keeps the virtualenv and Python caches out of version control.
 
 .venv/
+.venv-mcp/
 __pycache__/
 *.pyc
 .DS_Store
@@ -11,3 +12,6 @@ __pycache__/
 docs/images/**/*.svg
 # 비밀값
 .env
+# Local road extracts, preprocessed OSRM files and matrix cache
+.cache/
+infra/optimizer/data/

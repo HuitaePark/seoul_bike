@@ -1,0 +1,24 @@
+{
+  "measurement": "local engine including matrix preparation; excludes Kafka, OSRM HTTP, backend and LLM",
+  "ortools_version": "9.14.6206",
+  "seed": 7,
+  "input_stations": 200,
+  "candidate_stations": 200,
+  "trucks": 5,
+  "scenario": "all-candidates",
+  "solution_limit": 50,
+  "elapsed_s": [
+    0.0955237919697538,
+    0.09227625001221895,
+    0.09179825003957376
+  ],
+  "median_s": 0.09227625001221895,
+  "max_s": 0.0955237919697538,
+  "same_plan_each_run": true,
+  "plan_sha256": "0d0e2e49537dbb045e2c176c32adc316531f260565a3f40a021990a49bebf2b0",
+  "used_trucks": 5,
+  "required_bikes": 1000,
+  "handled_bikes": 600,
+  "unserved_bikes": 400,
+  "distance_m": 103125
+}

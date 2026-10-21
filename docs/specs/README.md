@@ -1,12 +1,15 @@
-# 계약 (초안 v0.1)
+# 계약 명세 (검토용 초안)
 
 팀이 서로 맞춰야 하는 인터페이스의 원본이다. 코드보다 이 파일을 먼저 고친다.
+각 문서의 버전은 YAML의 info.version을 확인한다. 메시지 payload의 schemaVersion과는 별도다.
 
 | 파일 | 내용 | 쓰는 쪽 → 받는 쪽 | 담당 |
 | --- | --- | --- | --- |
 | [`openapi.yaml`](openapi.yaml) | 공개 API: 로그인, 작업 API 5개(202·SSE·승인), 대여소, 계획, 현장 보고, 성과 | 화면 → backend | 백엔드 |
 | [`internal-api.yaml`](internal-api.yaml) | 내부 API `/internal/**`, MCP 도구 ↔ API 대응표, 승인 확인 규칙 | business-mcp → backend | 백엔드 + MCP |
 | [`asyncapi.yaml`](asyncapi.yaml) | Kafka 토픽과 메시지: `ai.tasks`, `ai.events`, `solve.requests`, `solve.results` | backend ↔ agent, backend ↔ optimizer | 백엔드 + 에이전트 + 최적화 |
+| [`optimizer.md`](optimizer.md) | 공통 solve 대응 계산 규칙·실행 설정, OSRM·캐시와 구현 범위 | backend ↔ optimizer | 최적화 · 인프라 |
+| [`plan-review.md`](plan-review.md) | 지도·마커·방문 순서·계획 검토·실제/시연 분리·거점 제외 후 재검토 | 화면 → 공개 API | 최적화 · 인프라 |
 
 ## 보는 법
 

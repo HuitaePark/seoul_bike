@@ -26,6 +26,17 @@ class Station:
     lon: float  # 경도
     capacity: int  # 대여소 용량: 자전거를 세울 수 있는 거치대 수
     bikes: int  # 지금 대여소에 세워져 있는 자전거 수
+    operating_limit: int | None = None  # 운영상 목표 상한. None이면 거치대 수를 초기값으로 사용
+
+
+@dataclass(frozen=True)
+class RoutingStation:
+    """Location for an already computed demand; producer validates inventory."""
+
+    id: int
+    name: str
+    lat: float
+    lon: float
 
 
 @dataclass(frozen=True)
@@ -33,7 +44,11 @@ class Truck:
     """재배치 트럭 한 대."""
 
     id: int
-    capacity: int  # 트럭에 한 번에 실을 수 있는 자전거 수
+    capacity: int = 15  # PRD v0.2 초기값 (실제 운영 검증 전의 설정)
+    load: int = 0  # 현재 적재량. 솔버가 임의로 출발 적재량을 선택하지 않는다
+    position: tuple[float, float] | None = None  # (위도, 경도), None이면 차고지
+    available_time_s: int = 3 * 60 * 60  # 요청 시점부터 근무 종료까지 남은 시간
+    fixed_station_ids: tuple[int, ...] = ()  # 처리할 때 차량을 고정. 방문 순서·방문 필수는 지정하지 않음
 
 
 @dataclass(frozen=True)
@@ -62,6 +77,7 @@ class Imbalance:
 
     station_id: int  # 대여소 고유 번호
     delta: int  # 남는 양(+) 또는 모자란 양(-)
+    priority: int | float | None = None  # 공통 명세의 비음수 점수. None이면 수량 × 유형 가중치
 
     @property
     def action(self) -> Literal["pickup", "dropoff"]:
@@ -77,6 +93,8 @@ class Stop:
     action: Literal["pickup", "dropoff"]  # 수거 또는 보충
     bikes: int  # 이 정거장에서 옮기는 자전거 수 (항상 양수)
     load_after: int  # 이 정거장에서 일을 끝낸 뒤 트럭에 실려 있는 자전거 수
+    arrival_s: int = 0  # 요청 기준 시각으로부터 도착까지의 초
+    departure_s: int = 0  # 도착 시각 + 작업 시간
 
 
 @dataclass
@@ -87,6 +105,7 @@ class Route:
     start_load: int  # 거점에서 출발할 때 트럭에 실려 있는 자전거 수
     stops: list[Stop] = field(default_factory=list)  # 방문 순서대로 쌓인다
     distance_m: int = 0  # 거점 출발 ~ 거점 복귀까지의 총 이동거리(미터)
+    duration_s: int = 0  # 현재 위치에서 출발해 작업 후 차고지로 복귀할 때까지
 
 
 @dataclass
@@ -94,8 +113,10 @@ class Plan:
     """최종 결과물: 모든 트럭의 경로 + 처리하지 못한 불균형."""
 
     routes: list[Route]
-    unserved: list[Imbalance]  # 시간·트럭이 부족해서 포기한 대여소들
+    unserved: list[Imbalance]  # 미처리 거점. 원인은 unserved_reasons를 확인한다
     solver: str  # 어떤 방식으로 만든 계획인지 ("ortools" 또는 "greedy")
+    unserved_reasons: dict[int, str] = field(default_factory=dict)
+    status: Literal["complete", "partial", "no_solution"] = "complete"
 
     @property
     def total_distance_m(self) -> int:
@@ -104,7 +125,7 @@ class Plan:
 
     @property
     def bikes_moved(self) -> int:
-        # 이 계획대로 하면 옮기게 되는 자전거 총 수
+        # 회수·보충 작업 대수의 합. 같은 자전거를 양쪽에서 셀 수 있으며 고유 대수가 아니다
         return sum(s.bikes for r in self.routes for s in r.stops)
 
     @property

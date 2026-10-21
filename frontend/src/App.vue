@@ -27,12 +27,14 @@ const initial = computed(() => auth.user?.name.slice(0, 1) ?? '')
         <template v-if="auth.user.role === 'MANAGER'">
           <RouterLink to="/dashboard">관제 대시보드</RouterLink>
           <RouterLink to="/console">작업 콘솔</RouterLink>
+          <RouterLink to="/plans/review">계획 검토</RouterLink>
           <RouterLink to="/admin/users">계정 관리</RouterLink>
           <a href="/swagger" target="_blank">API 계약</a>
         </template>
         <template v-else-if="auth.user.role === 'EXECUTIVE'">
           <RouterLink to="/report">성과 리포트</RouterLink>
           <RouterLink to="/console">질의</RouterLink>
+          <RouterLink to="/plans/review">계획 검토</RouterLink>
         </template>
         <a href="/status" target="_blank">시스템 상태</a>
         <span class="who">
