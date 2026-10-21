@@ -1,6 +1,5 @@
 package com.seoulbike.backend.task;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -14,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
+
+import com.seoulbike.backend.common.SeoulTime;
 
 /**
  * ai.events 메시지를 저장하고 작업 상태에 반영한다.
@@ -71,9 +72,9 @@ class TaskEventStore {
 
 		ObjectNode payload = ((ObjectNode) message).deepCopy();
 		payload.retain(EVENT_FIELDS);
-		if (!payload.has("occurredAt")) {
-			payload.put("occurredAt", Instant.now().toString());
-		}
+		// SSE로 나가는 시각도 +09:00으로 맞춘다. agent가 Z로 보내도 같은 순간이다.
+		payload.put("occurredAt",
+				payload.has("occurredAt") ? SeoulTime.normalize(payload.path("occurredAt").asString()) : SeoulTime.now());
 
 		Optional<Integer> seq = jdbc.sql("""
 				insert into ai_task_events (task_id, seq, event_id, type, payload, occurred_at)

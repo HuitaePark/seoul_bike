@@ -10,6 +10,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 import com.seoulbike.backend.audit.AuditLog;
 import com.seoulbike.backend.auth.CurrentUser;
+import com.seoulbike.backend.common.SeoulTime;
 import com.seoulbike.backend.report.FieldReportRepository.NewReport;
 import com.seoulbike.backend.task.TaskService;
 
@@ -86,6 +87,6 @@ class FieldReportService {
 			.put("unloaded", r.unloaded())
 			.put("issue", r.issue().name())
 			.put("memo", r.memo())
-			.put("reportedAt", r.reportedAt().toString());
+			.put("reportedAt", SeoulTime.format(r.reportedAt()));
 	}
 }

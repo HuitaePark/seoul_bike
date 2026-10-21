@@ -5,9 +5,9 @@
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.12.0-draft |
-| 내부 API (OpenAPI) | 0.7.0-draft |
-| Kafka (AsyncAPI) | 0.5.0-draft |
+| 공개 API (OpenAPI) | 0.12.1-draft |
+| 내부 API (OpenAPI) | 0.7.1-draft |
+| Kafka (AsyncAPI) | 0.5.1-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
 아래 구현 설명은 [계산 코드](../../or-tools/rebalancing/)와 같은 저장소의 실행기·화면을 기준으로 한다.

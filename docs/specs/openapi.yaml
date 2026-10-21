@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.12.0-draft
+  version: 0.12.1-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
     **초안 v0.12.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.12.1: 응답·SSE의 시각은 모두 서울 오프셋 `+09:00`으로 쓴다 (예 `2026-10-21T07:00:00+09:00`). 형식(RFC 3339)은 그대로다.
     - v0.12: 비활성 계정을 다시 여는 `POST /api/admin/users/{userId}/enable` (승인된 적 있는 계정만, 비활성화 전에 받은 토큰은 다시 열어도 401). `Account.approvedAt` 추가.
     - v0.11.1: 예측 구간 `horizonH` 최대 5 (합의 29).
     - v0.11: 미처리 대여소 사유 `Unserved.reason`을 값 목록으로 (optimizer가 내던 소문자 코드를 대문자로 고정한다).
@@ -23,6 +24,7 @@ info:
     - LLM이 필요한 요청은 작업으로 접수해 **202**를 돌려주고, 진행 상황은 **SSE**로 보낸다.
     - 화면은 이 API만 호출한다. AI 서버 주소는 화면에 드러내지 않는다.
     - 오류 본문은 RFC 9457 `application/problem+json`이다.
+    - 모든 `date-time` 값은 RFC 3339이고 backend가 내보낼 때는 서울 오프셋 `+09:00`을 붙인다 (예 `2026-10-21T07:00:00+09:00`, 팀 합의 5). 요청에는 어느 오프셋이든 받는다.
 servers:
   - url: https://baki-macbookpro.tail3286a4.ts.net
     description: 배포 서버 (Tailscale Funnel)

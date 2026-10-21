@@ -1,6 +1,5 @@
 package com.seoulbike.backend.task;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -16,6 +15,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 import com.seoulbike.backend.auth.CurrentUser;
 import com.seoulbike.backend.common.ApiException;
+import com.seoulbike.backend.common.SeoulTime;
 
 /**
  * ai.tasks로 TaskCommand를 보낸다 (계약 asyncapi.yaml). 근무조 ID가 키라 한 근무조의 명령은 순서대로 간다.
@@ -69,7 +69,7 @@ class TaskCommandPublisher {
 		ObjectNode cmd = json.createObjectNode();
 		cmd.put("eventId", UUID.randomUUID().toString());
 		cmd.put("schemaVersion", 1);
-		cmd.put("occurredAt", Instant.now().toString());
+		cmd.put("occurredAt", SeoulTime.now());
 		cmd.put("shiftId", shiftId);
 		cmd.put("traceId", traceId);
 		cmd.put("taskId", taskId.toString());

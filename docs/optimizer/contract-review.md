@@ -1,6 +1,6 @@
 # 공통 solve 명세 대응 기록
 
-공개 API 0.12.0-draft, 내부 API 0.7.0-draft·Kafka 0.5.0-draft를 따른다.
+공개 API 0.12.1-draft, 내부 API 0.7.1-draft·Kafka 0.5.1-draft를 따른다.
 공유 YAML을 유지하고 구현 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
