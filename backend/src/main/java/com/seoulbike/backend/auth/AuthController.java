@@ -80,7 +80,8 @@ class AuthController {
 			.issuedAt(now)
 			.expiresAt(now.plus(props.tokenTtl()))
 			.claim(CurrentUser.CLAIM_NAME, user.name())
-			.claim(CurrentUser.CLAIM_ROLE, user.role().name());
+			.claim(CurrentUser.CLAIM_ROLE, user.role().name())
+			.claim(CurrentUser.CLAIM_TOKEN_VERSION, stored.tokenVersion());
 		if (user.truckId() != null) {
 			claims.claim(CurrentUser.CLAIM_TRUCK, user.truckId());
 		}

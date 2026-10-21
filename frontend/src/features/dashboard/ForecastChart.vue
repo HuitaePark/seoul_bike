@@ -14,7 +14,8 @@ const W = 380
 const H = 210
 const L = 26 // 왼쪽 눈금 자리
 const B = 150 // 바닥선 y
-const T = 22
+const T = 36 // 맨 위 값 위에 변화량 말풍선(높이 18)이 들어갈 자리
+const TIP_MIN = 20 // 말풍선 기준점이 이보다 위로 가면 윗부분이 잘린다
 
 const max = computed(() => Math.max(10, ...props.stations.flatMap((s) => [s.docks, s.forecastBikes ?? 0, s.bikes])))
 const y = (v: number) => B - (v / max.value) * (B - T)
@@ -31,6 +32,7 @@ const bars = computed(() => {
       color: riskShades[s.risk][1],
       short: s.name.split(' ')[0],
       delta: forecast - s.bikes,
+      tipY: Math.max(TIP_MIN, Math.min(y(forecast), y(s.bikes), y(s.docks)) - 10),
     }
   })
 })
@@ -55,13 +57,13 @@ const bars = computed(() => {
       @click="emit('select', b.stationId)"
       @keydown.enter="emit('select', b.stationId)"
     >
-      <rect :x="b.x - 17" :y="T - 14" width="34" :height="H - T + 10" rx="8" class="hit" />
+      <rect :x="b.x - 17" y="4" width="34" :height="H - 8" rx="8" class="hit" />
       <rect :x="b.x - 7" :y="y(b.docks)" width="14" :height="B - y(b.docks)" rx="4" class="cap" />
       <line :x1="b.x" :x2="b.x" :y1="y(b.bikes)" :y2="y(b.forecast)" :stroke="b.color" stroke-width="3.5" stroke-linecap="round" />
       <circle :cx="b.x" :cy="y(b.bikes)" r="4" fill="#fff" :stroke="b.color" stroke-width="2" />
       <circle :cx="b.x" :cy="y(b.forecast)" r="5.5" :fill="b.color" stroke="#fff" stroke-width="2" />
       <text :transform="`translate(${b.x + 4} ${B + 12}) rotate(-35)`" class="label">{{ b.short }}</text>
-      <g v-if="b.stationId === selected" :transform="`translate(${b.x} ${Math.min(y(b.forecast), y(b.bikes), y(b.docks)) - 10})`">
+      <g v-if="b.stationId === selected" :transform="`translate(${b.x} ${b.tipY})`">
         <rect x="-25" y="-17" width="50" height="18" rx="9" fill="#0f172a" />
         <text y="-4.5" class="tip">{{ b.delta > 0 ? '+' : '' }}{{ b.delta }}대</text>
       </g>

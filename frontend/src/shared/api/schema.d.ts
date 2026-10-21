@@ -207,8 +207,32 @@ export interface paths {
          * 계정 비활성화 (관리자)
          * @description 로그인을 막는다. 가입 신청 거절에도 쓴다. 자기 계정은 비활성화할 수 없다 (CANNOT_DISABLE_SELF).
          *     이미 발급된 토큰도 다음 요청부터 401이다. 이미 열린 SSE 연결은 바로 끊지 않고, 다시 연결할 때 401이다.
+         *     승인된 적 있는 계정은 `POST /api/admin/users/{userId}/enable`로 다시 열 수 있다. 거절한 가입 신청은 다시 열 수 없다.
          */
         post: operations["disableAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{userId}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 계정 다시 활성화 (관리자)
+         * @description 비활성(DISABLED) 계정을 ACTIVE로 되돌려 다시 로그인할 수 있게 한다. 역할·트럭은 비활성화 전 그대로다.
+         *     **승인된 적 있는 계정(`approvedAt`이 있음)만** 연다. 거절한 가입 신청도 DISABLED로 남는데, 이것을 열면 신청 때 고른 역할로
+         *     승인 단계 없이 ACTIVE가 되므로 막는다 (SIGNUP_REJECTED). 다시 가입을 받거나 새로 발급한다.
+         *     **비활성화 전에 받은 토큰은 다시 연 뒤에도 401이다.** 새로 로그인해야 한다.
+         */
+        post: operations["enableAccount"];
         delete?: never;
         options?: never;
         head?: never;
@@ -379,6 +403,11 @@ export interface components {
             status: components["schemas"]["AccountStatus"];
             /** Format: date-time */
             createdAt: string;
+            /**
+             * Format: date-time
+             * @description 승인(또는 관리자 발급)된 시각. 없으면 승인된 적 없는 계정(승인 대기, 거절한 가입 신청)이다
+             */
+            approvedAt?: string | null;
         };
         SignupRequest: {
             loginId: components["schemas"]["LoginId"];
@@ -1093,6 +1122,40 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    enableAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 다시 활성화됨 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description 비활성 상태가 아님 (ACCOUNT_NOT_DISABLED) 또는 거절한 가입 신청 (SIGNUP_REJECTED) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listRegionStations: {
