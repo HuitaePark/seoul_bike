@@ -99,6 +99,13 @@ class UserRepository {
 			.update() == 1;
 	}
 
+	/** 트럭 목록(ref.trucks, 합의 30)의 활성 트럭 ID를 번호 순으로. 기사 계정은 이 트럭만 가질 수 있다. */
+	List<String> activeTruckIds() {
+		return jdbc.sql("select truck_id from ref.trucks where active order by substring(truck_id from 4)::int")
+			.query(String.class)
+			.list();
+	}
+
 	/** PENDING일 때만 승인한다. 이미 처리된 신청이면 false. */
 	boolean approve(String id, Role role, String truckId) {
 		return jdbc.sql("""

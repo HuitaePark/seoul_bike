@@ -188,7 +188,7 @@ class StationApiTest {
 		JsonNode reports = body.path("recentReports");
 		assertThat(reports).hasSize(5);
 		assertThat(reports.get(0).path("actualBikes").asInt()).isEqualTo(5); // 가장 최근 것부터
-		assertThat(reports.get(0).path("driver").asString()).isEqualTo("truck-1 기사");
+		assertThat(reports.get(0).path("driver").asString()).isEqualTo("TR-01 기사");
 
 		var unknown = call("/internal/stations/ST-99999999", null, TOKEN);
 		assertThat(unknown.statusCode()).isEqualTo(404);
@@ -305,7 +305,7 @@ class StationApiTest {
 	private void report(String stationId, int actualBikes, int minutesAgo) {
 		jdbc.sql("""
 				insert into field_reports (report_id, shift_id, truck_id, station_id, actual_bikes, reported_by, reported_at)
-				values (:id, 'S05:2026-10-22:AM', 'truck-1', :station, :bikes, 'u-driver-1',
+				values (:id, 'S05:2026-10-22:AM', 'TR-01', :station, :bikes, 'u-driver-1',
 				        now() - make_interval(mins => :ago))
 				""")
 			.param("id", UUID.randomUUID())

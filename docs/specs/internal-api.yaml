@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 내부 API (/internal/**)
-  version: 0.8.0-draft
+  version: 0.8.1-draft
   summary: business-mcp가 호출하는 backend 내부 API
   description: |
     **초안 v0.8.** MCP·에이전트 담당 확인 전이다.
 
+    - v0.8.1: 트럭 ID는 서울 전체에서 이어 매기는 `TR-NN`(TR-01~TR-35, 합의 30)이다. 예시를 `truck-1`에서 `TR-01`로 바꿨다. 하네스 TRUCK_ID 규칙(`^TR-\d+$`)과 같다.
     - v0.8: 대여소·예측 도구 3개(`get_risk_stations`·`get_station_detail`·`get_forecast`) 구현 규칙. 위험·필요 대수·우선순위·예상 빈 시각 계산,
       예측 행을 고르는 규칙, 404 `REGION_NOT_FOUND`·`STATION_NOT_FOUND`(고칠 후보 `suggestions`)·`STATION_STATUS_NOT_FOUND`, 400 범위.
     - v0.7.1: backend가 내보내는 모든 `date-time`은 서울 시각 오프셋 `+09:00`을 붙인다 (합의 4). 입력은 어떤 RFC 3339 오프셋이든 받는다.
@@ -322,7 +323,7 @@ paths:
         - name: truckId
           in: path
           required: true
-          schema: { type: string }
+          schema: { type: string, examples: [TR-01] }
       requestBody:
         required: true
         content:
@@ -467,7 +468,7 @@ components:
       type: object
       required: [truckId, capacity, load, remainingStops]
       properties:
-        truckId: { type: string }
+        truckId: { type: string, examples: [TR-01] }
         capacity: { type: integer }
         load: { type: integer }
         lat: { type: [number, 'null'] }
@@ -508,7 +509,7 @@ components:
           required: [role, display]
           properties:
             role: { type: string, enum: [MANAGER, DRIVER, EXECUTIVE, SYSTEM] }
-            display: { type: string, examples: [관리자, truck-1 기사] }
+            display: { type: string, examples: [관리자, TR-01 기사] }
         targetId: { type: string, description: approvalId · reportId · constraintId 등 }
         detail: { type: string }
 

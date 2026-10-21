@@ -28,3 +28,9 @@ _Avoid_: 시프트, 회차
 
 **근무조 ID**:
 `{구역 ID}:{yyyy-MM-dd}:{AM|PM|EVE}` 형식의 근무조 식별자 (`N02:2026-10-21:AM`).
+
+## 트럭
+
+**트럭 ID**:
+재배치 트럭의 유일한 ID. 서울 전체에서 이어 매기는 `TR-NN`(두 자리, `TR-01`~`TR-35`)이다. 트럭 목록(`ref.trucks`)은 구역별 `trucks_min`(`ref_regions.csv`)만큼 파일 행 순서(N01..N08, S01..S09)로 번호를 받고, 기사 계정은 목록의 운행 중인 트럭만 가진다 ([합의 30](docs/data/agreements.md)).
+_Avoid_: truck-1, 차량번호
