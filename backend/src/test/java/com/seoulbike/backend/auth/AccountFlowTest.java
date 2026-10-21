@@ -6,6 +6,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -120,7 +121,7 @@ class AccountFlowTest {
 	}
 
 	private HttpResponse<String> loginFrom(String ip, String loginId, String password) throws Exception {
-		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login"))
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login")).timeout(Duration.ofSeconds(30))
 			.header("Content-Type", "application/json")
 			.header("X-Forwarded-For", ip)
 			.POST(HttpRequest.BodyPublishers.ofString(
@@ -190,7 +191,7 @@ class AccountFlowTest {
 	}
 
 	private HttpResponse<String> call(String method, String path, String token, String body) throws Exception {
-		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).timeout(Duration.ofSeconds(30))
 			.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
 		if (body != null) {
 			req.header("Content-Type", "application/json");

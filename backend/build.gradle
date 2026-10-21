@@ -81,6 +81,10 @@ tasks.named('test', Test) {
 	// 막힌 테스트가 CI를 몇십 분씩 잡지 않게 테스트·@BeforeEach마다 한도를 둔다. 디버거로 멈춘 동안은 재지 않는다.
 	systemProperty 'junit.jupiter.execution.timeout.default', '3 m'
 	systemProperty 'junit.jupiter.execution.timeout.mode', 'disabled_on_debug'
+	// 기본(SAME_THREAD)은 인터럽트에 반응하지 않는 코드(소켓 대기 등)가 끝날 때까지 기다린 뒤에야 실패로 표시한다.
+	// 별도 스레드에서 돌리면 한도가 되는 즉시 실패시키고 다음 테스트로 넘어간다.
+	// 주의: 테스트 관리 트랜잭션(@Transactional 테스트)·@WithMockUser처럼 스레드에 묶이는 기능과 함께 쓸 수 없다.
+	systemProperty 'junit.jupiter.execution.timeout.thread.mode.default', 'SEPARATE_THREAD'
 	testLogging {
 		// 기본(SHORT)은 "AssertionError at X.java:104"만 찍어 어느 리스너·이벤트에서 막혔는지 안 보인다.
 		events 'failed'
