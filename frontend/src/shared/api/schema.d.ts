@@ -206,7 +206,7 @@ export interface paths {
         /**
          * 계정 비활성화 (관리자)
          * @description 로그인을 막는다. 가입 신청 거절에도 쓴다. 자기 계정은 비활성화할 수 없다 (CANNOT_DISABLE_SELF).
-         *     이미 발급된 토큰은 만료(최대 12시간)될 때까지 남는다.
+         *     이미 발급된 토큰도 다음 요청부터 401이다. 열려 있는 SSE 연결은 그 작업이 끝날 때까지 남는다.
          */
         post: operations["disableAccount"];
         delete?: never;
