@@ -48,6 +48,7 @@
 
 ## 이 초안이 정한 것
 
+- **식별자 (2026-10-21 결정, [합의 표](../data/agreements.md)):** 대여소 ID는 실시간 API ID `ST-숫자`다 ([ADR 0001](../adr/0001-station-id-is-realtime-api-id.md)). 대여소번호(`102`)와 숫자가 맞지 않으므로 문자열로 바꾸지 않는다. 구역 ID는 `N01`~`N08`·`S01`~`S09`, 근무조 ID는 `{구역 ID}:{yyyy-MM-dd}:{AM|PM|EVE}`(AM 07–10, PM 13–16, EVE 19–21시). 시각은 `+09:00`을 붙인다.
 - 작업 API 경로와 이름은 과제 레퍼런스(표 5-8)를 그대로 따른다.
 - 진행 이벤트는 `TOKEN`, `TOOL_START`, `TOOL_END`, `APPROVAL_REQUIRED`, `DONE`, `FAILED` 여섯 가지다. SSE `data`와 Kafka `ai.events` 메시지는 같은 형식이다.
 - **변경 API 3개(`/internal/constraints`, `/plans/{id}/activate`, `/routes/{truckId}/apply`)는 필요한 승인이 모두 `APPROVED`가 아니면 403**을 돌려준다. 에이전트 interrupt와 별개로 backend가 한 번 더 막는다.
