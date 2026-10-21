@@ -31,10 +31,10 @@ import com.seoulbike.backend.common.SeoulTime;
  * <p>requestId는 {shiftId}:{planVersion}:{seq}. planVersion은 지금 활성 계획의 version(없으면 0)이고 seq는 그 안에서 1부터다.
  * 요청 행을 먼저 커밋하고 발행하므로 결과가 요청보다 먼저 저장될 일은 없다.
  *
- * <p>기다리는 요청은 이 인스턴스의 메모리에만 있다 (backend는 한 대). 시간을 넘기면 기다림을 그만두고 TIMED_OUT을 돌려준다.
- * 그 뒤에 온 결과도 요청 행에는 저장되지만 기다리는 쪽이 없어 후보는 만들지 않는다.
- * 후보는 결과를 받은 이 호출이 만든다. 결과 저장은 요청마다 한 번이고 그때만 기다리는 쪽에 넘어오므로,
- * 같은 결과가 두 번 와도 후보는 하나다.
+ * <p>기다리는 요청은 이 인스턴스의 메모리에 있다. 결과는 보통 이 인스턴스의 소비자가 넘겨준다. backend가 둘 떠 있는 순차 교체 중
+ * (infra/deploy.sh)에는 solve.results를 다른 인스턴스가 받아 요청 행에만 저장할 수 있어서, 기다리는 동안 0.5초마다 요청 행도 본다.
+ * 시간을 넘기면 기다림을 그만두고 TIMED_OUT을 돌려준다. 그 뒤에 온 결과도 요청 행에는 저장되지만 기다리는 쪽이 없어 후보는 만들지 않는다.
+ * 후보는 결과를 받은 이 호출이 만든다. 요청마다 기다리는 호출은 하나이고 결과를 한 번만 가져가므로, 같은 결과가 두 번 와도 후보는 하나다.
  */
 @Component
 public class SolveGateway {
@@ -44,6 +44,8 @@ public class SolveGateway {
 	}
 
 	private static final long SEND_TIMEOUT_SECONDS = 5;
+	/** 다른 인스턴스가 저장한 결과를 찾으러 요청 행을 보는 간격 */
+	private static final long POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(500);
 	private static final Set<String> ENVELOPE = Set.of("eventId", "schemaVersion", "occurredAt", "shiftId", "traceId",
 			"requestId", "kind");
 
@@ -109,14 +111,7 @@ public class SolveGateway {
 
 		JsonNode answer;
 		try {
-			answer = result.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-		}
-		catch (TimeoutException e) {
-			// 결과 처리가 바로 앞에서 자리를 가져갔으면 곧 완료된다. 그 결과를 쓴다.
-			if (pending.remove(requestId, result)) {
-				return new SolveOutcome(SolveOutcome.Status.TIMED_OUT, requestId, null, null, false, null);
-			}
-			answer = result.join();
+			answer = await(requestId, result);
 		}
 		catch (InterruptedException e) {
 			pending.remove(requestId, result);
@@ -125,6 +120,9 @@ public class SolveGateway {
 		}
 		catch (ExecutionException e) {
 			throw new IllegalStateException("경로 계산 결과를 받지 못했다: " + requestId, e.getCause());
+		}
+		if (answer == null) {
+			return new SolveOutcome(SolveOutcome.Status.TIMED_OUT, requestId, null, null, false, null);
 		}
 
 		String status = answer.path("status").asString();
@@ -141,6 +139,32 @@ public class SolveGateway {
 		CompletableFuture<JsonNode> waiting = pending.remove(completed.requestId());
 		if (waiting != null) {
 			waiting.complete(completed.result());
+		}
+	}
+
+	/**
+	 * 결과를 기다린다. 이 인스턴스의 소비자가 넘겨주거나(complete), 다른 인스턴스가 요청 행에 저장한 것을 찾는다.
+	 * 시간을 넘기면 null.
+	 */
+	private JsonNode await(String requestId, CompletableFuture<JsonNode> result)
+			throws InterruptedException, ExecutionException {
+		long deadline = System.nanoTime() + timeout.toNanos();
+		while (true) {
+			long left = deadline - System.nanoTime();
+			try {
+				return result.get(Math.max(1, Math.min(left, POLL_NANOS)), TimeUnit.NANOSECONDS);
+			}
+			catch (TimeoutException e) {
+				var stored = requests.result(requestId);
+				if (stored.isPresent()) {
+					pending.remove(requestId, result);
+					return json.readTree(stored.get());
+				}
+				if (System.nanoTime() - deadline >= 0) {
+					// 결과 처리가 바로 앞에서 자리를 가져갔으면 곧 완료된다. 그 결과를 쓴다.
+					return pending.remove(requestId, result) ? null : result.join();
+				}
+			}
 		}
 	}
 

@@ -18,6 +18,7 @@ const IDLE_MS = 40_000
  *
  * - EventSource는 Authorization 헤더를 못 보내서 fetch로 스트림을 읽는다.
  * - 연결이 끊기거나 IDLE_MS 동안 조용하면 Last-Event-ID로 다시 붙어 놓친 이벤트만 받는다 (backend가 DB에서 다시 보낸다).
+ *   서버 쪽 일시 오류(5xx: 배포 중 교체, 프록시 502 등)도 다시 붙는다. 권한·없는 작업(4xx)은 다시 해도 같아 멈춘다.
  * - DONE 또는 FAILED를 받으면 스트림을 닫는다. close()를 부르면 그 뒤로는 아무것도 알리지 않는다.
  * - 여러 작업을 함께 볼 때(관제 대시보드)는 이것을 작업마다 연다. 한 작업만 보면 useTaskStream을 쓴다.
  */
@@ -66,13 +67,14 @@ export function openTaskStream(
         },
         signal: controller.signal,
       })
-      if (!res.ok || !res.body) {
+      if (res.ok && res.body) {
+        setState('open')
+        attempt = 0
+        if (await read(res.body)) return
+      } else if (res.status < 500) {
         setState('failed')
         return
       }
-      setState('open')
-      attempt = 0
-      if (await read(res.body)) return
     } catch (e) {
       // close()로 끊었으면 끝, 조용해서(stalled) 끊었으면 아래에서 다시 붙는다
       if ((e as Error).name === 'AbortError' && !stalled) return

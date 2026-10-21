@@ -83,6 +83,14 @@ class SolveRequestRepository {
 			.update();
 	}
 
+	/** 저장된 결과 메시지 (계약 SolveResult). 아직 없으면 비어 있다. */
+	Optional<String> result(String requestId) {
+		return jdbc.sql("select result::text from solve_requests where request_id = :requestId and result_event_id is not null")
+			.param("requestId", requestId)
+			.query(String.class)
+			.optional();
+	}
+
 	/** 현장 보고에서 시작한 작업인가. 변경 등급의 출발점(RouteDiff.Origin)을 정한다. */
 	boolean fromFieldReport(UUID taskId) {
 		return jdbc.sql("select type = 'FIELD_REPORT' from ai_tasks where task_id = :taskId")
