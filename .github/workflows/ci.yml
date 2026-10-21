@@ -21,6 +21,48 @@ jobs:
       - run: python -m pytest -q
         working-directory: or-tools
 
+  # agent(그래프·Harness), business-mcp, rag-mcp의 pytest. rag-mcp의 색인·검색 테스트는 pgvector 서비스로 돈다.
+  # agent의 Postgres 체크포인터 테스트(AGENT_TEST_PG_URL)와 rag-mcp의 임베딩 모델 테스트(RAG_TEST_FASTEMBED)는 건너뛴다.
+  python-services:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: agent
+            extra: dev
+            # 임시 격리: 계약 v0.5(현장 보고 명령에 report 필수, PR #18) 뒤로 이 테스트의 예시 명령이 계약에 맞지 않는다.
+            # 2번(Harness)이 예시에 report를 넣으면 이 줄을 지운다.
+            pytest-args: --deselect tests/test_harness.py::ContractTest::test_field_report_command_becomes_a_driver_task
+          - module: business-mcp
+            extra: test
+          - module: rag-mcp
+            extra: test
+            rag-dsn: postgresql://postgres:test@localhost:5432/rag
+    name: python (${{ matrix.module }})
+    # 서버와 같은 이미지. 세 모듈 모두 뜨지만 rag-mcp만 RAG_TEST_DSN으로 쓴다.
+    services:
+      vectordb:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: rag
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[${{ matrix.extra }}]" pytest pytest-asyncio
+        working-directory: ${{ matrix.module }}
+      - run: python -m pytest -q ${{ matrix.pytest-args }}
+        working-directory: ${{ matrix.module }}
+        env:
+          RAG_TEST_DSN: ${{ matrix.rag-dsn }}
+
   backend:
     runs-on: ubuntu-latest
     steps:
