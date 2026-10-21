@@ -39,11 +39,13 @@
 | `/api/system/status` | 구현 |
 | 현장 보고 `POST /api/reports` (기사만, `issue`가 있으면 재경로 작업) | 구현 (v0.5). 정류장이 기사 경로에 있는지는 경로가 생기면(M3) 확인 |
 | 계획 조회 `GET /api/shifts/{shiftId}/plan`(가장 최근 버전, 관리자·책임자만) · 기사 경로 `GET /api/drivers/me/route`(기사만, 오늘 근무조, 없으면 404) | 구현 (v0.10) |
-| 대여소 · 성과 API | 계약만 |
+| 현황 지도 `GET /api/regions/{regionId}/stations` (로그인한 모든 역할) | 구현 (v0.13). 운영 중이고 관측이 있는 대여소만, 가장 최근 관측과 끝나지 않은 가장 이른 예측 구간으로 위험(2대 이하 EMPTY, 거치대 초과 OVERFLOW)을 판단한다. `live`·`forecast` 표는 6번 수집기·예측기가 채우기 전까지 비어 있어 빈 목록이 나온다 |
+| 성과 API | 계약만 |
+| 위험 대여소(`get_risk_stations`) · 대여소 상세(`get_station_detail`) · 예측(`get_forecast`) | 구현 (internal-api v0.8). 같은 위험 판단에 필요 대수·우선순위(부족 대수 × 유형 가중치 × 임박도)·예상 빈 시각·근거를 붙인다. 예측은 `start`·`horizonH`가 정확히 같은 행. 없는 대여소는 404에 고칠 후보(`suggestions`) |
 | `/internal/**` 서비스 토큰(`X-Internal-Token`) · 현장 보고 조회(`get_field_reports`) · 제약 추가(`add_constraint`) · 감사 기록(`get_audit`) | 구현 (internal-api v0.5) |
 | 현재 계획(`get_current_plan`) · 계획 활성화(`submit_plan`) · 경로 적용(`propose_route_change`) | 구현 (internal-api v0.6). 승인 하나에 한 번 실행하고 재시도는 처음 결과(`plans.activated_by_approval`). 활성 계획이 후보의 기준 버전에서 바뀌었으면 409. 경로 적용은 활성 계획에서 그 트럭 경로만 바꾼 새 버전을 ACTIVE로 만든다 |
 | `solve.requests` 발행 · `solve.results` 소비 · 계획 후보 저장 | 구현 (backend 안쪽). `requestId`(`{shiftId}:{planVersion}:{seq}`)와 요청·결과를 `solve_requests`에, OK 결과는 `plans`에 후보(`PROPOSED`)로 남기고 활성 계획과 비교한 `diffs`·`grade`·`requiredApprovers`를 붙인다. 같은 결과가 두 번 와도 후보는 하나. `app.solve.timeout`(60초)을 넘기면 기다림을 그만두고, 늦은 결과는 요청 기록에만 남는다. `solve.results` 소비는 **재시도(`solve.results.retry`) → `solve.results.dlq`** (형식 오류는 바로 dlq) |
-| 나머지 `/internal/**`(대여소·예측·트럭·경로 계산) | 계약만. 경로 계산 `/internal/plans/solve`는 위 왕복을 부르기만 하면 되지만, 입력(대여소 `neededBikes`·`priority`, 트럭 위치·적재)을 만들 대여소 데이터(PR #10)를 기다린다. 시간 초과 임시안(`provisional`)도 그때 |
+| 나머지 `/internal/**`(트럭·경로 계산) | 계약만. 경로 계산 `/internal/plans/solve`는 위 왕복을 부르기만 하면 되지만, 입력(대여소 `neededBikes`·`priority`, 트럭 위치·적재)을 만들 대여소 데이터(PR #10)를 기다린다. 시간 초과 임시안(`provisional`)도 그때 |
 | 변경 등급 규칙 · 경로 변경 승인 순서 확인 | 구현 (등급 기준은 `application.properties`의 `app.route-change.*`). 적용 API `/internal/routes/{truckId}/apply`가 등급을 다시 계산해 이 규칙을 부른다. 가짜 에이전트도 같은 규칙을 부른다 |
 
 ## 이 초안이 정한 것

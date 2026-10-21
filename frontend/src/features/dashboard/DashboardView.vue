@@ -157,6 +157,8 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
         </label>
         <div class="shift-badges">
           <span class="badge ACTIVE">계획 v{{ plan.version }} 활성</span>
+          <!-- 권역 선택이 아직 없어 근무조는 시연 권역(DUMMY_REGION)으로 고정이다 -->
+          <span class="dummy-tag">시연 권역</span>
           <span class="dummy-tag">계획·지도 더미</span>
         </div>
         <span v-if="unapprovedChanges === 0" class="safety">

@@ -5,8 +5,8 @@
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.12.1-draft |
-| 내부 API (OpenAPI) | 0.7.1-draft |
+| 공개 API (OpenAPI) | 0.13.0-draft |
+| 내부 API (OpenAPI) | 0.8.0-draft |
 | Kafka (AsyncAPI) | 0.5.1-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
