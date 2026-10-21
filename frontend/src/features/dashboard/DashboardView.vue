@@ -1,13 +1,16 @@
 <!--
-관제 대시보드 (PRD 10장, FR-01~09). 지금은 더미 데이터로 화면만 잡는다.
-붙일 API: GET /api/regions/{regionId}/stations, GET /api/shifts/{shiftId}/plan, 작업 SSE의 APPROVAL_REQUIRED.
+관제 대시보드 (PRD 10장, FR-01~09).
+실시간: 승인 대기 카드·묻기 답·결정 결과는 근무조 작업 목록과 작업 SSE로 받는다 (useShiftFeed).
+아직 더미: 대여소 현황(GET /api/regions/{regionId}/stations는 backend에 없다)과 트럭 위치(계약에 없다).
+계획(GET /api/shifts/{shiftId}/plan)은 대여소 좌표가 있어야 지도에 그릴 수 있어 대여소 API와 같이 붙인다.
 구성: 왼쪽 근무조 레일 · 맨 위 묻기 줄 · 3D 관제 뷰(+재고 현황) · 예측/진행률/트럭 적재/대여소/에이전트 대화 · 트럭별 경로.
 계획 만들기·상황 반영 요청은 상단 메뉴의 작업 콘솔에서 한다 (같은 곳으로 가는 버튼을 따로 두지 않는다).
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { Schemas } from '../../shared/api/client'
-import { DUMMY_PENDING, DUMMY_PLAN, DUMMY_REGION, DUMMY_STATIONS, DUMMY_TRUCKS } from '../../shared/dummy'
+import { DUMMY_PLAN, DUMMY_REGION, DUMMY_STATIONS, DUMMY_TRUCKS } from '../../shared/dummy'
+import { makeShiftId, SHIFT_SLOTS, slotAt, todayInSeoul, type ShiftSlot } from '../../shared/region/regions'
 import type { ApprovalDecision } from '../approval/approval'
 import { actionLabel } from '../approval/approval'
 import { reasonText } from '../plan-map/model'
@@ -19,8 +22,10 @@ import RingGauge from './RingGauge.vue'
 import StationMap from './StationMap.vue'
 import TruckLoad from './TruckLoad.vue'
 import { riskShades } from './iso'
+import type { LiveCard } from './feed'
 import type { RoutePreview } from './route-view'
 import { legOf, previewOf } from './route-view'
+import { useShiftFeed } from './useShiftFeed'
 
 const colors: Record<string, string> = { 'truck-1': '#2563eb', 'truck-2': '#9333ea', 'truck-3': '#0891b2' }
 const riskLabel: Record<Schemas['RiskKind'], string> = { EMPTY: '빈 대여소 위험', OVERFLOW: '과적재 위험', NONE: '정상' }
@@ -29,7 +34,12 @@ const roleLabel: Record<Schemas['StationRole'], string> = { FIXED_PICKUP: '고�
 const stations = DUMMY_STATIONS
 const plan = DUMMY_PLAN
 const trucks = DUMMY_TRUCKS
-const pending = ref([...DUMMY_PENDING])
+// 오늘(서울 날짜) 근무조. 시간대는 지금 하고 있거나 다음에 올 것으로 시작하고 레일에서 바꾼다.
+const slot = ref<ShiftSlot>(slotAt())
+const shiftId = computed(() => makeShiftId(DUMMY_REGION.id, todayInSeoul(), slot.value))
+const feed = useShiftFeed(shiftId)
+const { pending, log, qa, status: feedStatus, busy, errors } = feed
+const feedLabel = { loading: '연결 중', live: '실시간', offline: '연결 끊김 · 다시 시도 중' } as const
 // 사람 승인 없이 적용된 변경 수. 늘 0이어야 하는 안전 지표다. 더미: 실제로는 감사 로그에서 센다.
 const unapprovedChanges = 0
 const view = ref<'3d' | 'map'>('3d')
@@ -39,7 +49,6 @@ const loadTruck = ref('truck-1')
 const toast = ref('')
 // 승인 대기 변경안을 지도에 겹쳐 본다. 켜져 있으면 그 변경안의 트럭·대여소만 밝게 보인다.
 const preview = ref<RoutePreview | null>(null)
-const qa = ref<{ q: string; a: string }[]>([])
 const openDropped = ref<string | null>(null)
 
 // 지도에서 트럭 하나만 보면 적재 카드도 그 트럭을 보여 준다
@@ -105,7 +114,7 @@ function pickTruck(id: string | null) {
   focusTruck.value = id
 }
 
-function showPreview(card: (typeof pending.value)[number] | null, scroll: boolean) {
+function showPreview(card: LiveCard | null, scroll: boolean) {
   preview.value = card ? previewOf(card, stations) : null
   if (card && scroll) go('view')
 }
@@ -115,12 +124,9 @@ function openDrop(id: string) {
   openDropped.value = openDropped.value === id ? null : id
 }
 
-// 더미: 정해 둔 답을 보여 준다. 실제로는 QUESTION 작업을 만들고 SSE로 답을 받는다.
+// QUESTION 작업을 만들고 답을 SSE로 받는다 (답은 묻기 줄과 에이전트 대화에 함께 보인다)
 function ask(q: string) {
-  qa.value.push({
-    q,
-    a: '서울숲 정문(3시간 뒤 34대)과 뚝섬유원지역(31대)이 거치대 수를 넘을 것으로 예측돼 회수가 많다. 두 곳 모두 고정 회수 거점이다.',
-  })
+  void feed.ask(q)
 }
 
 function notify(text: string) {
@@ -128,11 +134,11 @@ function notify(text: string) {
   window.setTimeout(() => (toast.value = ''), 2600)
 }
 
-// 더미: 결정을 보내지 않고 목록에서만 뺀다. 실제로는 POST /api/ai/tasks/{taskId}/approval
-function decide(body: ApprovalDecision) {
-  pending.value = pending.value.filter((p) => p.approvalId !== body.approvalId)
+// POST /api/ai/tasks/{taskId}/approval. 받아들여지면 카드가 내려가고, 이어지는 결과는 에이전트 대화에 SSE로 붙는다.
+async function decide(body: ApprovalDecision, card: LiveCard) {
+  if (!(await feed.decide(card, body))) return
   if (preview.value?.approvalId === body.approvalId) preview.value = null
-  notify(body.decision === 'APPROVE' ? '승인했다 (더미)' : '거절했다 (더미)')
+  notify(body.decision === 'APPROVE' ? '승인을 보냈다' : '거절을 보냈다')
 }
 </script>
 
@@ -141,11 +147,17 @@ function decide(body: ApprovalDecision) {
     <!-- 왼쪽 레일: 근무조 · 바로 가기 · 요약 -->
     <aside class="rail">
       <section class="rail-card shift">
-        <p class="eyebrow">오늘 근무조 <span class="dummy-tag">더미</span></p>
+        <p class="eyebrow">오늘 근무조</p>
         <strong class="region">{{ DUMMY_REGION.name }}</strong>
-        <span class="muted">오전 07:00–10:00</span>
+        <label class="slot">
+          <span class="sr-only">시간대</span>
+          <select v-model="slot" :title="shiftId">
+            <option v-for="s in SHIFT_SLOTS" :key="s.id" :value="s.id">{{ s.label }} {{ s.time }}</option>
+          </select>
+        </label>
         <div class="shift-badges">
           <span class="badge ACTIVE">계획 v{{ plan.version }} 활성</span>
+          <span class="dummy-tag">계획·지도 더미</span>
         </div>
         <span v-if="unapprovedChanges === 0" class="safety">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3z" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>
@@ -381,14 +393,17 @@ function decide(body: ApprovalDecision) {
         <section id="agent" class="card w-chat">
           <header class="w-head">
             <h2>에이전트 대화</h2>
+            <span :class="['feed-state', `is-${feedStatus}`]" role="status" :title="`근무조 ${shiftId}`">{{ feedLabel[feedStatus] }}</span>
             <span :class="['count-pill', { zero: !pending.length }]">승인 대기 {{ pending.length }}</span>
           </header>
           <AgentChat
             :pending="pending"
             :summary="plan.explanation ?? ''"
             :version="plan.version"
-            :qa="qa"
+            :log="log"
             :previewing="preview?.approvalId"
+            :busy="busy"
+            :errors="errors"
             @decide="decide"
             @preview="showPreview"
           />
@@ -481,8 +496,16 @@ section[id] { scroll-margin-top: 76px; }
 .rail-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
 .shift { background: var(--sky); border-color: #d3e7f3; }
 .region { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
-.shift-badges { margin: 6px 0 4px; }
+.slot select { width: 100%; padding: 5px 8px; font-size: 13px; color: var(--ink-2); }
+.shift-badges { margin: 6px 0 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .shift-badges .badge { margin: 0; }
+/* 에이전트 소식(SSE) 연결 상태 */
+.feed-state { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
+.feed-state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; }
+.feed-state.is-live { color: var(--brand-strong); }
+.feed-state.is-live::before { background: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.feed-state.is-offline { color: #b45309; }
+.feed-state.is-offline::before { background: #f59e0b; }
 .safety { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #166534; background: rgb(255 255 255 / 0.85); border: 1px solid #bbf7d0; }
 .safety.bad { color: #991b1b; background: var(--empty-soft); border-color: #fecaca; }
 .rail-nav { display: flex; flex-direction: column; gap: 2px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
