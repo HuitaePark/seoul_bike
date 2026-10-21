@@ -50,6 +50,7 @@ class RunRecord:
     history: list[BaseMessage]
     approvals: list[dict[str, Any]]  # per RESUME: seq, approvalId, kind, approver, grade, decision, role, refused
     elapsed_s: float
+    traces: list[Any] = field(default_factory=list)  # decision trace (harness/trace.py TraceEvent)
 
     @property
     def final(self) -> Any:
@@ -257,10 +258,12 @@ def _qa_grounded(r: RunRecord) -> tuple[bool, str]:
 
 @labeled("관리자 승인 → 기사 수락 뒤에만 적용")
 def _major_needs_manager_then_driver(r: RunRecord) -> tuple[bool, str]:
-    refused = [a for a in r.approvals if a["refused"]]
-    accepted = [a for a in r.approvals if not a["refused"] and a["decision"] == "APPROVE"]
-    cards = [o.approval for o in r.outcomes if o.approval]
-    applied = r.world.executed_changes
+    # 경로 변경 카드만 본다. 기사 메모로 관리자 제약 카드가 함께 나올 수 있다 (field_report 이슈 #35)
+    route = [a for a in r.approvals if a["kind"] == "ROUTE_CHANGE"]
+    refused = [a for a in route if a["refused"]]
+    accepted = [a for a in route if not a["refused"] and a["decision"] == "APPROVE"]
+    cards = [o.approval for o in r.outcomes if o.approval and o.approval["kind"] == "ROUTE_CHANGE"]
+    applied = [c for c in r.world.executed_changes if c["tool"] == "propose_route_change"]
     ok = (
         bool(refused) and refused[0]["role"] == "DRIVER" and refused[0]["approver"] == "MANAGER"
         and [a["role"] for a in accepted] == ["MANAGER", "DRIVER"]
@@ -271,6 +274,25 @@ def _major_needs_manager_then_driver(r: RunRecord) -> tuple[bool, str]:
         f"관리자 카드에 기사 응답 거부 {[a['role'] for a in refused]}, 승인 순서 {[a['role'] for a in accepted]}, "
         f"카드 후보 {sorted({c['candidateId'] for c in cards})}, 적용 {len(applied)}건"
     )
+
+
+def _route_change_and_block_only(station: str) -> Check:
+    """경로 변경은 한 번만 적용되고, 그 밖의 변경은 보고한 대여소의 진입 불가 제약(관리자 카드)뿐이다.
+
+    기사 메모가 공사·진입 통제처럼 다른 트럭에도 영향을 주면 field_report 프롬프트(이슈 #35)는 경로 제안 뒤
+    STATION_BLOCKED 제약을 관리자에게 올리라고 한다. 승인 없이 실행된 변경이 없는지는 공통 검사가 따로 본다."""
+
+    @labeled(f"경로 적용 1건, 그 밖의 변경은 {station} 진입 불가 제약만")
+    def check(r: RunRecord) -> tuple[bool, str]:
+        routes = [c for c in r.world.executed_changes if c["tool"] == "propose_route_change"]
+        extra = [c for c in r.world.executed_changes if c["tool"] != "propose_route_change"]
+        ok = len(routes) == 1 and all(
+            c["tool"] == "add_constraint" and c["args"]["type"] == "STATION_BLOCKED" and c["args"]["station_ids"] == [station]
+            for c in extra
+        )
+        return ok, f"경로 적용 {len(routes)}건, 그 밖의 변경 {[(c['tool'], c['args'].get('type'), c['args'].get('station_ids')) for c in extra]}"
+
+    return check
 
 
 @labeled("오류 후 대체 대여소")
@@ -344,8 +366,8 @@ SCENARIOS: list[Scenario] = [
         script=[_replan("TR-1", ["ST-2005"]), _apply_last("TR-1"), _driver_summary("TR-1")],
         expect=Expect(
             tools_in_order=("request_route_plan", "propose_route_change"),
-            changes=("propose_route_change",),
-            checks=(_replan_excludes("ST-2005"), _applied_without("ST-2005"), _approver("ROUTE_CHANGE", "DRIVER", "MINOR")),
+            checks=(_replan_excludes("ST-2005"), _applied_without("ST-2005"), _approver("ROUTE_CHANGE", "DRIVER", "MINOR"),
+                    _route_change_and_block_only("ST-2005")),
         ),
     ),
     Scenario(
@@ -368,7 +390,8 @@ SCENARIOS: list[Scenario] = [
             _summarise_plan,
         ],
         expect=Expect(
-            tools_in_order=("get_risk_stations", "request_route_plan", "submit_plan"),
+            # 계산 → 제출만 순서가 있다. 위험 대여소 조회는 모델이 필요할 때 고른다 (최적화기가 위험 대여소를 직접 읽는다)
+            tools_in_order=("request_route_plan", "submit_plan"),
             changes=("submit_plan",),
             checks=(_submits_computed_plan, _answer_lists_unserved, _approver("SUBMIT_PLAN", "MANAGER")),
         ),
@@ -411,7 +434,8 @@ SCENARIOS: list[Scenario] = [
                 "현장 보고 R-4에서 ST-2006 실제 재고가 23대로 확인돼 회수가 늘었다 (business_get_audit R-4)."
             ),
         ],
-        expect=Expect(tools_in_order=("get_audit", "get_current_plan"), changes=(), checks=(_qa_grounded,)),
+        # 두 조회 사이에 순서는 없다 (한 턴에 함께 부를 수 있다). 둘 다 부르고 출처를 밝혔는지는 _qa_grounded가 본다 (FR-08)
+        expect=Expect(changes=(), checks=(_qa_grounded,)),
         world=lambda: World(reports=[report("R-4", "TR-2", "ST-2006", 23, "INVENTORY_MISMATCH", "앱보다 4대 많음")]),
     ),
     Scenario(
@@ -420,8 +444,8 @@ SCENARIOS: list[Scenario] = [
         decisions=[{"decision": "APPROVE", "role": "DRIVER"}, APPROVE, APPROVE],
         script=[_replan("TR-1", ["ST-2005"]), _apply_last("TR-1"), _driver_summary("TR-1")],
         expect=Expect(
-            changes=("propose_route_change",),
-            checks=(_approver("ROUTE_CHANGE", "MANAGER", "MAJOR"), _major_needs_manager_then_driver),
+            checks=(_approver("ROUTE_CHANGE", "MANAGER", "MAJOR"), _major_needs_manager_then_driver,
+                    _route_change_and_block_only("ST-2005")),
         ),
         world=lambda: World(force_grade="MAJOR"),
     ),

@@ -25,6 +25,7 @@ from .contract import final_approval_id
 from .errors import FailureCode, HarnessFailure
 from .guardrails import destructive_tools
 from .task import HarnessContext
+from .trace import call_text, clip
 
 
 class TraceHeaderInterceptor:
@@ -53,16 +54,33 @@ def mcp_client(servers: dict[str, str], trace_header: str) -> MultiServerMCPClie
     )
 
 
-def select_tools(tools: Iterable[BaseTool], task_type: str, role: str, settings: ToolSettings) -> list[BaseTool]:
-    """Tools the model may see for this task. Read-only tasks never get destructive tools, and a driver's task never
-    gets `driver_deny` tools, whatever the allow list says."""
+def offered_tools(
+    tools: Iterable[BaseTool], task_type: str, role: str, settings: ToolSettings
+) -> tuple[list[BaseTool], list[dict[str, str]]]:
+    """Tools the model may choose from for this task, and every loaded tool it may not, with the reason (trace).
+    Read-only tasks never get destructive tools, and a driver's task never gets `driver_deny` tools, whatever the
+    allow list says."""
     tools = list(tools)
     allowed = set(settings.allow.get(task_type, ()))
-    if task_type in settings.read_only_tasks:
-        allowed -= set(destructive_tools(tools))
-    if role == "driver":
-        allowed -= settings.driver_deny
-    return [t for t in tools if t.name in allowed]
+    destructive = set(destructive_tools(tools))
+    offered, withheld = [], []
+    for tool in tools:
+        if tool.name not in allowed:
+            why = "이 작업의 허용 목록에 없다"
+        elif task_type in settings.read_only_tasks and tool.name in destructive:
+            why = "읽기 전용 작업이라 변경 도구는 주지 않는다"
+        elif role == "driver" and tool.name in settings.driver_deny:
+            why = "기사 작업에는 주지 않는다 (NFR-06)"
+        else:
+            offered.append(tool)
+            continue
+        withheld.append({"name": tool.name, "why": why})
+    return offered, withheld
+
+
+def select_tools(tools: Iterable[BaseTool], task_type: str, role: str, settings: ToolSettings) -> list[BaseTool]:
+    """Tools the model may see for this task (`offered_tools` without the reasons)."""
+    return offered_tools(tools, task_type, role, settings)[0]
 
 
 def _text(content: object) -> str:
@@ -125,6 +143,7 @@ class ToolResultMiddleware(AgentMiddleware):
         rules: Mapping[str, ApprovalRule],
         injected: Iterable[str],
         task_id_tools: Iterable[str] = (),
+        preview_chars: int = 1200,
     ):
         super().__init__()
         self.settings = settings
@@ -132,6 +151,7 @@ class ToolResultMiddleware(AgentMiddleware):
         self.rules = rules
         self.injected = tuple(injected)
         self.task_id_tools = frozenset(task_id_tools)
+        self.preview_chars = preview_chars
 
     @staticmethod
     def _prepare(text: str, ctx: HarnessContext) -> str:
@@ -168,18 +188,39 @@ class ToolResultMiddleware(AgentMiddleware):
         to_run = self._call_to_run(call, ctx, request.state.get("messages", []))
         if to_run["args"] != call["args"]:
             request = request.override(tool_call=to_run)
-        ctx.emit("TOOL_START", {"tool": self._tool(call["name"])})
+        name = call["name"]
+        ctx.emit("TOOL_START", {"tool": self._tool(name)})
+        approved = " · 승인된 호출" if name in self.rules else ""
+        ctx.trace("TOOL_CALL", f"→ {call_text(name, to_run['args'])}{approved}", {
+            "callId": call["id"], "name": name, "label": self.labels.get(name, name), "args": to_run["args"],
+            "injected": sorted(set(to_run["args"]) - set(call["args"])), "gated": name in self.rules,
+            "rationale": ctx.rationales.get(call["id"]),
+        }, turn=ctx.stats.turns or None)
+        started = ctx.clock()
         try:
             result = await handler(request)
         except (GraphBubbleUp, HarnessFailure, asyncio.CancelledError):
             raise
         except Exception as exc:
             # MCP isError results already arrive as error ToolMessages; anything raised here is transport failure.
-            raise HarnessFailure(FailureCode.TOOL_UNAVAILABLE, f"{call['name']}: {type(exc).__name__}: {exc}") from exc
+            error = f"{type(exc).__name__}: {exc}"
+            ctx.trace("TOOL_RESULT", f"← {name} 연결 실패: {clip(error, 120)}",
+                      {"callId": call["id"], "name": name, "ok": False, "ms": round((ctx.clock() - started) * 1000),
+                       "error": clip(error, self.preview_chars)}, turn=ctx.stats.turns or None)
+            raise HarnessFailure(FailureCode.TOOL_UNAVAILABLE, f"{name}: {error}") from exc
         if not isinstance(result, ToolMessage):
             return result
         content, cut = truncate(self._prepare(_text(result.content), ctx), self.settings.result_max_chars)
         ctx.stats.truncated += cut
         masked = result.model_copy(update={"content": content, "artifact": None})
-        ctx.emit("TOOL_END", {"tool": self._tool(call["name"], masked.status != "error")}, {"truncated": cut})
+        ok = masked.status != "error"
+        ctx.emit("TOOL_END", {"tool": self._tool(name, ok)}, {"truncated": cut})
+        ms = round((ctx.clock() - started) * 1000)
+        title = f"← {name} {'성공' if ok else '오류'} {ms / 1000:.2f}초, {len(content):,}자"
+        if not ok:
+            title += f": {clip(content, 120)}"
+        ctx.trace("TOOL_RESULT", title, {
+            "callId": call["id"], "name": name, "ok": ok, "ms": ms, "chars": len(content), "truncated": cut,
+            "scoped": ctx.task.requester.role == "driver", "preview": clip(content, self.preview_chars),
+        }, turn=ctx.stats.turns or None)
         return masked

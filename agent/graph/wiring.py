@@ -14,6 +14,7 @@
 - `AGENT_PG_URL`: PostgreSQL (체크포인터, 처리 기록). 없으면 메모리
 - `KAFKA_BOOTSTRAP`: 브로커 주소 (기본 localhost:9092)
 - `AGENT_DRIVER_NAMES`: 자유 글에서 가릴 기사 이름 (쉼표로 구분). 계약에 이름 목록이 없어 설정으로 받는다
+- `AGENT_TRACE`: `0`이면 추론 기록(`ai.traces`, 관리자 로그)을 내보내지 않는다. 기본은 켜짐
 """
 from __future__ import annotations
 
@@ -110,14 +111,15 @@ async def main() -> None:
 
         names = [n.strip() for n in os.environ.get("AGENT_DRIVER_NAMES", "").split(",") if n.strip()]
 
-        def make_shift(publish: Callable[[dict], None]) -> ShiftAgent:
+        def make_shift(publish: Callable[[dict], None], trace: Callable[[dict], None] | None) -> ShiftAgent:
             shift = ShiftAgent(tools, publish, config=config, harness=factory, checkpointer=checkpointer,
-                               driver_names=names)
+                               driver_names=names, trace=trace)
             if world is not None:
                 record_approvals_in(world, shift)
             return shift
 
-        await run_kafka(make_shift, processed, os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092"), ready_file=ready)
+        await run_kafka(make_shift, processed, os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092"), ready_file=ready,
+                        trace=os.environ.get("AGENT_TRACE", "1") != "0")
 
 
 if __name__ == "__main__":

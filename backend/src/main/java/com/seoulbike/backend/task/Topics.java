@@ -12,6 +12,8 @@ public class Topics {
 
 	public static final String AI_TASKS = "ai.tasks";
 	public static final String AI_EVENTS = "ai.events";
+	/** 에이전트 추론 기록 (관리자 로그). 최선 노력이라 재시도·dlq 토픽이 없다. backend가 DB에 남기므로 토픽은 하루만 둔다. */
+	public static final String AI_TRACES = "ai.traces";
 
 	@Bean
 	NewTopic aiTasks(@Value("${app.kafka.partitions}") int partitions) {
@@ -21,5 +23,10 @@ public class Topics {
 	@Bean
 	NewTopic aiEvents(@Value("${app.kafka.partitions}") int partitions) {
 		return TopicBuilder.name(AI_EVENTS).partitions(partitions).build();
+	}
+
+	@Bean
+	NewTopic aiTraces(@Value("${app.kafka.partitions}") int partitions) {
+		return TopicBuilder.name(AI_TRACES).partitions(partitions).config("retention.ms", "86400000").build();
 	}
 }

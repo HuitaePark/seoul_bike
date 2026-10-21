@@ -45,12 +45,13 @@ REQUESTER = {"manager": "관제 관리자", "driver": "트럭 기사", "schedule
 
 
 def task_message(task: Task, masked_input: str) -> str:
-    """First user message: who asked (decides the answer format), code-recorded report values (the only
-    allowed source of bike counts), then the untrusted free text."""
+    """First user message: who asked (decides the answer format), the shift the task belongs to (tool arguments
+    `shift_id`·`region_id` come from here, never from examples), code-recorded report values (the only allowed
+    source of bike counts), then the untrusted free text."""
     who = REQUESTER[task.requester.role]
     if task.requester.truck_id:
         who += f" (트럭 {task.requester.truck_id})"
-    lines = [f"요청자: {who}"]
+    lines = [f"요청자: {who}", f"근무조: {task.shift_id} (구역 {task.shift_id.split(':', 1)[0]})"]
     if task.report:
         lines.append(f"보고 데이터 (기사 앱 기록, 숫자는 이 값만 쓴다): {task.report.render()}")
     lines.append(wrap_user_input(masked_input))

@@ -18,8 +18,9 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from langchain_core.messages import ToolMessage
@@ -27,10 +28,14 @@ from langchain_core.tools import BaseTool
 
 from harness import HarnessConfig, Task
 from harness.contract import approval_card, approval_id, approvers, decision_from_resume, sources
+from harness.guardrails import Masker
+from harness.trace import call_text, clip
 
 from .approvals import doc_sources, enrich_card, merge_sources, tool_results
 from .contract import base_name, report_contract
 from .events import ShiftEventSink
+
+Tracer = Callable[..., None]  # events.GraphTracer: (record, kind, title, detail, source=..., turn=...)
 
 
 def failed(code: str, message: str) -> dict:
@@ -60,12 +65,26 @@ def _json(text: str) -> Any:
 
 
 class CodePath:
-    """도구를 코드로 부르는 대체 경로. 도구 인자는 도구 스키마에 있는 이름만 골라 넘긴다."""
+    """도구를 코드로 부르는 대체 경로. 도구 인자는 도구 스키마에 있는 이름만 골라 넘긴다.
 
-    def __init__(self, tools: Iterable[BaseTool], config: HarnessConfig) -> None:
+    추론 기록(source CODE)에는 모델 대신 어떤 규칙으로 그 도구를 골랐는지를 DECISION으로 남긴다."""
+
+    def __init__(self, tools: Iterable[BaseTool], config: HarnessConfig, tracer: Tracer | None = None,
+                 masker: Masker | None = None) -> None:
         self.tools = {t.name: t for t in tools}
         self.rules = config.guardrails.approval
         self.labels = config.observability.tool_labels
+        self.preview = config.observability.trace_preview_chars
+        self.tracer = tracer
+        self.masker = masker or Masker(config.guardrails.mask_keys)
+
+    def _preview(self, text: str) -> str:
+        """결과 미리보기. 자르기 전에 가린다: 잘린 JSON은 키(lat·lon 등)로 가릴 수 없다."""
+        return clip(self.masker.value(text), self.preview)
+
+    def _trace(self, record: dict | None, kind: str, title: str, detail: dict | None = None) -> None:
+        if self.tracer is not None and record is not None:
+            self.tracer(record, kind, title, detail, source="CODE")
 
     def tool(self, name: str) -> BaseTool:
         found = self.tools.get(f"business_{name}") or self.tools.get(name)
@@ -79,23 +98,35 @@ class CodePath:
         return {k: v for k, v in candidates.items() if k in props and v is not None}
 
     async def call(self, name: str, record: dict | None = None, sink: ShiftEventSink | None = None,
-                   trail: list | None = None, **candidates: Any) -> Any:
-        """도구 1회 호출. sink가 있으면 TOOL_START·TOOL_END를 내고, trail에 결과(ToolMessage)를 남긴다 (카드·근거용)."""
+                   trail: list | None = None, *, why: str | None = None, **candidates: Any) -> Any:
+        """도구 1회 호출. sink가 있으면 TOOL_START·TOOL_END를 내고, trail에 결과(ToolMessage)를 남긴다 (카드·근거용).
+        `why`는 이 도구를 부르는 규칙이다. 있으면 추론 기록에 DECISION·TOOL_CALL·TOOL_RESULT를 남긴다."""
         tool = self.tool(name)
         args = self.args_for(name, **candidates)
         label = self.labels.get(tool.name, tool.name)
+        call_id = f"code-{uuid.uuid4().hex[:12]}"
+        traced = record if why else None
+        self._trace(traced, "DECISION", f"규칙: {why} → {call_text(tool.name, args)}",
+                    {"calls": [{"id": call_id, "name": tool.name, "args": args, "rationale": why}], "rule": why})
         if sink:
             sink.send(record, "TOOL_START", tool={"name": tool.name, "label": label})
-        ok = False
+        self._trace(traced, "TOOL_CALL", f"→ {call_text(tool.name, args)}",
+                    {"callId": call_id, "name": tool.name, "label": label, "args": args, "rationale": why})
+        ok, text, started = False, "", time.monotonic()
         try:
             # tool call로 부르면 오류가 ToolMessage.status="error"로 온다. 인자만 넘기면 오류 글이 결과처럼 돌아온다
-            message = await tool.ainvoke({"type": "tool_call", "name": tool.name, "args": args,
-                                          "id": f"code-{uuid.uuid4().hex[:12]}"})
+            message = await tool.ainvoke({"type": "tool_call", "name": tool.name, "args": args, "id": call_id})
             text = _text(message.content)
             ok = getattr(message, "status", "success") != "error"
         finally:
             if sink:
                 sink.send(record, "TOOL_END", tool={"name": tool.name, "label": label, "ok": ok})
+            ms = round((time.monotonic() - started) * 1000)
+            self._trace(traced, "TOOL_RESULT",
+                        f"← {tool.name} {'성공' if ok else '오류'} {ms / 1000:.2f}초, {len(text):,}자"
+                        + ("" if ok else f": {clip(self.masker.text(text), 120)}"),
+                        {"callId": call_id, "name": tool.name, "ok": ok, "ms": ms, "chars": len(text),
+                         "preview": self._preview(text)})
         if not ok:
             raise ToolFailed(f"{tool.name}: {text}")
         if trail is not None:
@@ -123,9 +154,23 @@ class CodePath:
         """
         if record["type"] not in {"PLAN_DRAFT", "FIELD_REPORT"}:
             return failed("MODEL_UNAVAILABLE", "모델 없이 처리할 수 없는 작업이다 (자연어 해석이 필요하다)")
-        if resume is None:
-            return await self._start(record, task, sink, exclude=record.get("excluded") or [])
-        return await self._resume(record, task, sink, resume)
+        segment = "start" if resume is None else "resume"
+        self._trace(record, "RUN_START", f"규칙 경로 {'시작' if resume is None else '재개'} · {record['type']}",
+                    {"segment": segment, "taskType": record["type"],
+                     "decision": (resume or {}).get("decision"), "excluded": record.get("excluded") or []})
+        try:
+            if resume is None:
+                out = await self._start(record, task, sink, exclude=record.get("excluded") or [])
+            else:
+                out = await self._resume(record, task, sink, resume)
+        except Exception as exc:
+            self._trace(record, "RUN_END", f"실패: {clip(f'{type(exc).__name__}: {exc}', 160)}",
+                        {"status": "FAILED", "error": clip(str(exc), self.preview)})
+            raise
+        title = {"DONE": "완료", "APPROVAL_REQUIRED": "승인 대기로 멈춤"}.get(out["status"], f"실패 {out.get('code')}")
+        self._trace(record, "RUN_END", f"{title}: {clip(out.get('answer') or out.get('message') or '', 160)}".rstrip(": "),
+                    {"status": out["status"], "code": out.get("code"), "answer": clip(out.get("answer"), self.preview)})
+        return out
 
     async def _start(self, record: dict, task: Task, sink: ShiftEventSink, exclude: list[str]) -> dict:
         if record["type"] == "PLAN_DRAFT":
@@ -134,12 +179,16 @@ class CodePath:
 
     async def _plan_draft(self, record: dict, task: Task, sink: ShiftEventSink, exclude: list[str]) -> dict:
         trail: list = []
-        candidate = await self.call("request_route_plan", record, sink, trail, shift_id=record["shiftId"], kind="PLAN",
-                                    truck_ids=[], exclude_station_ids=list(dict.fromkeys(exclude)))
+        why = "모델 없이 계획 초안을 만든다: 근무조 전체 경로를 계산한다"
+        if exclude:
+            why += f" (승인자가 뺀 {', '.join(exclude)} 제외)"
+        candidate = await self.call("request_route_plan", record, sink, trail, why=why, shift_id=record["shiftId"],
+                                    kind="PLAN", truck_ids=[], exclude_station_ids=list(dict.fromkeys(exclude)))
         if not isinstance(candidate, dict) or not candidate.get("plan", {}).get("planId"):
             return failed("TOOL_UNAVAILABLE", "경로 계산 결과를 읽지 못했다")
         call = {"name": self.tool("submit_plan").name, "args": {"plan_id": candidate["plan"]["planId"]},
                 "id": f"code-{uuid.uuid4().hex[:12]}"}
+        self._propose(record, call, "계산한 계획을 활성화하려면 관리자 승인이 필요하다")
         return self._ask(record, task, sink, call, trail, 0, exclude)
 
     async def _field_report(self, record: dict, task: Task, sink: ShiftEventSink, exclude: list[str]) -> dict:
@@ -149,8 +198,13 @@ class CodePath:
             return failed("OUTPUT_INVALID", "현장 보고에 트럭·대여소가 없다")
         trail: list = []
         blocked = [report["stationId"]] if report.get("issue") in {"BLOCKED", "CONSTRUCTION"} else []
-        candidate = await self.call("request_route_plan", record, sink, trail, shift_id=record["shiftId"], kind="REPLAN",
-                                    truck_ids=[truck], exclude_station_ids=list(dict.fromkeys([*blocked, *exclude])))
+        if blocked:
+            why = f"진입 불가·공사 보고라 {blocked[0]}를 빼고 {truck}의 남은 경로만 다시 계산한다"
+        else:
+            why = f"보고된 실제 재고를 반영해 {truck}의 남은 경로만 다시 계산한다 (재고는 backend가 이미 반영했다)"
+        candidate = await self.call("request_route_plan", record, sink, trail, why=why, shift_id=record["shiftId"],
+                                    kind="REPLAN", truck_ids=[truck],
+                                    exclude_station_ids=list(dict.fromkeys([*blocked, *exclude])))
         if not isinstance(candidate, dict) or "candidateId" not in candidate:
             return failed("TOOL_UNAVAILABLE", "경로 계산 결과를 읽지 못했다")
         diff = next((d for d in candidate.get("diffs") or [] if d.get("truckId") == truck), None)
@@ -162,13 +216,25 @@ class CodePath:
         call = {"name": self.tool("propose_route_change").name,
                 "args": {"truck_id": truck, "candidate_id": candidate["candidateId"]},
                 "id": f"code-{uuid.uuid4().hex[:12]}"}
+        order = " → ".join(candidate.get("requiredApprovers") or [])
+        self._propose(record, call, f"변경 등급 {candidate.get('grade')}: {truck} 경로 변경을 {order} 순서로 승인받는다")
         return self._ask(record, task, sink, call, trail, 0, exclude)
+
+    def _propose(self, record: dict, call: dict, why: str) -> None:
+        """변경 도구는 바로 부르지 않고 승인 카드로 멈춘다. 그 판단을 DECISION으로 남긴다."""
+        self._trace(record, "DECISION", f"규칙: {why} → {call_text(call['name'], call['args'])}",
+                    {"calls": [{"id": call["id"], "name": call["name"], "args": call["args"], "rationale": why}],
+                     "rule": why})
 
     def _ask(self, record: dict, task: Task, sink: ShiftEventSink, call: dict, trail: list, step: int,
              exclude: Iterable[str] = ()) -> dict:
         """승인 순서의 `step`번째 카드를 낸다. 대기 상태(멈춘 호출, 근거가 된 도구 결과, 단계)를 결과에 담아 저장한다."""
         card = enrich_card(approval_card(task, call, trail, self.rules, step), tool_results(trail), exclude)
         sink.send(record, "APPROVAL_REQUIRED", approval=card)
+        order = card.get("requiredApprovers") or [card["approver"]]
+        self._trace(record, "APPROVAL_WAIT", f"승인 대기 ({card['approver']} {step + 1}/{len(order)}): {card['summary']}",
+                    {"approvalId": card["approvalId"], "kind": card["kind"], "approver": card["approver"],
+                     "summary": card["summary"], "step": step + 1, "of": len(order)})
         return {
             "status": "APPROVAL_REQUIRED",
             "approval": card,
@@ -196,8 +262,8 @@ class CodePath:
             sink.send(record, "DONE", answer=answer, sources=[])
             return {"status": "DONE", "answer": answer, "rejected": True}
         final = approval_id(task.task_id, call["id"], order[-1])  # 마지막 카드(기사 수락)의 ID로 변경 API를 부른다
-        await self.call(base_name(call["name"]), record, sink, trail, **call["args"], approval_id=final,
-                        task_id=task.task_id)
+        await self.call(base_name(call["name"]), record, sink, trail, why="승인 순서의 마지막 카드까지 승인되어 멈춘 호출을 실행한다",
+                        **call["args"], approval_id=final, task_id=task.task_id)
         answer = "\n".join([f"승인되어 실행했습니다: {summary}", *card.get("reasons", [])])
         used = merge_sources(sources(trail, self.labels), doc_sources(trail))
         sink.send(record, "DONE", answer=answer, sources=used)

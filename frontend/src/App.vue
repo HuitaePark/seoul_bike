@@ -40,6 +40,8 @@ watch(() => route.fullPath, () => (menuOpen.value = false))
           <RouterLink to="/console" class="has-tip" data-tip="계획 만들기 · 현장 상황 반영">작업 콘솔<span class="sr-only"> (계획 만들기 · 현장 상황 반영)</span></RouterLink>
           <RouterLink to="/plans/review">계획 검토</RouterLink>
           <RouterLink to="/admin/users">계정 관리</RouterLink>
+          <!-- 모델이 어떤 도구를 왜 골랐는지 보는 관리자 로그. 작업 콘솔의 진행 표시와 따로 기록된다 -->
+          <RouterLink to="/admin/agent-log" class="has-tip" data-tip="모델이 도구를 고른 이유 · 결과">에이전트 로그<span class="sr-only"> (모델이 도구를 고른 이유 · 결과)</span></RouterLink>
           <a href="/swagger" target="_blank">API 계약</a>
         </template>
         <template v-else-if="auth.user.role === 'EXECUTIVE'">

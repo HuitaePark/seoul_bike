@@ -37,7 +37,10 @@ class LoopGuardMiddleware(AgentMiddleware):
         super().__init__()
         self.settings = settings
 
-    def _timeout(self, limit: float) -> HarnessFailure:
+    def _timeout(self, ctx: HarnessContext, limit: float) -> HarnessFailure:
+        ctx.trace("GUARD", f"시간 한도 {limit:g}초를 넘겨 진행 중 호출을 끊는다",
+                  {"rule": "TIMEOUT", "action": "FAIL", "limitS": limit, "elapsedS": round(ctx.elapsed(), 3)},
+                  turn=ctx.stats.turns or None)
         return HarnessFailure(FailureCode.LOOP_TIMEOUT, f"작업 시간 {limit:g}초 초과")
 
     async def _within_budget[T](self, ctx: HarnessContext, call: Coroutine[object, object, T]) -> T:
@@ -45,11 +48,11 @@ class LoopGuardMiddleware(AgentMiddleware):
         remaining = limit - ctx.elapsed()
         if remaining <= 0:
             call.close()
-            raise self._timeout(limit)
+            raise self._timeout(ctx, limit)
         try:
             return await asyncio.wait_for(call, remaining)
         except TimeoutError as exc:
-            raise self._timeout(limit) from exc
+            raise self._timeout(ctx, limit) from exc
 
     async def awrap_model_call(
         self,
@@ -59,6 +62,8 @@ class LoopGuardMiddleware(AgentMiddleware):
         ctx: HarnessContext = request.runtime.context
         ctx.stats.turns += 1
         if ctx.stats.turns > self.settings.max_turns:
+            ctx.trace("GUARD", f"모델 호출이 {self.settings.max_turns}턴을 넘어 작업을 끝낸다",
+                      {"rule": "MAX_TURNS", "action": "FAIL", "limit": self.settings.max_turns}, turn=ctx.stats.turns)
             raise HarnessFailure(FailureCode.LOOP_MAX_TURNS, f"모델 호출 {self.settings.max_turns}턴 초과")
         return await self._within_budget(ctx, handler(request))
 
@@ -74,8 +79,14 @@ class LoopGuardMiddleware(AgentMiddleware):
         count = ctx.stats.same_tool[signature]
         limit = self.settings.max_same_tool_calls
         if count > limit + 1:
+            ctx.trace("GUARD", f"{call['name']}을 같은 인자로 {count}번째 불러 작업을 끝낸다",
+                      {"rule": "SAME_TOOL", "action": "FAIL", "tool": call["name"], "count": count, "limit": limit},
+                      turn=ctx.stats.turns or None)
             raise HarnessFailure(FailureCode.LOOP_SAME_TOOL, f"{call['name']}을 같은 인자로 {count}회 호출")
         if count == limit + 1:
+            ctx.trace("GUARD", f"{call['name']} 같은 인자 {count}번째 호출은 실행하지 않고 모델에 되돌린다",
+                      {"rule": "SAME_TOOL", "action": "BLOCK", "tool": call["name"], "count": count, "limit": limit},
+                      turn=ctx.stats.turns or None)
             return ToolMessage(
                 content=(
                     f"실행하지 않음: {call['name']}을 같은 인자로 이미 {limit}회 호출했다. "

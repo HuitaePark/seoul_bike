@@ -76,6 +76,7 @@ def report_contract(raw: dict, report_id: str | None = None) -> dict | None:
         "unloaded": int(_pick(raw, "unloaded", default=0)),
         "issue": str(issue).upper() if issue else None,
         "memo": (_pick(raw, "memo", default="") or "").strip() or None,
+        "reportedAt": _pick(raw, "reportedAt", "reported_at"),
     }
 
 

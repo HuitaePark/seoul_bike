@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 문서 상태 | 초안 v0.7 (계약 asyncapi v0.4 · internal-api v0.5 맞춤, 기사 질문 감사 기록 제외) |
+| 문서 상태 | 초안 v0.9 (추론 기록 `ai.traces`·선택 이유 `rationale`, 변경 작업에 도구 12개 모두, 프롬프트를 목표·끝나는 조건으로. 계약 asyncapi v0.6 · openapi v0.16) |
 | 작성일 | 2026-10-20 |
 | 담당 | 2 Harness · 평가 · 품질 |
 | 코드 | [`agent/`](../agent) (실행법: [agent/README](../agent/README.md)) |
@@ -90,10 +90,12 @@ sequenceDiagram
 
 | `task_type` | 도구 | 승인 카드 (`kind` → `approver`) | PRD |
 | --- | --- | --- | --- |
-| `plan_draft` | 조회 6, `rag_search_docs`, `request_route_plan`, `submit_plan` | `SUBMIT_PLAN` → MANAGER | S1, FR-02·04·05 |
-| `field_report` | 조회 6, `request_route_plan`, `propose_route_change` | `ROUTE_CHANGE` → 후보의 `requiredApprovers` 순서: MINOR **DRIVER** 한 장, MAJOR **MANAGER → DRIVER** 두 장 | S2, FR-12·13 |
-| `manager_request` | 조회 6, `rag_search_docs`, `request_route_plan`, `add_constraint` | `ADD_CONSTRAINT` → MANAGER | S1-3, FR-09 |
-| `qa` | 조회 6, `get_audit`(기사 질문 제외), `rag_search_docs` | 없음 (읽기 전용) | FR-08 |
+| `plan_draft` | 구현된 12개 모두 | `SUBMIT_PLAN` → MANAGER (그 밖의 변경 도구도 카드 규칙대로) | S1, FR-02·04·05 |
+| `field_report` | 12개 중 기사 제외 2개(`get_audit`, `submit_plan`)를 뺀 10개 | `ROUTE_CHANGE` → 후보의 `requiredApprovers` 순서: MINOR **DRIVER** 한 장, MAJOR **MANAGER → DRIVER** 두 장. 메모의 현장 상황은 `ADD_CONSTRAINT` → MANAGER | S2, FR-12·13 |
+| `manager_request` | 구현된 12개 모두 | `ADD_CONSTRAINT` → MANAGER (적용하라고 하면 `ROUTE_CHANGE`) | S1-3, FR-09 |
+| `qa` | 읽기 도구 8개 모두 (`get_audit`은 기사 질문 제외) | 없음 (읽기 전용) | FR-08 |
+
+v0.9부터 변경할 수 있는 작업에는 구현된 도구를 모두 주고 **무엇을 언제 부를지는 모델이 고른다**. 안전 범위는 허용 목록이 아니라 `read_only_tasks`(질의는 읽기 도구만, 계산 도구도 새 후보를 만들어 다른 작업의 대기 계획을 대체할 수 있어 주지 않는다), `driver_deny`, 승인 카드, 인자 검증이 좁힌다. 모델이 어떤 도구를 왜 골랐는지는 추론 기록(3.9)에 남는다.
 
 조회 6 = `get_risk_stations`, `get_station_detail`, `get_forecast`, `get_current_plan`, `get_truck_status`, `get_field_reports`. `get_audit`은 근무조 감사 기록(최신순, 최대 20건). 도구 이름과 내부 API 대응은 [internal-api.yaml](specs/internal-api.yaml) 표를 따른다. `task_id` 인자를 받는 도구(변경 도구, `request_route_plan`)에는 Harness가 작업 ID를 채운다.
 
@@ -111,7 +113,7 @@ sequenceDiagram
 | `tools.result_max_chars` | `4000` (초기값) | Tools | |
 | `tools.rag_top_k` | `5` | Tools·Context | |
 | `tools.read_only_tasks` | `[qa]` | Tools | 변경 도구 제외 |
-| `tools.driver_deny` | `[business_get_audit]` | Tools | 기사 작업에서 제외. 감사 기록은 근무조 전체 기록이고 항목에 `truckId`가 없어 기사 범위로 거를 수 없다 (NFR-06) |
+| `tools.driver_deny` | `[business_get_audit, business_submit_plan]` | Tools | 기사 작업에서 제외. 감사 기록은 근무조 전체 기록이고 항목에 `truckId`가 없어 기사 범위로 거를 수 없다. 계획 제출은 근무조 전체를 바꾼다 (NFR-06) |
 | `tools.allow.*` | [1.6](#16-작업-종류와-승인) 표 | Tools | |
 | `context.token_budget` · `keep_tokens` | `16000` · `8000` (초기값) | Context | |
 | `loop.max_turns` · `max_same_tool_calls` | `8` · `3` | Agent Loop | 과제 권장값 |
@@ -121,7 +123,7 @@ sequenceDiagram
 | `guardrails.injected_args` | `approval_id`, `task_id` | Guardrails | specs `ApprovedChange`. 모델에게 숨기고 Harness가 채움 |
 | `guardrails.mask_keys` | `driver`, `driverName`, `driverPhone`, `phone`, `lat`, `lon` 등 | Guardrails | 구조 마스킹 대상 키 |
 | `guardrails.id_pattern` | `ST-\d+` | Guardrails | 인자 검증 |
-| `observability.*` | 프로젝트 `seoul-bike` · `seoul-bike-eval`, 헤더 `X-Trace-Id`, `tool_labels` | Observability | `tool.label` = 화면 진행 문구 |
+| `observability.*` | 프로젝트 `seoul-bike` · `seoul-bike-eval`, 헤더 `X-Trace-Id`, `tool_labels`, `trace_preview_chars` `1200` | Observability | `tool.label` = 화면 진행 문구. 추론 기록의 결과·답변 미리보기 길이 |
 
 ---
 
@@ -139,7 +141,8 @@ sequenceDiagram
 | 규칙 | 내용 |
 | --- | --- |
 | 파일 | `prompts/common.md` + `prompts/{task_type}.md`, front matter `version` 필수. 조합 버전(`common@3+field_report@3`)을 trace와 결과표에 남긴다 |
-| 첫 메시지 | 코드가 만든다: `요청자: …` / `보고 데이터 (기사 앱 기록, 숫자는 이 값만 쓴다): …` / `<user_input>원문</user_input>` |
+| 첫 메시지 | 코드가 만든다: `요청자: …` / `근무조: {shiftId} (구역 …)` / `보고 데이터 (기사 앱 기록, 숫자는 이 값만 쓴다): …, 보고 시각 …` / `<user_input>원문</user_input>`. 근무조는 v0.9에서 넣었다: 없으면 모델이 프롬프트 예시 ID를 썼다 (추론 기록으로 찾음) |
+| 판단 방식 | `common@4`: 목표와 끝난 상태 → 모르는 사실 → 그 사실을 주는 도구 → 결과로 다시 판단 → 변경은 근거가 모인 뒤 하나씩. 작업 프롬프트는 도구 순서가 아니라 목표·판단할 것·끝나는 조건을 적는다 (`plan_draft@4`, `field_report@5`, `manager_request@3`, `qa@6`) |
 | 도구 사용법 | 내부 API 인자 이름으로 설명 (`kind`, `exclude_station_ids`, `candidate_id`, 제약 `type`·`value`) |
 | 숫자 | 도구 결과·`보고 데이터`의 값만 인용. 제약 `value`도 요청 문장·보고·조회 결과에 있는 값만 |
 | 거절 후 | 제외 대여소나 수정 사유가 있으면 반영해 다시 계산하고 다시 승인을 요청한다. 사유가 없으면 기존 계획·경로 유지 (FR-04, FR-13) |
@@ -158,10 +161,13 @@ sequenceDiagram
 | 결과 길이 · RAG | 4,000자에서 자르고 `[잘림: …]` 표시. `top_k`는 5로 제한 |
 | 도구 오류 | `ToolError`(계약 `ToolProblem.detail`)는 오류 `ToolMessage`로 모델에게 돌아간다. 연결 실패는 `FAILED(TOOL_UNAVAILABLE)` |
 | 구조화 결과 제거 | MCP artifact는 버린다 |
+| 선택 이유 `rationale` | 모델에게 보이는 모든 도구 스키마에 `rationale`(첫 번째, 필수)을 더한다. 모델 응답 직후 `DecisionTraceMiddleware`가 떼어 추론 기록에만 남긴다. 인자 검증·같은 호출 한도·승인 카드·체크포인트·MCP는 떼어 낸 인자만 본다 |
 
 ### 3.3 Context
 
 Instructions → `## 현재 근무조 상태` + `brief` → 첫 메시지와 대화·도구 메시지. 16k 토큰을 넘으면 앞부분을 요약하고 최근 8k를 남긴다.
+
+승인된 변경 도구가 방금 실행됐으면 그다음 모델 호출 한 번에만 시스템 프롬프트에 `## 방금 일어난 일`(승인되어 실행됨, 끝나는 조건을 보고 남은 단계를 이어 간다)을 붙인다 (`ApprovedChangeNoteMiddleware`). 없으면 모델이 제약 승인·실행 뒤 "승인해 주시면 다시 계산하겠다"고 답하고 재계산을 하지 않았다 (SC-01, 추론 기록으로 찾음).
 
 ### 3.4 State·Memory
 
@@ -238,6 +244,17 @@ Instructions → `## 현재 근무조 상태` + `brief` → 첫 메시지와 대
 | LangSmith 마스킹 | 클라이언트 `anonymizer`로 모든 run의 inputs·outputs·error·metadata를 업로드 전에 가린다 |
 
 검증 범위: 업로드를 받아 두는 로컬 서버로 실제 LangSmith 클라이언트의 업로드 내용을 확인했다. 실제 계정·화면은 미확인 (ISS-10).
+
+### 3.9 추론 기록 (관리자 로그)
+
+`harness/trace.py`. 실행 구간마다 `RUN_START`(고를 수 있는 도구·빠진 도구와 이유) → `DECISION`(고른 도구·인자·`rationale`, 응답 시간·토큰) → `GUARD`(인자 검증·같은 호출·한도) → `TOOL_CALL`·`TOOL_RESULT`(실행 인자, 결과 미리보기) → `RECOVERY`(재시도·대체 모델) → `APPROVAL_WAIT` → `RUN_END`를 `TraceSink`로 낸다. 형식은 asyncapi `AgentTraceMessage`(`ai.traces`)이고 진행 이벤트(4절)와 섞지 않는다.
+
+| 규칙 | 내용 |
+| --- | --- |
+| 출구 | `HarnessAgent(tracer=...)`. 없으면 `trace()`가 있는 sink(그래프 `ShiftEventSink`, 테스트 `ListSink`)를 쓰고, 그것도 없으면 버린다 |
+| 마스킹 | `HarnessContext.trace`가 제목·내용을 `Masker`로 가린 뒤 낸다. 도구 결과 미리보기는 이미 가린 결과에서 자른다 |
+| 실패 | 기록 함수의 예외는 삼킨다. 기록이 작업 결과·이벤트를 바꾸지 않는다 (`test_a_broken_trace_channel_changes_nothing`) |
+| 보는 곳 | backend 관리자 API → 화면 `/admin/agent-log`, CLI `python -m graph.agentlog`, 평가 `python -m evaluation --trace FILE` (AGENT-GRAPH 10절) |
 
 ---
 
@@ -323,6 +340,8 @@ Instructions → `## 현재 근무조 상태` + `brief` → 첫 메시지와 대
 | 결과 | 모델 | 통과 | 무승인 변경 |
 | --- | --- | --- | --- |
 | [2026-10-21-scripted-baseline](eval/2026-10-21-scripted-baseline.md) | 기준 궤적 | 15/15 | 0 |
+| [2026-10-22-before-agent-reasoning](eval/2026-10-22-before-agent-reasoning.md) | `gemma4:31b`, v0.8 (프롬프트 `common@3`) | 9/15 (같은 날 v0.9 채점기로 다시: 10/15, 12/15) | 0 |
+| [2026-10-22-agent-reasoning](eval/2026-10-22-agent-reasoning.md) | `gemma4:31b`, v0.9 (`common@4`) | 15/15 (세 번: 15, 15, 14) | 0 |
 
 기준 궤적 결과는 Harness와 채점 경로 확인이다. 실제 모델 기준선은 아직 없다 (ISS-08).
 
@@ -339,6 +358,7 @@ Instructions → `## 현재 근무조 상태` + `brief` → 첫 메시지와 대
 | `harness/events.py` | `ProgressEvent` → `TaskEventMessage` |
 | `harness/task.py` | `Task`, `Requester`, `FieldReport`, `Outcome`, 실행 구간 컨텍스트 |
 | `harness/validation.py` | 인자 검증 |
+| `harness/trace.py` | 추론 기록: `TraceEvent`, `TraceSink`, 선택 이유 `rationale` 더하기·떼기, `DecisionTraceMiddleware` |
 | `harness/guardrails.py` | 승인 interrupt, 마스킹 |
 | `harness/tools.py` | MCP 연결, 허용 목록, 숨긴 인자, 승인 ID 주입, 기사 범위, 결과 처리 |
 | `harness/loop.py`, `recovery.py`, `context.py`, `tracing.py`, `prompts.py`, `config.py`, `errors.py` | 나머지 요소 |
@@ -347,7 +367,7 @@ Instructions → `## 현재 근무조 상태` + `brief` → 첫 메시지와 대
 
 | 대상 | 순서 (바깥 → 안쪽) |
 | --- | --- |
-| 모델 호출 | LoopGuard → ArgumentValidation → Usage → StateBrief → Recovery → 모델 |
+| 모델 호출 | LoopGuard → ArgumentValidation → DecisionTrace → Usage → StateBrief → ApprovedChangeNote → Recovery → 모델 |
 | 도구 호출 | LoopGuard → ToolResult → MCP 도구 |
 | 모델 전 · 후 | Summarization · HumanInTheLoop (승인 대기) |
 
@@ -407,6 +427,7 @@ except ApprovalMismatch:
 | 2026-10-21 | Tools, Instructions, Observability | 계약 asyncapi v0.4·internal-api v0.5: `qa`에 `get_audit`, FIELD_REPORT 명령의 `report` 사용, `requestedBy.truckId`, `FAILED.code` 계약 필드로, `request_route_plan`에 `task_id` 주입, 프롬프트 `qa@4` (v0.6) | 계약 반영 (ISS-03~06 해결) | [scripted-baseline](eval/2026-10-21-scripted-baseline.md) 15/15, 무승인 변경 0 |
 | 2026-10-21 | Tools, Instructions | `tools.driver_deny: [business_get_audit]`: 기사 질문(`qa`)에는 감사 기록 도구를 주지 않고, 그래프 캐시 키에 요청자 역할 추가. 프롬프트 `qa@5` (v0.7) | PR 리뷰: 기사 질문으로 다른 트럭의 현장 보고·관리자 승인 기록이 보임 (NFR-06, ISS-R15) | `test_driver_question_never_reads_the_shift_audit`, scripted 15/15, 무승인 변경 0 |
 | 2026-10-21 | Tools, Instructions | `field_report`에 `business_add_constraint` 허용, 프롬프트 `field_report@4`: 기사 메모가 트럭 밖에도 영향을 주는 현장 상황(행사·사고·대여소 고장)이면 기사 트럭 재경로 뒤 제약(`PRIORITY_BOOST`·`STATION_BLOCKED`·`STATION_SUSPENDED`)을 관리자 승인 카드로 올린다 (v0.8) | 이슈 #35: 기사가 '기타'로 적은 현장 변수를 계획에 반영. 기사 혼자 본 내용이라 제약은 관리자만 승인 | `test_driver_memo_about_the_area_becomes_a_manager_constraint_card`, scripted 15/15, 무승인 변경 0 |
+| 2026-10-22 | Tools, Instructions, Context, Observability | 추론 기록 3.9 (`ai.traces`), 선택 이유 `rationale`, 변경 작업에 구현된 도구 12개 모두(질의는 읽기 8개, 기사는 `get_audit`·`submit_plan` 제외), 프롬프트를 목표·끝나는 조건으로(`common@4`·`plan_draft@4`·`field_report@5`·`manager_request@3`·`qa@6`), 첫 메시지에 근무조·보고 시각, 승인 실행 알림, 채점기 정리(목록 번호를 숫자로 보지 않음, 순서만 적던 기대를 의존 관계로, 이슈 #35의 진입 불가 제약 허용, SC-08 채점기 오류) (v0.9) | 모델이 고른 도구와 이유가 어디에도 남지 않았고, 실제 모델이 기사 보고 3건에서 재계산 뒤 경로를 제안하지 않고 끝났다. 기록으로 원인(근무조 ID 모름, 보고 시각 없음, 승인 실행을 모름, 끝나는 조건 없음)을 찾았다 | 실제 모델 9/15 → 15/15 (세 번 15·15·14), 같은 채점기의 v0.8은 10·12. 무승인 변경 0. 기준 궤적 15/15 |
 
 ---
 

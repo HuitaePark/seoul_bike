@@ -7,11 +7,13 @@
     python -m evaluation                                   # reference trajectories, no model key needed
     python -m evaluation --model openai:gpt-4.1-mini       # model scenarios on a real model (+ LLM judge)
     python -m evaluation --only SC-01,FT-05 --label prompt-v2
+    python -m evaluation --model ollama:gemma4:31b --trace /tmp/trace.jsonl   # 추론 기록도 남긴다 (python -m graph.agentlog --file로 본다)
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -121,7 +123,8 @@ async def run_scenario(sc: Scenario, base: HarnessConfig, model_name: str | None
                 outcomes.append(await agent.resume_command(task, resume))
             except ApprovalMismatch:
                 entry["refused"] = True
-        record = RunRecord(sc, outcomes, sink.events, world, await agent.history(task), approvals, time.monotonic() - started)
+        record = RunRecord(sc, outcomes, sink.events, world, await agent.history(task), approvals, time.monotonic() - started,
+                           sink.traces)
     checks = score(record)
     graded = await judge_explanation(judge, record) if judge is not None and real else None
     return Result(sc, record, checks, model_name if real else "scripted", graded)
@@ -207,6 +210,7 @@ async def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="쉼표로 구분한 시나리오 ID")
     parser.add_argument("--label", default="baseline", help="결과 파일 이름에 붙일 변경 이름")
     parser.add_argument("--out", type=Path, help="결과 Markdown 경로. 기본값 docs/eval/YYYY-MM-DD-{label}.md")
+    parser.add_argument("--trace", type=Path, help="추론 기록(ai.traces와 같은 JSON)을 한 줄씩 남길 경로")
     args = parser.parse_args(argv)
 
     logging.getLogger("mcp").setLevel(logging.WARNING)
@@ -217,6 +221,12 @@ async def main(argv: list[str] | None = None) -> int:
     judge = init_chat_model(judge_name) if judge_name else None
 
     results = [await run_scenario(sc, config, args.model, judge) for sc in scenarios]
+    if args.trace:
+        args.trace.parent.mkdir(parents=True, exist_ok=True)
+        with args.trace.open("w", encoding="utf-8") as f:
+            for r in results:
+                for event in r.record.traces:
+                    f.write(json.dumps({"scenario": r.scenario.id, **event.to_json()}, ensure_ascii=False) + "\n")
     report = render(results, config, args.label, args.model)
     out = args.out or REPO_ROOT / "docs" / "eval" / f"{date.today().isoformat()}-{args.label}.md"
     out.parent.mkdir(parents=True, exist_ok=True)

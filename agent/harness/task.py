@@ -13,6 +13,7 @@ from typing import Literal
 
 from .events import EventSink, EventType, ProgressEvent
 from .guardrails import Masker
+from .trace import NullTrace, TraceEvent, TraceKind, TraceSink, TraceSource
 
 TaskType = Literal["plan_draft", "field_report", "manager_request", "qa"]
 
@@ -42,6 +43,7 @@ class FieldReport:
     unloaded: int = 0
     issue: Literal["BLOCKED", "CONSTRUCTION", "INVENTORY_MISMATCH", "OTHER"] | None = None
     memo: str | None = None
+    reported_at: str | None = None  # 보고 시각 (internal-api FieldReport.reportedAt). 제약 valid_from의 근거
 
     @classmethod
     def from_contract(cls, data: dict) -> FieldReport:
@@ -54,6 +56,7 @@ class FieldReport:
             unloaded=int(data.get("unloaded") or 0),
             issue=data.get("issue"),
             memo=data.get("memo"),
+            reported_at=data.get("reportedAt"),
         )
 
     def render(self) -> str:
@@ -62,6 +65,8 @@ class FieldReport:
         parts += [f"실제 재고 {self.actual_bikes}대", f"싣기 {self.loaded}대", f"내리기 {self.unloaded}대"]
         if self.issue:
             parts.append(f"사정 {self.issue}")
+        if self.reported_at:
+            parts.append(f"보고 시각 {self.reported_at}")
         return ", ".join(parts)
 
 
@@ -109,7 +114,13 @@ class HarnessContext:
     sink: EventSink
     masker: Masker
     clock: Callable[[], float] = time.monotonic
+    tracer: TraceSink = field(default_factory=NullTrace)
+    run_id: str | None = None
     stats: SegmentStats = field(init=False)
+    rationales: dict[str, str] = field(default_factory=dict)  # tool call id -> the model's reason (trace only)
+    last_model: str | None = None  # model that answered the latest call (RecoveryMiddleware)
+    last_model_is_fallback: bool = False
+    _attempts: dict[int, int] = field(default_factory=dict)  # turn -> model answers (validation retries add one)
 
     def __post_init__(self) -> None:
         self.stats = SegmentStats(started_at=self.clock())
@@ -123,6 +134,20 @@ class HarnessContext:
         self.sink.emit(
             ProgressEvent(type_, t.task_id, t.trace_id, t.shift_id, body or {}, harness or {})
         )
+
+    def trace(self, kind: TraceKind, title: str, detail: dict | None = None, *, turn: int | None = None,
+              source: TraceSource = "HARNESS") -> None:
+        """One admin-log line (harness/trace.py). Masked here, so no caller can leak driver identity; never raises."""
+        t = self.task
+        try:
+            self.tracer.trace(TraceEvent(kind, source, t.task_id, t.trace_id, t.shift_id, self.masker.text(title),
+                                         self.masker.value(detail or {}), run_id=self.run_id, turn=turn))
+        except Exception:  # noqa: BLE001 - the log must never change what the task does
+            return
+
+    def decision_attempt(self, turn: int) -> int:
+        self._attempts[turn] = self._attempts.get(turn, 0) + 1
+        return self._attempts[turn]
 
 
 Status = Literal["DONE", "APPROVAL_REQUIRED", "FAILED"]

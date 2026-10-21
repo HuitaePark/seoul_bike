@@ -15,38 +15,11 @@ tools:
   read_only_tasks: [qa]             # 이 작업에는 destructiveHint 도구를 절대 주지 않는다
   driver_deny:                      # 기사가 보낸 작업에는 허용 목록에 있어도 주지 않는다 (NFR-06)
     - business_get_audit            # 근무조 전체 기록이고 항목에 truckId가 없어 기사 범위로 거를 수 없다
+    - business_submit_plan          # 근무조 전체 계획을 바꾼다. 기사는 자기 트럭만 바꾼다
+  # 구현된 MCP 도구 12개. 변경할 수 있는 작업에는 모두 열고, 무엇을 언제 부를지는 모델이 고른다 (추론 기록에 이유가 남는다).
+  # 안전 범위는 목록이 아니라 위의 두 규칙, 승인 카드(guardrails.approval), 인자 검증이 좁힌다.
   allow:
-    plan_draft:
-      - business_get_risk_stations
-      - business_get_station_detail
-      - business_get_forecast
-      - business_get_current_plan
-      - business_get_truck_status
-      - business_get_field_reports
-      - rag_search_docs
-      - business_request_route_plan
-      - business_submit_plan
-    field_report:
-      - business_get_risk_stations
-      - business_get_station_detail
-      - business_get_forecast
-      - business_get_current_plan
-      - business_get_truck_status
-      - business_get_field_reports
-      - business_request_route_plan
-      - business_propose_route_change
-      - business_add_constraint        # 기사 메모의 현장 상황(행사·사고)을 관리자 승인 카드로 올린다 (이슈 #35)
-    manager_request:
-      - business_get_risk_stations
-      - business_get_station_detail
-      - business_get_forecast
-      - business_get_current_plan
-      - business_get_truck_status
-      - business_get_field_reports
-      - rag_search_docs
-      - business_request_route_plan
-      - business_add_constraint
-    qa:
+    plan_draft: &all_tools
       - business_get_risk_stations
       - business_get_station_detail
       - business_get_forecast
@@ -54,6 +27,21 @@ tools:
       - business_get_truck_status
       - business_get_field_reports
       - business_get_audit             # 계약 internal-api v0.5 (GET /internal/shifts/{shiftId}/audit), FR-08 근거
+      - rag_search_docs
+      - business_request_route_plan
+      - business_add_constraint        # 기사 메모의 현장 상황(행사·사고)도 관리자 승인 카드로 올린다 (이슈 #35)
+      - business_submit_plan
+      - business_propose_route_change
+    field_report: *all_tools
+    manager_request: *all_tools
+    qa:                                # 읽기 도구 8개 전부. 계산 도구도 새 후보를 만들어 다른 작업이 승인을 기다리는 계획을 대체할 수 있어 주지 않는다
+      - business_get_risk_stations
+      - business_get_station_detail
+      - business_get_forecast
+      - business_get_current_plan
+      - business_get_truck_status
+      - business_get_field_reports
+      - business_get_audit
       - rag_search_docs
 
 context:
@@ -87,6 +75,7 @@ observability:
   project: seoul-bike
   eval_project: seoul-bike-eval
   trace_header: X-Trace-Id
+  trace_preview_chars: 1200         # 추론 기록(ai.traces, 관리자 로그)에 남기는 결과·답변·판단 글의 최대 길이
   tool_labels:                      # TOOL_START·TOOL_END 이벤트의 tool.label (화면 진행 표시)
     business_get_risk_stations: 위험 대여소 조회 중
     business_get_station_detail: 대여소 상세 조회 중

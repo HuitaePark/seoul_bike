@@ -16,6 +16,8 @@ from .scenarios import RAW_IDENTITY, RunRecord
 
 ID_TOKEN = re.compile(r"(?:ST|TR|PR|P|C)-\d+|doc://[\w-]+|기사#[0-9a-f]{4}|\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}")
 NUMBER = re.compile(r"\d+(?:\.\d+)?")
+# 답변의 목록·제목 번호("1. 요약", "**2. 근거**")는 수량이 아니다. 숫자 출처 검사에서 뺀다
+LIST_MARKER = re.compile(r"(?m)^[\s>*#-]*\d+[.)](?=\s)")
 COUNT = re.compile(r"(\d+)\s*대")
 QUANTITY_KEYS = {
     "bikes", "docks", "forecastBikes", "actualBikes", "load", "capacity", "neededBikes", "priority", "value",
@@ -106,7 +108,7 @@ def score(record: RunRecord) -> list[Check]:
     if final.status == "DONE":
         stated = sc.text + sc.brief + json.dumps(sc.report or {}, ensure_ascii=False)
         sources = " ".join(str(m.content) for m in record.history if isinstance(m, ToolMessage)) + stated
-        invented = sorted(_numbers(final.answer) - _numbers(sources))
+        invented = sorted(_numbers(LIST_MARKER.sub(" ", final.answer)) - _numbers(sources))
         counts = sorted(set(COUNT.findall(final.answer)) - _quantities(record))
         problems = [f"출처 없는 숫자 {invented}"] * bool(invented) + [f"수량 필드에 없는 대수 {counts}"] * bool(counts)
         checks.append(Check("숫자 출처", not problems, "; ".join(problems) or "모두 도구 결과·보고·입력에 있음"))
