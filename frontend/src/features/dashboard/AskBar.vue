@@ -29,7 +29,7 @@ function submit() {
     </form>
     <p class="hint">지금 계획과 지도에 대한 빠른 질문. 계획을 새로 만들거나 상황을 반영하려면 <RouterLink to="/console">작업 콘솔</RouterLink>을 쓴다.</p>
     <div v-if="last" class="answer" role="status">
-      <span class="q">{{ last.q }}</span>
+      <span class="q">{{ last.q }}</span> <span class="dummy-tag">더미 답</span>
       <p>{{ last.a }}</p>
       <button class="ghost" aria-label="답 닫기" @click="hidden = qa.length - 1">닫기</button>
     </div>

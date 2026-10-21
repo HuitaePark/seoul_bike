@@ -1,10 +1,10 @@
 <!--
-권역 고르기. 이름(강남-05)이나 ID(S05)로 검색해 목록에서 고르고, 목록에 없는 ID는 그대로 입력한다.
+권역 고르기. 이름(강남-05)이나 ID(S05)로 검색해 목록에서 고른다. 목록(regions.ts)에 있는 권역만 값이 된다.
 값(v-model)은 regionId 문자열이다. 입력칸 오른쪽에 고른 권역 이름을 보여 준다.
 -->
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue'
-import { regionOf, searchRegions } from './regions'
+import { exactRegion, regionOf, searchRegions } from './regions'
 
 const props = withDefaults(
   defineProps<{ label: string; disabled?: boolean; readonly?: boolean; required?: boolean; placeholder?: string }>(),
@@ -15,10 +15,13 @@ const value = defineModel<string>({ required: true })
 const id = useId()
 const open = ref(false)
 const active = ref(0)
+// 입력칸 글자와 값을 나눈다. 글자를 그대로 값으로 쓰면 고르다 만 검색어(광진)가 regionId로 나간다.
+const text = ref(value.value)
+watch(value, (v) => (text.value = v))
 // 목록을 연 뒤 입력한 글자로만 거른다. 이미 고른 값으로 거르면 나머지 권역이 안 보인다.
 const typed = ref(false)
-const options = computed(() => searchRegions(typed.value ? value.value : ''))
-const current = computed(() => regionOf(value.value.trim()))
+const options = computed(() => searchRegions(typed.value ? text.value : ''))
+const current = computed(() => regionOf(value.value))
 const locked = computed(() => props.disabled || props.readonly)
 const list = ref<HTMLElement | null>(null)
 
@@ -34,7 +37,16 @@ function show() {
 
 function pick(regionId: string) {
   value.value = regionId
+  text.value = regionId
   open.value = false
+}
+
+// 목록에서 고르지 않고 나가면 권역 ID·이름과 정확히 같은 글자만 받고, 아니면 고른 값으로 되돌린다
+function leave() {
+  open.value = false
+  const r = exactRegion(text.value)
+  if (r) pick(r.id)
+  else text.value = value.value
 }
 
 function onInput() {
@@ -55,17 +67,20 @@ function enter(e: KeyboardEvent) {
   if (open.value && r) {
     e.preventDefault()
     pick(r.id)
+  } else {
+    // 고를 항목 없이 폼을 보내면 보낼 값과 입력칸 글자를 먼저 맞춘다
+    leave()
   }
 }
 </script>
 
 <template>
-  <div class="region-picker" @focusout="open = false">
+  <div class="region-picker" @focusout="leave">
     <label :for="id">{{ label }}</label>
     <div class="field">
       <input
         :id="id"
-        v-model="value"
+        v-model="text"
         role="combobox"
         autocomplete="off"
         aria-autocomplete="list"
@@ -98,7 +113,7 @@ function enter(e: KeyboardEvent) {
         >
           <strong>{{ r.name }}</strong><span class="rid">{{ r.id }}</span><span v-if="r.note" class="note">{{ r.note }}</span>
         </li>
-        <li v-if="!options.length" class="empty" role="presentation">목록에 없는 ID다. 그대로 쓰려면 이대로 둔다</li>
+        <li v-if="!options.length" class="empty" role="presentation">목록에 없는 권역이다. 이름이나 ID를 다시 입력한다</li>
       </ul>
     </div>
   </div>

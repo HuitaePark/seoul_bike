@@ -19,9 +19,9 @@ const filteredStations = computed(() => stations.value.filter(s =>
 const unserved = computed(() => [...(plan.value?.unserved ?? [])].sort((a, b) => b.priority - a.priority))
 const totalStops = computed(() => plan.value?.routes.reduce((n, r) => n + r.stops.length, 0) ?? 0)
 const streamLabels: Record<string, string> = { idle: '연결 전', connecting: '연결 중', open: '실시간 연결', reconnecting: '재연결 중', done: '작업 종료', failed: '연결 실패' }
-// 권역을 바꾸면 근무조 ID 앞의 권역도 같이 바꾼다 (권역:날짜:근무조)
+// 권역을 바꾸면 근무조 ID 앞의 권역도 같이 바꾼다 (권역:날짜:근무조). 권역을 비웠다가(`:날짜:AM`) 다시 넣어도 붙인다.
 watch(() => query.regionId, (next, prev) => {
-  if (prev && query.shiftId.startsWith(`${prev}:`)) query.shiftId = `${next}${query.shiftId.slice(prev.length)}`
+  if (query.shiftId.startsWith(`${prev}:`)) query.shiftId = `${next}${query.shiftId.slice(prev.length)}`
 })
 function selectTruck(id: string) {
   selectedTruck.value = id

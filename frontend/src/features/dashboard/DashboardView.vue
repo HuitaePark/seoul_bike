@@ -81,7 +81,8 @@ const legs = Object.fromEntries(plan.routes.map((r) => [r.truckId, legOf(r, truc
 const loadInfo = computed(() => {
   const t = truckOf(loadTruck.value)!
   const r = routeOf(loadTruck.value)
-  const left = r.stops.filter((s) => s.status !== 'DONE')
+  // 지도 진행선(legOf)과 같은 기준: 남은 정류장은 PENDING만. 건너뛴(SKIPPED) 곳은 다음 정류장이 아니다.
+  const left = r.stops.filter((s) => (s.status ?? 'PENDING') === 'PENDING')
   return { t, next: left[0], left: left.length }
 })
 
@@ -339,7 +340,7 @@ function decide(body: ApprovalDecision) {
               <dd v-else>모든 정류장을 마쳤다</dd>
             </div>
           </dl>
-          <button class="ghost focus-btn" @click="focusTruck = loadTruck; go('view')">지도에서 이 트럭만 보기</button>
+          <button class="ghost focus-btn" @click="pickTruck(loadTruck); go('view')">지도에서 이 트럭만 보기</button>
         </section>
 
         <section v-if="station" class="card w-detail">

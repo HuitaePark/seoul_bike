@@ -5,7 +5,7 @@ import { useAuth } from '../../shared/auth/store'
 import { roleLabel } from '../../shared/labels'
 
 // 내 프로필 (상단 프로필 메뉴). GET /api/me로 서버가 아는 내 정보를 보여 준다.
-// 이름·비밀번호를 바꾸는 API는 아직 계약에 없어 조회만 한다. 바꿀 일이 있으면 관리자가 계정 관리에서 처리한다.
+// 이름·비밀번호를 바꾸는 API는 계약에 없어 조회만 한다. 바꿀 일이 있으면 관리자에게 요청한다.
 
 const auth = useAuth()
 const me = ref<Schemas['User'] | null>(auth.user)
@@ -33,7 +33,7 @@ onMounted(async () => {
       <div v-if="me.truckId"><dt>트럭</dt><dd>{{ me.truckId }}</dd></div>
       <div><dt>계정 ID</dt><dd class="mono">{{ me.id }}</dd></div>
     </dl>
-    <p class="muted">이름·비밀번호 변경은 아직 화면에서 할 수 없다. 관리자에게 요청한다.</p>
+    <p class="muted">이름·비밀번호를 바꾸려면 관리자에게 요청한다.</p>
     <p v-if="error" class="error">최신 정보를 불러오지 못했다: {{ error }}</p>
     <button class="ghost" @click="auth.logout()">로그아웃</button>
   </section>

@@ -1,7 +1,7 @@
 // 권역(regionId) 목록과 근무조 ID 규칙. 계획 검토·작업 콘솔 등 권역이나 근무조를 고르는 화면이 같이 쓴다.
 // 권역 목록 API는 아직 계약에 없어 화면에 둔다. 지금 시스템(가짜 MCP·더미 데이터)이 아는 권역은 gwangjin-seongdong 하나이고,
 // N01~S09는 데이터 담당이 낸 활동 구역 17개다 (analysis/out/ref_regions.csv, docs/data/agreements.md 2번: 전원 합의 뒤 적용).
-// 목록에 없는 ID도 직접 입력할 수 있다.
+// 고르는 칸은 이 목록에 있는 권역만 값으로 받는다 (검색어가 그대로 regionId가 되어 `광진:날짜:AM` 같은 근무조 ID가 만들어졌다).
 
 export type Region = { id: string; name: string; note?: string }
 
@@ -17,6 +17,12 @@ export const regionOf = (id: string) => REGIONS.find((r) => r.id === id)
 export function searchRegions(query: string): Region[] {
   const q = query.trim().toLocaleLowerCase()
   return q ? REGIONS.filter((r) => `${r.id} ${r.name}`.toLocaleLowerCase().includes(q)) : REGIONS
+}
+
+/** 입력한 글자가 권역 ID나 이름과 정확히 같으면 그 권역 (앞뒤 공백·대소문자 무시). 검색 중인 일부 글자는 맞추지 않는다. */
+export function exactRegion(text: string): Region | undefined {
+  const q = text.trim().toLocaleLowerCase()
+  return REGIONS.find((r) => r.id.toLocaleLowerCase() === q || r.name.toLocaleLowerCase() === q)
 }
 
 /** 근무 시간대. docs/data/agreements.md 3번 (AM 07–10, PM 13–16, EVE 19–21) */
