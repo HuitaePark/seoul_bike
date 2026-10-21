@@ -11,6 +11,8 @@ import tools.jackson.databind.node.ObjectNode;
 import com.seoulbike.backend.audit.AuditLog;
 import com.seoulbike.backend.auth.CurrentUser;
 import com.seoulbike.backend.common.SeoulTime;
+import com.seoulbike.backend.plan.RouteProgress;
+import com.seoulbike.backend.report.FieldReportRepository.Issue;
 import com.seoulbike.backend.report.FieldReportRepository.NewReport;
 import com.seoulbike.backend.task.TaskService;
 
@@ -29,19 +31,24 @@ class FieldReportService {
 	private final AuditLog audit;
 	private final JsonMapper json;
 	private final TransactionTemplate tx;
+	private final RouteProgress progress;
 
 	FieldReportService(FieldReportRepository reports, TaskService tasks, AuditLog audit, JsonMapper json,
-			TransactionTemplate tx) {
+			TransactionTemplate tx, RouteProgress progress) {
 		this.reports = reports;
 		this.tasks = tasks;
 		this.audit = audit;
 		this.json = json;
 		this.tx = tx;
+		this.progress = progress;
 	}
 
 	/**
 	 * 감사 기록은 보고가 확정되는 마지막 단계와 같은 트랜잭션에 남긴다.
 	 * issue가 없으면 저장과 함께, 있으면 재경로 작업을 큐에 넣은 뒤 보고에 작업을 잇는 단계와 함께.
+	 * 정류장 진행(RouteProgress)은 저장과 같은 트랜잭션에서 재경로 작업보다 먼저 남긴다: agent가 트럭 상태를 읽을 때 이 정류장이
+	 * 이미 끝나 있어야 한다. 큐에 넣지 못해 보고를 지워도 진행은 남는다 (기사는 그 정류장에 갔다). 다시 보내면 남은 정류장이 아니라
+	 * 진행은 그대로다.
 	 */
 	Accepted report(CurrentUser driver, FieldReportController.FieldReportRequest req) {
 		var report = new NewReport(UUID.randomUUID(), req.shiftId(), driver.truckId(), req.stationId(), req.actualBikes(),
@@ -49,11 +56,15 @@ class FieldReportService {
 		if (report.issue() == null) {
 			tx.executeWithoutResult(s -> {
 				reports.insert(report);
+				recordProgress(report);
 				audit(driver, report, null);
 			});
 			return new Accepted(report.reportId(), null);
 		}
-		reports.insert(report);
+		tx.executeWithoutResult(s -> {
+			reports.insert(report);
+			recordProgress(report);
+		});
 		UUID taskId;
 		try {
 			taskId = tasks.startFieldReport(driver, report.shiftId(), contract(report));
@@ -68,6 +79,12 @@ class FieldReportService {
 			audit(driver, report, taskId);
 		});
 		return new Accepted(report.reportId(), taskId);
+	}
+
+	/** 진입 불가·공사는 그 정류장을 처리하지 못한 것이다 (SKIPPED). 그 밖의 보고는 도착해서 처리했다 (DONE). */
+	private void recordProgress(NewReport r) {
+		boolean served = r.issue() != Issue.BLOCKED && r.issue() != Issue.CONSTRUCTION;
+		progress.record(r.shiftId(), r.truckId(), r.stationId(), served, r.loaded(), r.unloaded());
 	}
 
 	/** 메모는 개인정보가 섞일 수 있어 감사 기록에 남기지 않는다. */

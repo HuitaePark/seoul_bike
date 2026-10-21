@@ -41,7 +41,7 @@ h3 { font-size: 15px; }
 /* 상단 바: 로그인 화면과 같은 흰 바탕·초록 강조. 지금 보는 메뉴는 아래 초록 밑줄 */
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 0 24px; height: 60px; background: rgb(255 255 255 / 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); color: var(--ink-2); position: sticky; top: 0; z-index: 10; }
 .brand { flex: none; display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
-.brand-mark { width: 32px; height: 32px; border-radius: 10px; background: var(--brand); display: grid; place-items: center; box-shadow: 0 3px 8px rgb(15 157 88 / 0.25); }
+.brand-mark { width: 32px; height: 32px; border-radius: 10px; background: var(--brand); display: grid; place-items: center; }
 .brand-text { display: flex; flex-direction: column; font-weight: 800; font-size: 16px; line-height: 1.15; letter-spacing: -0.01em; }
 .brand-text small { font-weight: 600; color: var(--brand-strong); font-size: 11px; letter-spacing: 0; }
 .topbar nav { display: flex; gap: 2px; align-items: stretch; align-self: stretch; font-size: 14px; }
@@ -111,7 +111,6 @@ h2 button.ghost { padding: 2px 8px; font-size: 12px; margin-left: auto; }
 .badge.DONE, .badge.ACTIVE { background: #dcfce7; color: #166534; }
 .badge.FAILED { background: var(--empty-soft); color: #991b1b; }
 .badge.DISABLED { background: #eef2f6; color: var(--ink-3); }
-.dummy-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; color: #7c3aed; background: #f3e8ff; letter-spacing: 0.02em; }
 
 /* 작업 콘솔 */
 .answer { white-space: pre-wrap; line-height: 1.6; min-height: 24px; }
@@ -129,7 +128,7 @@ h2 button.ghost { padding: 2px 8px; font-size: 12px; margin-left: auto; }
 .auth-form .field input, .auth-form .field select { height: 48px; padding: 0 14px; font-size: 15px; border-radius: 10px; background: #fff; }
 .auth-form .check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; width: fit-content; }
 .auth-form .check input { width: 16px; height: 16px; accent-color: var(--brand); margin: 0; }
-.auth-form .submit { display: flex; align-items: center; justify-content: center; gap: 8px; height: 52px; margin-top: 4px; font-size: 16px; border-radius: 10px; box-shadow: 0 6px 16px rgb(15 157 88 / 0.28); }
+.auth-form .submit { display: flex; align-items: center; justify-content: center; gap: 8px; height: 52px; margin-top: 4px; font-size: 16px; border-radius: 10px; }
 .auth-form .submit.as-link { color: #fff; text-decoration: none; background: var(--brand); font-weight: 600; }
 .auth-form .links { display: flex; gap: 8px; font-size: 13px; color: var(--ink-3); }
 .auth-form .links a { font-weight: 600; text-decoration: none; }

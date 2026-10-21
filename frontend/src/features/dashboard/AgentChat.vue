@@ -70,11 +70,12 @@ watch(() => props.visible, async (visible) => {
 <template>
   <div class="chat">
     <div ref="body" class="body">
-      <div class="msg agent">
+      <!-- 근무조에 계획이 없으면(version 0) 요약을 띄우지 않는다 -->
+      <div v-if="version" class="msg agent">
         <span class="who" aria-hidden="true">AI</span>
         <div class="bubble">
           <span class="meta">계획 v{{ version }} 요약</span>
-          {{ summary }}
+          {{ summary || '계획 설명이 없다' }}
         </div>
       </div>
 

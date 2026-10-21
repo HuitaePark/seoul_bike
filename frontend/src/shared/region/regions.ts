@@ -1,6 +1,6 @@
 // 구역(regionId) 목록과 근무조 ID 규칙. 계획 검토·작업 콘솔 등 구역이나 근무조를 고르는 화면이 같이 쓴다.
 // 구역 목록 API는 아직 계약에 없어 화면에 둔다. 서울 활동 구역 17개(N01~N08 강북, S01~S09 강남)다
-// (analysis/out/ref_regions.csv, docs/data/agreements.md 2·25번). 가짜 MCP·더미 데이터는 N02(광진·성동)의 실제 대여소를 쓴다.
+// (analysis/out/ref_regions.csv, docs/data/agreements.md 2·25번). 관제 대시보드는 시연 구역 N02(광진·성동)로 고정이다.
 // 고르는 칸은 이 목록에 있는 구역만 값으로 받는다 (검색어가 그대로 regionId가 되어 `광진:날짜:AM` 같은 근무조 ID가 만들어졌다).
 
 export type Region = { id: string; name: string; note?: string }

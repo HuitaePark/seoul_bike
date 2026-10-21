@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockBoard, mockDriver } from './fixtures/board'
 
 const nav = (page: Page) => page.getByRole('navigation', { name: '대시보드 화면' })
 
@@ -8,6 +9,7 @@ async function openDashboard(page: Page) {
     user: { userId: 'fixture-manager', loginId: 'fixture', name: '검토자', role: 'MANAGER', status: 'ACTIVE' },
   })))
   await page.route('**/api/ai/tasks?**', route => route.fulfill({ json: { items: [] } }))
+  await mockBoard(page)
   await page.goto('/dashboard')
   // 개발 서버가 대시보드(3D 뷰·지도)를 처음 컴파일하면 5초를 넘길 수 있다. CI는 늘 캐시 없이 돈다.
   await expect(page.getByRole('navigation', { name: '대시보드 화면' })).toBeVisible({ timeout: 20_000 })
@@ -18,6 +20,9 @@ test('초기 관제 화면만 보이고 적재 현황은 3D 지도 안에만 있
   await openDashboard(page)
 
   await expect(nav(page).getByRole('button', { name: '관제 뷰' })).toHaveAttribute('aria-pressed', 'true')
+  // 색 그림자를 쓰지 않는다 (소스 전체는 tests/style-rules.test.ts가 본다)
+  await expect(nav(page).getByRole('button', { name: '관제 뷰' })).toHaveCSS('box-shadow', 'none')
+  await expect(page.locator('.brand-mark')).toHaveCSS('box-shadow', 'none')
   await expect(nav(page).getByRole('button', { name: '트럭 적재' })).toHaveCount(0)
   await expect(page.locator('#view')).toBeVisible()
   for (const id of ['trend', 'agent', 'routes', 'dropped']) {
@@ -155,12 +160,63 @@ test('TR-04 기사는 TR-04 시연 경로를 본다', async ({ page }) => {
     token: 'fixture-token', expiresAt: Date.now() + 3_600_000,
     user: { userId: 'fixture-driver2', loginId: 'driver2', name: '이기사', role: 'DRIVER', status: 'ACTIVE', truckId: 'TR-04' },
   })))
+  await mockDriver(page)
   await page.goto('/driver')
 
   await expect(page.locator('.bar .truck')).toHaveText('🚚 TR-04')
   await expect(page.getByRole('heading', { name: '건대입구역 2번출구' })).toBeVisible()
-  await expect(page.locator('.status .load')).toContainText('/15')
+  // 적재는 마지막으로 끝낸 정류장(어린이대공원역, 실은 뒤 12대)의 값이다
+  await expect(page.locator('.status .load')).toContainText('12/15')
+  // 구역 대여소 좌표가 있으면 길찾기 링크다
+  await expect(page.getByRole('link', { name: /길안내/ })).toHaveAttribute('href', /link\/to\/.*,37\.5404,127\.0692$/)
 
+  // 운행 중에는 배지만, 정차하면 승인 대기 작업의 기사 카드를 연다 (FR-14)
+  await expect(page.locator('.bar .notice')).toHaveText('변경 제안 1')
   await page.getByRole('button', { name: /운행 중/ }).click()
   await expect(page.locator('.proposal .approval')).toContainText('TR-04')
+})
+
+test('기사 보고는 근무조·도착 재고·실제 대수를 POST /api/reports로 보낸다', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('seoul-bike.auth', JSON.stringify({
+    token: 'fixture-token', expiresAt: Date.now() + 3_600_000,
+    user: { userId: 'fixture-driver2', loginId: 'driver2', name: '이기사', role: 'DRIVER', status: 'ACTIVE', truckId: 'TR-04' },
+  })))
+  const sent = await mockDriver(page)
+  await page.goto('/driver')
+  await page.getByRole('button', { name: '도착 · 보고' }).click()
+  const sheet = page.getByRole('dialog', { name: '정류장 보고' })
+  // 실제 내린 대수는 계획 8대에서 하나 줄이고, 도착 재고는 앱 재고(4대)에서 하나 줄인다
+  await sheet.getByRole('button', { name: '하나 줄이기', exact: true }).click()
+  await sheet.getByRole('button', { name: '도착 재고 하나 줄이기' }).click()
+  await sheet.getByRole('button', { name: '완료' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect.poll(() => sent.filter((s) => s.path === '/api/reports').length).toBe(1)
+  expect(sent[0]!.body).toEqual({
+    shiftId: 'N02:2026-10-21:AM', stationId: 'ST-541', actualBikes: 3, loaded: null, unloaded: 7, issue: null, memo: null,
+  })
+
+  // 진입 불가는 처리하지 못한 보고라 실은·내린 대수를 보내지 않는다
+  await page.getByRole('button', { name: '도착 · 보고' }).click()
+  await sheet.getByRole('button', { name: /진입 불가/ }).click()
+  await expect(sheet.getByRole('button', { name: '하나 줄이기', exact: true })).toHaveCount(0)
+  await sheet.getByRole('button', { name: '완료' }).click()
+  await expect.poll(() => sent.filter((s) => s.path === '/api/reports').length).toBe(2)
+  expect(sent[1]!.body).toMatchObject({ stationId: 'ST-541', loaded: null, unloaded: null, issue: 'BLOCKED' })
+})
+
+test('기사 카드 수락은 그 작업의 승인 API로 보내고 카드를 내린다', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('seoul-bike.auth', JSON.stringify({
+    token: 'fixture-token', expiresAt: Date.now() + 3_600_000,
+    user: { userId: 'fixture-driver2', loginId: 'driver2', name: '이기사', role: 'DRIVER', status: 'ACTIVE', truckId: 'TR-04' },
+  })))
+  const sent = await mockDriver(page)
+  await page.goto('/driver')
+  await page.getByRole('button', { name: /운행 중/ }).click()
+  await page.locator('.proposal').getByRole('button', { name: /수락|승인/ }).first().click()
+  await expect.poll(() => sent.filter((s) => s.path.endsWith('/approval')).length).toBe(1)
+  expect(sent.find((s) => s.path.endsWith('/approval'))).toMatchObject({
+    path: '/api/ai/tasks/00000000-0000-4000-8000-000000000301/approval',
+    body: { approvalId: '00000000-0000-4000-8000-000000000201', decision: 'APPROVE' },
+  })
+  await expect(page.locator('.proposal')).toHaveCount(0)
 })

@@ -6,9 +6,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Schemas } from '../../shared/api/client'
-import type { TruckLive } from '../../shared/dummy'
-import type { RoutePreview } from './route-view'
-import { legOf, markText, previewMarks, splitAtTruck } from './route-view'
+import type { RoutePreview, TruckLive } from './route-view'
+import { legOf, markText, placed, previewMarks, splitAtTruck } from './route-view'
 
 const props = defineProps<{
   stations: Schemas['StationStatus'][]
@@ -78,13 +77,14 @@ const lines = computed(() =>
   }),
 )
 
-const trucks = computed(() => props.trucks.map((t) => ({ ...t, ...xy(t.lat, t.lon), dim: focusing.value && focus.value !== t.truckId })))
+// 위치를 아는(정류장을 하나라도 마친) 트럭만 놓는다
+const trucks = computed(() => props.trucks.filter(placed).map((t) => ({ ...t, ...xy(t.lat, t.lon), dim: focusing.value && focus.value !== t.truckId })))
 
 // 변경안: 트럭이 지금 있는 곳 → 바뀐 정류장 순서, 빠지는 곳·새로 들르는 곳 표시
 const previewLine = computed(() => {
   const p = props.preview
   if (!p?.truckId || !p.after.length) return null
-  const t = props.trucks.find((x) => x.truckId === p.truckId)
+  const t = trucks.value.find((x) => x.truckId === p.truckId)
   const start = lines.value.find((l) => l.truckId === p.truckId)?.tip ?? (t ? at(t) : null)
   const pts = p.after.map((id) => byId.value.get(id)).filter((s) => !!s).map(at)
   return path(start ? [start, ...pts] : pts)

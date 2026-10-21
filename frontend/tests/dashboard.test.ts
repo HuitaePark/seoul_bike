@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { legOf, previewMarks, previewOf, splitAtTruck } from '../src/features/dashboard/route-view.ts'
+import { legOf, placed, previewMarks, previewOf, splitAtTruck, withPlanRoutes } from '../src/features/dashboard/route-view.ts'
 import { exactRegion, makeShiftId, searchRegions, todayInSeoul } from '../src/shared/region/regions.ts'
 import type { Schemas } from '../src/shared/api/client'
+import type { ApprovalCard } from '../src/features/approval/approval.ts'
 
 type Station = Schemas['StationStatus']
 type Route = Schemas['Route']
@@ -15,7 +16,7 @@ const route = (done: number): Route => ({
   truckId: 'truck-1',
   stops: ['A', 'B', 'C'].map((stationId, i) => ({ seq: i + 1, stationId, action: 'PICKUP', bikes: 1, status: i < done ? 'DONE' : 'PENDING' })),
 }) as Route
-const truck = (lat: number, lon: number) => ({ truckId: 'truck-1', driver: '', lat, lon, load: 0, capacity: 10, moving: true, updatedSec: 1 })
+const truck = (lat: number | null, lon: number | null) => ({ truckId: 'truck-1', atStationId: 'A', lat, lon, load: 0, capacity: 10, remainingStops: [] })
 
 test('트럭 위치를 마친 정류장 → 다음 정류장 구간에 투영해 온 비율을 구한다', () => {
   const leg = legOf(route(1), truck(37.54, 127.05), byId)
@@ -24,6 +25,30 @@ test('트럭 위치를 마친 정류장 → 다음 정류장 구간에 투영해
   // 구간 밖이면 0~1로 자른다
   assert.equal(legOf(route(1), truck(37.54, 127.09), byId)?.ratio, 1)
   assert.equal(legOf(route(1), truck(37.54, 127.0), byId)?.ratio, 0)
+})
+
+test('트럭 상태 API 위치(마지막으로 끝낸 정류장)는 다음 구간을 막 시작한 것이고, 위치를 모르면 지도에 놓지 않는다', () => {
+  // 끝낸 정류장 B(37.54, 127.06) 위의 트럭 → 다음 정류장 C로 가는 구간의 0
+  assert.equal(legOf(route(2), truck(37.54, 127.06), byId)?.ratio, 0)
+  assert.equal(placed(truck(37.54, 127.06)), true)
+  assert.equal(placed(truck(null, null)), false)
+  assert.equal(legOf(route(1), truck(null, null), byId), null)
+})
+
+test('계획 승인 카드는 같은 계획을 받았으면 그 전체 경로(eta 포함)로 채운다 (#91)', () => {
+  const full = { ...route(0), stops: route(0).stops.map((s) => ({ ...s, eta: '2026-10-21T19:10:00+09:00' })) } as Route
+  const plan = { planId: 'P-1', shiftId: 'N02:2026-10-21:EVE', version: 2, status: 'PROPOSED', routes: [full, { truckId: 'idle', stops: [] }], unserved: [] } as Schemas['Plan']
+  const card = { approvalId: 'a', kind: 'SUBMIT_PLAN', approver: 'MANAGER', summary: '계획 P-1', planId: 'P-1', routes: [{ truckId: 'truck-1', stops: full.stops.slice(0, 1).map(({ eta: _, ...s }) => s) }] } as ApprovalCard
+  const filled = withPlanRoutes(card, plan)
+  assert.equal(filled.routes?.length, 1, '빈 트럭은 카드에 싣지 않는다')
+  assert.equal(filled.routes?.[0]?.stops.length, 3)
+  assert.equal(filled.routes?.[0]?.stops[0]?.eta, '2026-10-21T19:10:00+09:00')
+  // 다른 계획이거나 계획이 없거나 계획 카드가 아니면 그대로
+  const other = { ...card, planId: 'P-0' }
+  const change = { ...card, kind: 'ROUTE_CHANGE' } as ApprovalCard
+  assert.equal(withPlanRoutes(other, plan), other)
+  assert.equal(withPlanRoutes(card, null), card)
+  assert.equal(withPlanRoutes(change, plan), change)
 })
 
 test('첫 정류장 전이거나 다 마쳤으면 이을 구간이 없다', () => {
