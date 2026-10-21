@@ -48,7 +48,7 @@ def _timestamp(name: str, value: str) -> datetime:
 def _iso(value: datetime) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("timestamp requires a timezone")
-    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return value.astimezone(timezone(timedelta(hours=9))).isoformat()
 
 
 def _uuid(name: str, value: str) -> str:

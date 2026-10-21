@@ -347,3 +347,29 @@ def test_backend89_empty_candidate_returns_no_routes_for_backend_to_fill(backend
     validators["SolveResult"].validate(result)
     assert result["status"] == "OK" and result["routes"] == result["unserved"] == []
     assert result["stats"]["bikesMoved"] == 0
+
+
+@pytest.mark.parametrize("offset", ["Z", "+00:00", "+09:00", "-04:00"])
+def test_result_timestamps_use_seoul_offset_without_changing_instants(request_data, validators, offset):
+    from datetime import timedelta, timezone
+    # The same calculation window and result instant with different input offsets.
+    zone = timezone.utc if offset == "Z" else timezone(timedelta(
+        hours=int(offset[:3]), minutes=int(offset[4:]) * (-1 if offset[0] == "-" else 1)))
+    baseline = run(copy.deepcopy(request_data))
+    for field in ("asOf", "occurredAt"):
+        request_data[field] = datetime.fromisoformat(request_data[field]).astimezone(zone).isoformat()
+        if offset == "Z":
+            request_data[field] = request_data[field].replace("+00:00", "Z")
+    for truck in request_data["trucks"]:
+        truck["availableUntil"] = datetime.fromisoformat(truck["availableUntil"]).astimezone(zone).isoformat()
+    result = solve_request(request_data, travel_time=HaversineTravelTime(),
+                           result_time=RESULT_TIME.astimezone(zone), result_event_id=RESULT_ID)
+    validators["SolveResult"].validate(result)
+    assert result["status"] == "OK"
+    assert result["occurredAt"].endswith("+09:00")
+    assert datetime.fromisoformat(result["occurredAt"]) == RESULT_TIME
+    assert result["routes"] == baseline["routes"]
+    for route in result["routes"]:
+        for stop in route["stops"]:
+            assert stop["eta"].endswith("+09:00")
+            assert datetime.fromisoformat(stop["eta"]) >= DEMO_TIME

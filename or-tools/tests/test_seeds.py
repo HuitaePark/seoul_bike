@@ -164,3 +164,26 @@ def test_cli_can_validate_all_regions(capsys):
     main(["--regions", str(REGIONS), "--stations", str(STATIONS), "--all-regions"])
     summary = json.loads(capsys.readouterr().out)
     assert summary["referenceOnly"] and summary["regionCount"] == 17 and summary["stationCount"] == 2716
+
+
+
+def test_plan_map_demo_reference_matches_n02_source():
+    import re
+    text = (ROOT / "frontend/src/features/plan-map/demo.ts").read_text()
+    raw = text.split("const referenceStations = ", 1)[1].split(" as const", 1)[0]
+    stations = json.loads(raw)
+    with STATIONS.open(newline="", encoding="utf-8") as stream:
+        source = {row["api_station_id"]: row for row in csv.DictReader(stream)}
+    assert "DEMO_REGION = 'N02'" in text
+    assert len(stations) == len({station["stationId"] for station in stations}) == 8
+    for station in stations:
+        row = source[station["stationId"]]
+        assert row["region_id"] == "N02"
+        assert station == {"stationId": row["api_station_id"], "name": row["name"],
+                           "lat": float(row["lat"]), "lon": float(row["lon"]),
+                           "docks": int(row["docks"]), "elevationM": float(row["elevation_m"]),
+                           "role": row["role"]}
+    # Even unserved entries with no current snapshot must refer to this region.
+    for station_id in set(re.findall(r"ST-[0-9]+", text)):
+        assert source[station_id]["region_id"] == "N02"
+    assert set(re.findall(r"TR-[0-9]+", text)) == {"TR-03", "TR-04", "TR-05"}

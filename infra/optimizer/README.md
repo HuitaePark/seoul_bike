@@ -61,8 +61,40 @@ Docker 실행은 별도 `matrix-cache` 볼륨을 사용하므로 호스트 캐�
 - 원본·전처리 파일과 캐시는 Git에서 제외한다. 지도 출처·라이선스·취득일은 권역 확정 후 별도 기록한다.
 - Kafka 실행기와 개발용 solve 토픽 초기화는 [독립 Kafka 환경](KAFKA.md)에 있다.
   운영 Compose의 worker·상태 볼륨·기동 순서는 PR #46에 반영됐다. 실제 입력 조립은 PR #89에 반영됐다. 실데이터 적재·OSRM 운영 연결과 retry/DLQ 관제는 후속이다.
-- 실제 200곳·5대의 도로 데이터 성능과 전체 재경로 10초 기준은 아직 측정하지 않았다.
+- 실제 N01 265곳·300곳 기준·5대의 도로 데이터 성능과 전체 재경로 10초 기준은 아직 측정하지 않았다.
 
 공식 참고: [OSRM v26.10.0 HTTP API](https://github.com/Project-OSRM/osrm-backend/blob/v26.10.0/docs/http.md),
 [전처리·CH 실행](https://github.com/Project-OSRM/osrm-backend/tree/v26.10.0),
 [공식 컨테이너](https://github.com/Project-OSRM/osrm-backend/pkgs/container/osrm-backend).
+
+
+## 운영 Compose에 선택적으로 연결
+
+`compose.osrm.yaml`은 도로 자료와 서버 자원 확인 후 명시적으로 선택하는 추가 구성이다.
+현재 `deploy.yml`과 기본 운영 Compose의 하버사인 worker는 유지한다. 자료가 없어 자동 전환하지 않는다.
+
+1. 서울 17구역·차고지/연결도로가 포함된 PBF를 준비하고 출처·취득일·SHA-256·서버 RAM/디스크 예산을 기록한다.
+2. 앞의 독립 구성에서 로컬 osrm을 중지하고 `osrm-prepare`로 CH 자료를 만든다. 운영 overlay 사용 중 자료를 바꿀 때에는
+   같은 processed 폴더를 읽는 운영 osrm과 optimizer도 먼저 중지한다. data-version이 최종 완료 표시다.
+3. 아래 결합 구성을 확인한 뒤, 승인된 로컬/서버 환경에서 해당 서비스를 기동한다. 기존 브로커/백엔드/상태 볼륨을 그대로 쓰므로
+   별도 단독 worker를 같은 group-id/상태 디렉터리에 동시에 띄우지 않는다. 운영 테스트 입력과 완료 기준은
+   [마무리 인계](../../docs/optimizer/final-handoff.md)를 따른다.
+
+```bash
+# 저장소 루트. 예시 환경파일로 구성만 검증한다.
+docker compose --env-file infra/.env.example -f infra/compose.yaml \
+  -f infra/optimizer/compose.osrm.yaml config -q
+
+# 실제 실행 환경에서만: 해당 환경의 비밀값 파일을 사용한다. 이 작업에서는 실행하지 않았다.
+docker compose --env-file infra/.env -f infra/compose.yaml \
+  -f infra/optimizer/compose.osrm.yaml up -d --build --wait osrm optimizer
+```
+
+추가 osrm은 호스트 포트를 열지 않는다. worker는 같은 네트워크의 `http://osrm:5000`과 읽기 전용
+processed/data-version을 사용한다. 원래 `optimizer-state:/state`는 결과 중복 방지 때문에 보존하고,
+행렬은 `optimizer-matrix-cache:/cache`에 별도로 둔다. 도로/엔진/프로필 변경 시 다시 전처리해 버전을 바꾼다.
+같은 requestId는 도로 버전 변경 뒤에도 저장된 eventId·결과를 재사용한다. 새 계산은 새 requestId로 요청한다.
+OSRM 실패를 하버사인으로 자동 대체하지 않는다. 기본 설정으로 되돌릴 때에도 상태 볼륨을 삭제하지 않는다.
+
+이 PR에서는 Compose 결합·경로·볼륨·의존성 검증만 수행했다. 실제 PBF 전처리·컨테이너 구동·전체 성능은 미검증이다.
+OSRM Table의 거리/시간을 연결하는 구성이며 지도 도로선 geometry를 공개 API에 추가하지 않는다.

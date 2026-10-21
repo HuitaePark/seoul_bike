@@ -214,3 +214,52 @@ def test_default_window_uses_all_three_hours_and_explicit_one_hour_is_preserved(
     predictor.predict.reset_mock()
     assert [i.delta for i in compute_imbalances([STATION], predictor, START, horizon_h=1)] == [-2]
     predictor.predict.assert_called_once_with(STATION, START, 1)
+
+
+@pytest.mark.parametrize("rentals,returns,bikes,expected", [
+    ((10, 0, 0), (0, 10, 0), 5, -7),  # End recovers; first hour is empty.
+    ((0, 0, 8), (8, 0, 0), 5, 3),  # End recovers; first hour overflows.
+    ((0.1, 0.2, 0), (0, 0, 0.3), 2, -1),  # Round only final prefix bands.
+    ((0, 0, 0), (0, 0, 0), 5, None),
+])
+def test_hourly_policy_detects_intermediate_risk(rentals, returns, bikes, expected):
+    predictor = Mock()
+    predictor.predict.return_value = prediction(rentals, returns)
+    station = replace(STATION, bikes=bikes)
+    assert compute_imbalances([station], predictor, START) == []
+    result = compute_imbalances([station], predictor, START, inventory_policy="hourly")
+    assert [job.delta for job in result] == ([] if expected is None else [expected])
+
+
+def test_hourly_policy_preserves_minimum_when_upper_target_conflicts():
+    predictor = Mock()
+    predictor.predict.return_value = prediction((12, 0), (0, 24))
+    result = compute_imbalances([replace(STATION, bikes=5)], predictor, START,
+                                horizon_h=2, inventory_policy="hourly")
+    assert [job.delta for job in result] == [-9]
+
+
+def test_hourly_policy_respects_operating_target_and_decimal_cancellation():
+    predictor = Mock()
+    predictor.predict.return_value = prediction((0.1, 0.2, 0), (0.3, 0, 0))
+    station = replace(STATION, bikes=9, operating_limit=8)
+    result = compute_imbalances([station], predictor, START, inventory_policy="hourly")
+    assert [job.delta for job in result] == [2]
+
+
+def test_unknown_inventory_policy_is_rejected_before_prediction():
+    predictor = Mock()
+    with pytest.raises(ValueError, match="inventory_policy"):
+        compute_imbalances([], predictor, START, inventory_policy="automatic")
+    predictor.predict.assert_not_called()
+
+
+def test_cli_exposes_hourly_inventory_policy(monkeypatch, capsys):
+    import json
+    import sys
+    from rebalancing.__main__ import main
+    monkeypatch.setattr(sys, "argv", ["rebalancing", "--hour", "8", "--inventory-policy", "hourly", "--json"])
+    main()
+    document = json.loads(capsys.readouterr().out)
+    assert document["settings"]["inventory_policy"] == "hourly"
+    assert document["settings"]["forecast_horizon_h"] == 3

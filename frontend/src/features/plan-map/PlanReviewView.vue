@@ -35,7 +35,7 @@ function selectTruck(id: string) {
       <div><p class="eyebrow">재배치 운영</p><h1>계획 검토</h1><p class="muted">트럭 경로와 적재량을 확인하고, 미처리 거점까지 검토하세요.</p></div>
       <RouterLink :to="demo ? '/plans/review' : '/plans/review/demo'" class="text-link">{{ demo ? '실제 계획 조회' : '시연 화면 보기' }} →</RouterLink>
     </div>
-    <div v-if="demo" class="demo-banner" role="note"><strong>시연 데이터 · 실제 계획에 반영되지 않습니다</strong><span>위치·관측·예측·방문 순서는 검토 흐름을 확인하기 위한 가상 자료입니다.</span><button class="ghost" :disabled="sending" @click="review.reset">시연 초기화</button></div>
+    <div v-if="demo" class="demo-banner" role="note"><strong>시연 데이터 · 실제 계획에 반영되지 않습니다</strong><span>N02 대여소 정보는 실제 기준정보이며, 재고·예측·방문 순서는 가상 자료입니다.</span><button class="ghost" :disabled="sending" @click="review.reset">시연 초기화</button></div>
 
     <form class="panel query-form" aria-label="계획 조회" @submit.prevent="review.search">
       <RegionPicker v-model="query.regionId" label="권역 ID" :readonly="demo" :disabled="sending" required />

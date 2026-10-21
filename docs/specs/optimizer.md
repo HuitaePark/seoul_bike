@@ -95,10 +95,15 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
   구간 끝 목표 하한 `max(0, rentals - returns + safety)`는 올림하고,
   상한 `max(0, operating_limit + rentals - returns)`은 내림해 정수 필요량을 만든다.
   목표 상한보다 안전 하한이 크면 기존처럼 하한을 우선하며, 거치대 수로 재고나 필요량을 잘라내지 않는다.
-- 이 단계는 기존 **구간 끝 재고 정책**이다. 시간별 배열을 받더라도 중간의 빈 시각·재고 궤적 안전을 보장하지 않는다.
-  기본 3시간 전환은 반영했다. 시간별 중간 검사는 합의 16의 M4 후속이다.
-  backend 내부 API 0.8의 StationRisk는 관측 시각 기준 궤적으로 별도 계산한다. wire의 neededBikes/priority를
-  로컬 구간 끝 정책으로 덮어쓰지 않는다. 비정시 로컬 예측 정렬은 생산자와 확인한다.
+- 기본 `inventory_policy="endpoint"`는 기존 구간 끝 목표 정책이다. `inventory_policy="hourly"` 또는
+  로컬 CLI `--inventory-policy hourly`로 시작점과 매시 경계의 목표 범위를 함께 검사한다.
+  시간별 누적 대여−반납을 Decimal로 계산해 하한의 최댓값과 상한의 최솟값을 취하며,
+  범위가 충돌하면 기존 안전 하한을 우선한다. 구간 끝 재고가 회복돼도 중간 부족·과적재를 잡는다.
+  기본 3시간·1~5시간 지원과 기존 기본 정책을 유지한다.
+- 이 선택 기능은 정시 `start`의 재고를 즉시 조정한다는 가정의 로컬 목표 계산이다. 트럭 도착 전 안전이나
+  물리적으로 양쪽 목표를 동시에 만족함을 보장하지 않는다. 운영 backend StationRisk의 관측 시각 정렬·빈 위험 2대 이하→3대 목표·
+  현재 거치대/재고에 따른 이동량 제한·우선순위와는 별도다. wire의 neededBikes/priority는 다시 계산하지 않는다.
+  비정시 관측을 로컬 정시 예측에 연결하는 작업은 역할 4·6의 입력 정렬 후 진행한다.
 
 데이터 예측기의 Station.id는 대여소번호를 사용한다. API·Kafka의 stationId는 ADR 0001의 `ST-` ID이며
 서로 숫자가 다르므로, 내보내는 생산자가 ref.stations/CSV 대응표로 변환한다. 접두사를 붙이거나 잘라 변환하지 않는다.
@@ -124,12 +129,12 @@ requestId별 runtime JSON·`--contexts`·별도 차고지 예시는 사용하지
 
 | 필드 | 생성 규칙 |
 | --- | --- |
-| eventId·occurredAt | 요청과 다른 새 UUID·결과 생성 시각. ETA 기준 시각과 구분 |
+| eventId·occurredAt | 요청과 다른 새 UUID·결과 생성 시각(+09:00). ETA 기준 시각과 구분 |
 | requestId·shiftId·traceId | 상관관계 보존. traceId는 입력에 있을 때 전달 |
 | status | 부분 계획을 포함한 계산 결과는 OK, OSRM 통신 시간 초과·행렬 예산 초과는 TIMEOUT, 잘못된 입력·일반 인프라 실패·해를 못 얻으면 FAILED |
 | routes[].truckId·capacity·startLoad | 원래 차량 ID·요청 용량·실제 출발 적재량 |
 | stops[].seq·stationId·action·bikes | 1부터 순서, 원래 대여소 ID, PICKUP·DROPOFF, 양의 작업 대수 |
-| stops[].loadAfter·eta·status | 작업 후 적재량, as_of + 상대 도착 초를 UTC 시각으로 변환, PENDING |
+| stops[].loadAfter·eta·status | 작업 후 적재량, as_of + 상대 도착 초를 서울 오프셋 +09:00으로 변환, PENDING |
 | unserved[].stationId·priority·reason | 원래 ID·입력 우선순위·미처리 코드 |
 | stats.solveMs·bikesMoved | 변환·행렬·솔버·경로 직렬화까지 로컬 시간, 회수·보충 작업 대수 합 |
 | code·retryable·error | FAILED/TIMEOUT에서 모두 필수. 고정 실패 코드·새 requestId로 재계산할 만한지·사람이 읽는 설명 |

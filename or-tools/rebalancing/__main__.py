@@ -42,6 +42,8 @@ def main() -> None:
     when.add_argument("--hour", type=int, default=8, help="mock hour on fixed 2026-10-20 KST (0-23)")
     when.add_argument("--start", help="explicit whole-hour ISO datetime; naive values mean KST")
     ap.add_argument("--horizon-h", type=int, default=3, choices=range(1, 6), help="forecast hours (default 3)")
+    ap.add_argument("--inventory-policy", choices=("endpoint", "hourly"), default="endpoint",
+                    help="local mock targets: endpoint (compatible default) or hourly boundaries")
     ap.add_argument("--trucks", type=int, default=3)
     ap.add_argument("--truck-capacity", type=int, default=15)
     ap.add_argument("--start-load", type=int, default=0)
@@ -86,7 +88,8 @@ def main() -> None:
                                   max_locations=args.osrm_max_locations, timeout_s=args.osrm_timeout_seconds,
                                   budget_s=args.osrm_budget_seconds, snap_radius_m=args.osrm_snap_radius_metres)
             provider = CachedTravelTime(road, namespace=road.cache_namespace, cache_dir=args.matrix_cache_dir)
-        imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), start, args.horizon_h)
+        imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), start, args.horizon_h,
+                                        inventory_policy=args.inventory_policy)
         kwargs = {"options": PlanningOptions(solution_limit=args.solution_limit),
                   "travel_time": provider}
         plans = [plan_greedy(DEPOT, stations, imbalances, trucks, **kwargs),
@@ -102,6 +105,7 @@ def main() -> None:
     if args.json:
         print(json.dumps({"hour": args.hour, "seed": args.seed,
                           "settings": {"forecast_start_kst": start.isoformat(), "forecast_horizon_h": args.horizon_h,
+                                       "inventory_policy": args.inventory_policy,
                                        "truck_capacity": args.truck_capacity, "start_load": args.start_load,
                                        "shift_seconds": args.shift_minutes * 60, "solution_limit": args.solution_limit,
                                        **travel_settings},

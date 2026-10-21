@@ -1,0 +1,40 @@
+# Optional overlay for a prepared road dataset. Not used by deploy.yml.
+# From repository root: docker compose --env-file infra/.env.example
+#   -f infra/compose.yaml -f infra/optimizer/compose.osrm.yaml config -q
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v26.10.0-debian@sha256:55dbfd47d984c2cacd64e32901b4321c86b5ec761438e69aa053dc78698a786f
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - >-
+        test -s /data/data-version &&
+        exec osrm-routed --algorithm ch --threads 2 --max-table-size 100 /data/region.osrm
+    # Paths are relative to infra/compose.yaml (the first Compose file).
+    volumes:
+      - ./optimizer/data/processed:/data:ro
+    healthcheck:
+      test: [CMD, /bin/bash, -c, "exec 3<>/dev/tcp/127.0.0.1/5000"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+    restart: unless-stopped
+
+  optimizer:
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - >-
+        test -s /roads/data-version &&
+        exec python -m rebalancing.worker --bootstrap-servers redpanda:9092
+        --group-id optimizer-v1 --state-dir /state --travel-source osrm
+        --osrm-url http://osrm:5000 --osrm-data-version "$$(cat /roads/data-version)"
+        --matrix-cache-dir /cache
+    depends_on:
+      osrm:
+        condition: service_healthy
+    volumes:
+      # The base optimizer-state volume remains mounted at /state for deduplication.
+      - ./optimizer/data/processed:/roads:ro
+      - optimizer-matrix-cache:/cache
+
+volumes:
+  optimizer-matrix-cache:
