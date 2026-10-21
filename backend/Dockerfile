@@ -1,5 +1,5 @@
 # 서버(Apple Silicon)에서 직접 빌드한다. eclipse-temurin은 arm64 이미지를 제공한다.
-# 계약(docs/specs)은 compose의 additional_contexts `specs`로 받는다.
+# 계약(docs/specs)은 compose의 additional_contexts `specs`로, 구역·대여소 기준 정보(analysis/out/ref_*.csv)는 `refdata`로 받는다.
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /app
 # 의존성 층을 먼저 받아 두면 소스만 바뀐 재빌드가 빨라진다.
@@ -8,7 +8,8 @@ COPY gradle gradle
 RUN ./gradlew --no-daemon dependencies > /dev/null
 COPY src src
 COPY --from=specs . /specs
-RUN ./gradlew --no-daemon bootJar -x test -PspecsDir=/specs
+COPY --from=refdata ref_*.csv /refdata/
+RUN ./gradlew --no-daemon bootJar -x test -PspecsDir=/specs -PrefDataDir=/refdata
 
 FROM eclipse-temurin:25-jre
 WORKDIR /app

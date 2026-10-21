@@ -69,10 +69,17 @@ tasks.named('bootJar') {
 // 계약 원본은 docs/specs에 둔다. 빌드할 때 복사해서 /specs/*.yaml로 서빙하고 /swagger/에서 보여준다.
 // Docker 빌드는 compose additional_contexts로 넘긴 경로(-PspecsDir=/specs)를 쓴다.
 def specsDir = providers.gradleProperty('specsDir').orElse('../docs/specs')
+// 구역·대여소 기준 정보 원본은 analysis/out/ref_*.csv (6번이 매주 갱신). 복사본을 두지 않고 빌드 때 jar의 ref/로 넣는다.
+// Docker 빌드는 compose additional_contexts `refdata`로 받은 경로(-PrefDataDir=/refdata)를 쓴다. RefDataLoader가 시작할 때 읽는다.
+def refDataDir = providers.gradleProperty('refDataDir').orElse('../analysis/out')
 tasks.named('processResources', ProcessResources) {
 	from(specsDir.map { file(it) }) {
 		include '*.yaml'
 		into 'static/specs'
+	}
+	from(refDataDir.map { file(it) }) {
+		include 'ref_*.csv'
+		into 'ref'
 	}
 }
 
