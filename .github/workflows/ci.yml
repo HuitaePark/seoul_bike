@@ -96,7 +96,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "25"
           cache: gradle
       # 테스트가 Testcontainers로 PostGIS·Redpanda를 띄운다 (러너의 Docker 사용).
       - run: ./gradlew test --no-daemon
