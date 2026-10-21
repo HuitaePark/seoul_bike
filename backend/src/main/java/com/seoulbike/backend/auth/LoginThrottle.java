@@ -18,8 +18,12 @@ import org.springframework.stereotype.Component;
 @Component
 class LoginThrottle {
 
-	/** 아이디가 이보다 많이 쌓이면, 창이 끝났거나 아직 막히지 않은 것부터 지운다 (막힌 아이디는 남긴다). */
-	private static final int MAX_KEYS = 10_000;
+	/**
+	 * 아이디를 이만큼까지만 기억한다 (64자 키 기준 약 20MB). 넘으면 창이 끝난 것만 지우고, 그래도 넘으면 새 아이디는 막는다.
+	 * 아직 막히지 않은 아이디를 지우면 가짜 아이디를 쏟아 넣어 노리는 아이디의 횟수를 초기화할 수 있기 때문이다.
+	 * 대신 그렇게 넘친 동안(최대 창 길이)에는 처음 로그인하는 사람도 429를 받는다.
+	 */
+	private static final int MAX_KEYS = 100_000;
 
 	private record Attempts(int count, Instant since) {
 	}
@@ -39,6 +43,12 @@ class LoginThrottle {
 	 */
 	Duration tryAcquire(String loginId) {
 		Instant now = Instant.now();
+		if (attempts.size() >= MAX_KEYS && !attempts.containsKey(loginId)) {
+			attempts.values().removeIf(a -> expired(a, now));
+			if (attempts.size() >= MAX_KEYS) {
+				return window;
+			}
+		}
 		Duration[] blocked = { Duration.ZERO };
 		attempts.compute(loginId, (id, a) -> {
 			if (a == null || expired(a, now)) {
@@ -50,9 +60,6 @@ class LoginThrottle {
 			}
 			return new Attempts(a.count() + 1, a.since());
 		});
-		if (attempts.size() > MAX_KEYS) {
-			attempts.values().removeIf(a -> expired(a, now) || a.count() < maxAttempts);
-		}
 		return blocked[0];
 	}
 
