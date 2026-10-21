@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -92,7 +94,10 @@ class SolveRoundTripTest {
 		assertThat(plan.path("version").asInt()).isEqualTo(1);
 		assertThat(plan.path("status").asString()).isEqualTo("PROPOSED");
 		assertThat(plan.path("provisional").asBoolean()).isFalse();
-		assertThat(plan.path("routes")).isEqualTo(routes);
+		// optimizer는 eta를 Z로 주지만 계획은 같은 순간의 +09:00으로 나간다 (T0 23:00Z = 서울 08:00).
+		assertThat(plan.path("routes").get(0).path("stops").get(0).path("eta").asString())
+			.isEqualTo("2026-10-21T08:10:00+09:00");
+		assertThat(plan.path("routes")).isEqualTo(inSeoul(routes));
 		assertThat(candidate.path("grade").isNull()).isTrue();
 		assertThat(candidate.path("requiredApprovers").isEmpty()).isTrue();
 		assertThat(candidate.path("diffs").isEmpty()).isTrue();
@@ -121,7 +126,7 @@ class SolveRoundTripTest {
 				""")
 			.param("id", "PL-" + UUID.randomUUID())
 			.param("shift", shift)
-			.param("routes", json.writeValueAsString(active))
+			.param("routes", json.writeValueAsString(inSeoul(active)))
 			.update();
 		ArrayNode replanned = routes(route("truck-1", stop(1, "ST-1", "PICKUP", 5, 10), stop(2, "ST-3", "DROPOFF", 5, 24)),
 				route("truck-2", stop(1, "ST-9", "PICKUP", 2, 15)));
@@ -145,8 +150,8 @@ class SolveRoundTripTest {
 		JsonNode diffs = candidate.path("diffs");
 		assertThat(diffs.valueStream().map(d -> d.path("truckId").asString())).containsExactly("truck-1", "truck-2");
 		JsonNode truck1 = diffs.get(0);
-		assertThat(truck1.path("before")).isEqualTo(active.get(0).path("stops"));
-		assertThat(truck1.path("after")).isEqualTo(replanned.get(0).path("stops"));
+		assertThat(truck1.path("before")).isEqualTo(inSeoul(active).get(0).path("stops"));
+		assertThat(truck1.path("after")).isEqualTo(inSeoul(replanned).get(0).path("stops"));
 		assertThat(truck1.path("addedMinutes").asDouble()).isEqualTo(-6.0);
 		assertThat(diffs.get(1).path("before")).isEqualTo(diffs.get(1).path("after"));
 
@@ -331,5 +336,18 @@ class SolveRoundTripTest {
 			.put("loadAfter", 0)
 			.put("eta", T0.plusSeconds(etaMinutes * 60L).toString())
 			.put("status", "PENDING");
+	}
+
+	/** 저장·응답에서 기대하는 경로: 같은 순간의 eta를 +09:00으로 쓴다. 활성 계획도 후보에서 오므로 이 모양이다. */
+	private static ArrayNode inSeoul(ArrayNode routes) {
+		ArrayNode out = routes.deepCopy();
+		for (JsonNode route : out) {
+			for (JsonNode stop : route.path("stops")) {
+				Instant eta = Instant.parse(stop.path("eta").asString());
+				((ObjectNode) stop).put("eta",
+						DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(eta.atOffset(ZoneOffset.ofHours(9))));
+			}
+		}
+		return out;
 	}
 }
