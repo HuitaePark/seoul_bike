@@ -14,7 +14,7 @@ flowchart LR
 
 | 파일 | 역할 |
 | --- | --- |
-| `infra/compose.yaml` | 서비스 정의: frontend(nginx + Vue, :3000 공개), backend(Spring Boot, :8080), postgres(PostGIS), vectordb(pgvector), redpanda |
+| `infra/compose.yaml` | 서비스 정의: frontend(nginx + Vue, :3000), backend(Spring Boot, :8080), postgres(PostGIS), vectordb(pgvector), redpanda. 서버 포트는 모두 127.0.0.1에만 연다 |
 | `infra/.env.example` | 로컬 실행용 `.env` 양식. 서버 `.env`는 배포가 GitHub `production` 환경 값으로 만든다 |
 | `infra/runner/install-macos.sh` | 서버에 러너 설치 + launchd 서비스 등록 |
 | `.github/workflows/ci.yml` | PR·main 검사 (GitHub 호스팅 러너) |
@@ -52,7 +52,7 @@ flowchart LR
 | --- | --- | --- |
 | `https://baki-macbookpro.tail3286a4.ts.net` | **인터넷 공개** (Tailscale Funnel 443 → frontend :3000) | 팀원·발표 데모용 기본 주소. 화면과 `/api`, `/swagger`, `/status`가 모두 여기로 열린다 |
 | `https://baki-macbookpro.tail3286a4.ts.net:8443` | 인터넷 공개 (같은 frontend) | 예전 링크 호환용. 학교·회사 유선망은 8443을 막을 수 있으니 443 주소를 쓴다 |
-| `http://localhost:8080` (서버 안에서만) | 서버 자신 | backend 직접 호출. 2026-10-21부터 tailnet·공유기 내부망에는 열지 않는다 (`/internal/**` 보호). 밖에서는 공개 주소의 `/api`, `/swagger`를 쓴다 |
+| `http://localhost:3000`, `http://localhost:8080` (서버 안에서만) | 서버 자신 | 화면(nginx)과 backend 직접 호출. 2026-10-21부터 tailnet·공유기 내부망에는 열지 않는다 (`/internal/**` 보호, 로그인 제한의 접속 IP를 속이지 못하게). 밖에서는 공개 주소를 쓴다 |
 | `https://baki-macbookpro.tail3286a4.ts.net:10443` | Tailscale 네트워크만 | Ollama(11434) |
 
 Funnel 관리 (서버에서, CLI는 `/Applications/Tailscale.app/Contents/MacOS/Tailscale`):

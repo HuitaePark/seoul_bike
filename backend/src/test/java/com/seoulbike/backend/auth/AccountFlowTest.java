@@ -96,7 +96,7 @@ class AccountFlowTest {
 	}
 
 	@Test
-	void repeatedWrongPasswordsBlockOnlyThatLoginId() throws Exception {
+	void repeatedWrongPasswordsBlockOnlyThatLoginIdFromThatIp() throws Exception {
 		String manager = token("manager");
 		String loginId = uniqueLoginId();
 		call("POST", "/api/admin/users", manager, body(loginId, "password-123", "책임자 3", "role", "EXECUTIVE"));
@@ -116,6 +116,20 @@ class AccountFlowTest {
 		assertThat(code(login(ghost, "whatever-123"))).isEqualTo("TOO_MANY_LOGIN_FAILURES");
 		// 다른 아이디는 영향이 없다.
 		assertThat(login("driver1", "test-password").statusCode()).isEqualTo(200);
+		// 막힌 건 틀린 곳(IP)뿐이다. 다른 IP에서는 같은 아이디로 바로 로그인한다 (남이 일부러 틀려 계정을 막지 못하게).
+		// 테스트는 127.0.0.1(믿는 프록시)에서 보내므로 X-Forwarded-For가 접속 IP가 된다.
+		assertThat(loginFrom("203.0.113.7", loginId, "password-123").statusCode()).isEqualTo(200);
+		assertThat(code(loginFrom("203.0.113.8", loginId, "wrong-password"))).isEqualTo("INVALID_CREDENTIALS");
+	}
+
+	private HttpResponse<String> loginFrom(String ip, String loginId, String password) throws Exception {
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login"))
+			.header("Content-Type", "application/json")
+			.header("X-Forwarded-For", ip)
+			.POST(HttpRequest.BodyPublishers.ofString(
+					json.writeValueAsString(json.createObjectNode().put("loginId", loginId).put("password", password))))
+			.build();
+		return http.send(req, HttpResponse.BodyHandlers.ofString());
 	}
 
 	@Test
