@@ -20,13 +20,20 @@ class AccountService {
 
 	private final UserRepository users;
 	private final PasswordEncoder passwords;
+	private final int maxPendingSignups;
 
-	AccountService(UserRepository users, PasswordEncoder passwords) {
+	AccountService(UserRepository users, PasswordEncoder passwords, AuthProperties props) {
 		this.users = users;
 		this.passwords = passwords;
+		this.maxPendingSignups = props.maxPendingSignups();
 	}
 
+	/** 누구나 부를 수 있으므로 승인 대기가 너무 쌓이면 받지 않는다 (가입 도배로 표가 끝없이 늘지 않게). 동시 신청은 몇 건 넘을 수 있다. */
 	Account signup(String loginId, String password, String name, Role requestedRole) {
+		if (users.countPending() >= maxPendingSignups) {
+			throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_PENDING_SIGNUPS",
+					"승인을 기다리는 가입 신청이 너무 많다. 관리자가 처리한 뒤 다시 신청한다");
+		}
 		return insert(loginId, password, name, requestedRole, null, AccountStatus.PENDING);
 	}
 

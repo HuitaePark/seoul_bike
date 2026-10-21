@@ -56,6 +56,10 @@ class UserRepository {
 			.optional();
 	}
 
+	int countPending() {
+		return jdbc.sql("select count(*) from users where status = 'PENDING'").query(Integer.class).single();
+	}
+
 	List<StoredUser> list(AccountStatus status) {
 		return jdbc.sql("select " + COLUMNS + """
 				 from users where (cast(:status as varchar) is null or status = :status)

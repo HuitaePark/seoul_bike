@@ -733,6 +733,18 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /**
+             * @description 같은 아이디로 비밀번호를 여러 번(기본 10번) 틀려 잠시 막힘 (TOO_MANY_LOGIN_FAILURES).
+             *     첫 실패부터 기본 10분이 지나야 풀리며, 그동안은 맞는 비밀번호도 받지 않는다. 없는 아이디도 똑같이 센다.
+             */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     signup: {
@@ -760,6 +772,15 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             /** @description 이미 쓰는 아이디 (LOGIN_ID_TAKEN) */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description 승인 대기 가입 신청이 너무 많이(기본 50건) 쌓여 받지 않음 (TOO_MANY_PENDING_SIGNUPS). 관리자가 처리하면 다시 받는다 */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
