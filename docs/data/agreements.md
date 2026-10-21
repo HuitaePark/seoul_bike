@@ -6,7 +6,7 @@
 
 **2026-10-21 갱신:** PR #10 리뷰 댓글(1 에이전트, 3 MCP·RAG, 4 백엔드)을 상태 열에 반영했다. 12·13·23번은 제안 내용이 바뀌었다.
 
-**2026-10-21 결정:** 1~4번과 12·13·15·25번을 @HuitaePark가 정했다 (상태 열의 **결정**). 대여소 ID는 제안과 달리 **실시간 API ID `ST-숫자`**로 정했다. 이유와 결과는 [ADR 0001](../adr/0001-station-id-is-realtime-api-id.md), 용어는 [CONTEXT.md](../../CONTEXT.md). 역할별로 바꿀 것은 맨 아래 [결정 뒤 할 일](#결정-뒤-할-일-2026-10-21).
+**2026-10-21 결정:** 남은 항목을 모두 @HuitaePark가 정했다 (상태 열의 **결정**). 대부분 제안대로이고, **대여소 ID(1번)만 제안과 달리 실시간 API ID `ST-숫자`**로 정했다. 선택지가 있던 질문 16·18번은 상태 열에 고른 쪽을 적었다. 이유와 결과는 [ADR 0001](../adr/0001-station-id-is-realtime-api-id.md), 용어는 [CONTEXT.md](../../CONTEXT.md). 역할별로 바꿀 것은 맨 아래 [결정 뒤 할 일](#결정-뒤-할-일-2026-10-21).
 
 ---
 
@@ -19,7 +19,7 @@
 | 3 | 근무조 ID와 시각 | `{regionId}:{yyyy-MM-dd}:{AM\|PM\|EVE}` (팀 명세 그대로). **AM 07:00–10:00, PM 13:00–16:00, EVE 19:00–21:00**, 계획 초안은 30분 전 (PRD 7.4) | EVE를 19:00–20:00로 (PRD 표기 "19–20시"를 끝 시각으로 읽기) | 근무조 ID, `SolveTruck.availableUntil`, 시뮬레이터 `SHIFTS` | **결정** (2026-10-21): 제안대로. EVE는 19:00–21:00 |
 | 4 | 시각 표기 | 데이터 파일은 KST이고 시간대 표기가 없다. **API의 `date-time`은 `+09:00`을 붙인다** (`2026-10-21T07:00:00+09:00`) | UTC(`Z`)로 통일 | 모든 API·Kafka 메시지의 시각 필드 | **결정** (2026-10-21): 제안대로 `+09:00`. 받는 쪽은 RFC 3339라 어떤 오프셋이든 읽는다 |
 | 29 | 예측 구간 `horizonH` | 최대 **5시간**, 기본 3시간(PRD FR-01 그대로). 선행 연구가 5시간까지 예측했다. 예측 시점 기준 모델의 구역 수요 오차율은 1시간 뒤 10.7%에서 5시간 뒤 15.4%로 완만하게 나빠지며, 5시간 뒤도 베이스라인(28.3%)보다 낫다 | 지금 명세의 최대 6시간 유지 | `openapi` `/api/regions/{regionId}/stations`, `internal-api` `/internal/stations/risk`·`/internal/forecasts`, `get_forecast` 도구 | **합의** (3·4), 반영됨: openapi 0.11.1·internal-api 0.6.1에서 최대 5. MCP 도구는 이미 1~5만 받는다 |
-| 5 | 이름 바꾸는 규칙 | 데이터 파일·DB 열은 snake_case, API는 camelCase. 같은 뜻은 같은 단어를 쓴다 (`docks` ↔ 거치대 수, `elevation_m` ↔ `elevationM`, `model_version` ↔ `modelVersion`) | | 시드, 예측, 시뮬레이터 결과 | 4 찬성 |
+| 5 | 이름 바꾸는 규칙 | 데이터 파일·DB 열은 snake_case, API는 camelCase. 같은 뜻은 같은 단어를 쓴다 (`docks` ↔ 거치대 수, `elevation_m` ↔ `elevationM`, `model_version` ↔ `modelVersion`) | | 시드, 예측, 시뮬레이터 결과 | **결정** (2026-10-21): 제안대로 |
 
 ## 백엔드 (4)
 
@@ -38,13 +38,13 @@
 
 | # | 맞출 것 | 제안 | 쓰이는 곳 | 상태 |
 | --- | --- | --- | --- | --- |
-| 14 | `predict()` 시그니처 | `predict(station, start, horizon_h) -> Forecast`. `Forecast`는 시간별 `rentals_h`·`returns_h`와 합계 `rentals`·`returns`, `model_version`. 가짜 예측기까지 `or-tools/`에 반영해 두었다 ([predict.md](predict.md)) | `compute_imbalances` | 5 확인 필요. `or-tools/` 변경은 PR #10에서 빼서 `junyeop-ortools` 브랜치로 따로 제안했다(5의 `feat/optimizer-core`와 충돌 피하기). 6의 예측기는 같은 모양의 `Forecast`를 `forecast/`에 두고 쓴다 |
+| 14 | `predict()` 시그니처 | `predict(station, start, horizon_h) -> Forecast`. `Forecast`는 시간별 `rentals_h`·`returns_h`와 합계 `rentals`·`returns`, `model_version`. 가짜 예측기까지 `or-tools/`에 반영해 두었다 ([predict.md](predict.md)) | `compute_imbalances` | **결정** (2026-10-21): 제안대로. 5가 `junyeop-ortools` 브랜치의 시그니처를 받아들인다. 6의 예측기는 같은 모양의 `Forecast`를 `forecast/`에 두고 쓴다 |
 | 15 | 내부 API `Forecast`에 시간별 값 | `rentalsH`·`returnsH`(number 배열, 선택)를 추가한다. 합계만 있으면 3시간 중간에 비는 대여소를 놓친다 | `internal-api` Forecast (백엔드·MCP도 함께) | **결정** (2026-10-21): 13번 표의 `rentals_h`·`returns_h`를 `internal-api` Forecast의 `rentalsH`·`returnsH`로 준다 |
-| 16 | 예측 구간과 궤적 검사 | `compute_imbalances`의 기본 예측 구간을 PRD대로 3시간으로 바꾸고, 구간 중간에 비는지 보는 검사를 넣는 시점을 정한다 (지금 기본 1시간) | `imbalance.py` | 질문 |
-| 17 | `Station.capacity`의 뜻 | 지금 `Station.capacity`는 거치대 수, `Truck.capacity`는 적재 용량이라 이름이 같다. `Station.docks`로 바꾸기를 제안한다 | `models.py` | 제안 |
-| 18 | 구역 규모 | 가장 큰 구역의 운영 대여소가 265곳(N01)이라 NFR-01 기준 200곳을 넘는다. 기준을 300곳으로 올리거나 큰 구역을 나눈다 | NFR-01·02, 성능 측정 | 질문 (기획 리드도) |
-| 19 | 운행 파라미터 | 트럭 용량 15대, 정차 3분 + 대당 0.5분, OSRM 전에는 직선거리 × 1.3, 시속 20km. 시뮬레이터와 최적화가 같은 값을 쓴다 | `sim/engine.py`, `planner.py` | 제안 |
-| 20 | 트럭 수 기본값 | 구역별 `trucks_min`(`ref_regions.csv`, 합계 35대). 하한이므로 정책 비교에서 트럭 수를 늘린 민감도를 같이 낸다 | 시뮬레이터, 계획 초안 | 제안 |
+| 16 | 예측 구간과 궤적 검사 | `compute_imbalances`의 기본 예측 구간을 PRD대로 3시간으로 바꾸고, 구간 중간에 비는지 보는 검사를 넣는 시점을 정한다 (지금 기본 1시간) | `imbalance.py` | **결정** (2026-10-21): 기본 예측 구간은 3시간. 구간 중간 검사는 6의 시간별 예측(`rentals_h`·`returns_h`, 13·15번)이 DB에 들어오는 M4에 넣는다 |
+| 17 | `Station.capacity`의 뜻 | 지금 `Station.capacity`는 거치대 수, `Truck.capacity`는 적재 용량이라 이름이 같다. `Station.docks`로 바꾸기를 제안한다 | `models.py` | **결정** (2026-10-21): 제안대로 `Station.docks` |
+| 18 | 구역 규모 | 가장 큰 구역의 운영 대여소가 265곳(N01)이라 NFR-01 기준 200곳을 넘는다. 기준을 300곳으로 올리거나 큰 구역을 나눈다 | NFR-01·02, 성능 측정 | **결정** (2026-10-21): NFR-01 기준을 **300곳**으로 올린다. 구역을 나누면 2번에서 정한 구역 ID가 바뀐다. PRD 반영은 기획 리드 |
+| 19 | 운행 파라미터 | 트럭 용량 15대, 정차 3분 + 대당 0.5분, OSRM 전에는 직선거리 × 1.3, 시속 20km. 시뮬레이터와 최적화가 같은 값을 쓴다 | `sim/engine.py`, `planner.py` | **결정** (2026-10-21): 제안대로 |
+| 20 | 트럭 수 기본값 | 구역별 `trucks_min`(`ref_regions.csv`, 합계 35대). 하한이므로 정책 비교에서 트럭 수를 늘린 민감도를 같이 낸다 | 시뮬레이터, 계획 초안 | **결정** (2026-10-21): 제안대로 |
 
 ## MCP·RAG (3), 에이전트 (1), 평가 (2)
 
@@ -53,16 +53,16 @@
 | 21 | 근거 문서 위치와 머리말 | `docs/evidence/*.md`. 맨 위 머리말에 `title`, `doc_id`, `version`, `updated`, `source`, `status`. 절 하나만 읽혀도 뜻이 통하게 쓴다. 첫 문서: [rebal-summary.md](../evidence/rebal-summary.md) | `rag-indexer`, `rag-mcp` Resource `doc://{doc_id}` | **합의** (3, PR #12). MCP가 더 쓰는 선택 필드 `doc_type`, `sources[]`, `data_period`는 그 뒤에 둔다. 작성 규칙: `docs/evidence/README.md` |
 | 22 | 도구 결과의 대여소·구역 | 1·2번과 같은 ID를 쓰고, 이름은 따로 준다 | `business-mcp` 조회 도구 | **합의** (3): 백엔드 값을 그대로 넘기고 이름 필드(`name`, `stationName`)도 둔다 |
 | 23 | 에이전트 스레드 | **바뀜:** `thread_id`는 작업 단위 `{shiftId}:{taskId}`다(asyncapi 0.3, PR #9). 근무조 ID를 그대로 쓰면 같은 근무조 작업끼리 대기 중인 승인이 섞인다(ISSUES ISS-03) | 에이전트 그래프 | **합의** (1·4), 이미 반영됨 |
-| 24 | 평가셋의 현장 이벤트 | 시뮬레이터가 재고 불일치·진입 불가·트럭 지연을 주입한 시나리오를 2에게 넘긴다. 형식은 `FieldReportRequest`와 같게 | Harness 평가셋 | 제안 (M4) |
+| 24 | 평가셋의 현장 이벤트 | 시뮬레이터가 재고 불일치·진입 불가·트럭 지연을 주입한 시나리오를 2에게 넘긴다. 형식은 `FieldReportRequest`와 같게 | Harness 평가셋 | **결정** (2026-10-21): 제안대로 (M4) |
 
 ## 기획 리드
 
 | # | 맞출 것 | 제안 | 상태 |
 | --- | --- | --- | --- |
-| 25 | 계획 단위 | 활동 구역 17개(전 구역). 개발 기준 구역은 S05(강남-05) ([regions.md](regions.md)) | **결정** (2026-10-21): 시연·개발 범위는 **서울 전체 17개 구역**. 개발 기준 구역(S05)이나 시연 구역(`gwangjin-seongdong`)을 따로 두지 않는다. 계획·근무조는 여전히 구역 하나 단위다. 큰 구역(N01 265곳)이 NFR-01의 200곳을 넘는 18번을 함께 풀어야 한다 |
-| 26 | 주 지표 | PRD 9.2의 주 지표(빈 대여소-분)는 그대로 보고하되, 정책 판단은 실패 대여로 한다 | 6 결정, PRD 반영 필요 |
-| 27 | 단순 규칙 정의 | 빈 위험(재고 2대 이하)은 채우고, 회수는 고정 회수 대여소에서만 한다 | 6 결정, PRD 9.1 반영 필요 |
-| 28 | PRD·ROLES 반영 | [06-data-sim.md](../roles/06-data-sim.md) 7절의 목록 | 제안 |
+| 25 | 계획 단위 | 활동 구역 17개(전 구역). 개발 기준 구역은 S05(강남-05) ([regions.md](regions.md)) | **결정** (2026-10-21): 시연·개발 범위는 **서울 전체 17개 구역**. 개발 기준 구역(S05)이나 시연 구역(`gwangjin-seongdong`)을 따로 두지 않는다. 계획·근무조는 여전히 구역 하나 단위다. 큰 구역(N01 265곳)은 18번에서 NFR-01 기준을 300곳으로 올려 풀었다 |
+| 26 | 주 지표 | PRD 9.2의 주 지표(빈 대여소-분)는 그대로 보고하되, 정책 판단은 실패 대여로 한다 | **결정** (2026-10-21): 제안대로. PRD 9.2 반영은 기획 리드 |
+| 27 | 단순 규칙 정의 | 빈 위험(재고 2대 이하)은 채우고, 회수는 고정 회수 대여소에서만 한다 | **결정** (2026-10-21): 제안대로. PRD 9.1 반영은 기획 리드 |
+| 28 | PRD·ROLES 반영 | [06-data-sim.md](../roles/06-data-sim.md) 7절의 목록 | **결정** (2026-10-21): 제안대로 반영한다 (기획 리드) |
 
 ## 결정 뒤 할 일 (2026-10-21)
 
@@ -73,9 +73,10 @@
 | 역할 | 할 일 |
 | --- | --- |
 | 1 에이전트 | 에이전트가 내보내는 시각을 `+09:00`으로. 근무조 ID·구역 예시를 `N02:2026-10-21:AM` 모양으로 |
-| 2 Harness | `id_pattern: ST-\d+`는 **그대로** (바꿀 것 없음). 평가셋·가짜 MCP(`agent/evaluation/fake_mcp.py`)의 구역 `yeongdeungpo`와 근무조 ID를 `N`·`S` 구역으로, 대여소 ID(`ST-2001` 등)를 실제 대여소로 |
+| 2 Harness | `id_pattern: ST-\d+`는 **그대로** (바꿀 것 없음). 평가셋·가짜 MCP(`agent/evaluation/fake_mcp.py`)의 구역 `yeongdeungpo`와 근무조 ID를 `N`·`S` 구역으로, 대여소 ID(`ST-2001` 등)를 실제 대여소로. 6이 넘기는 현장 이벤트 시나리오로 평가셋 보강(24번, M4) |
 | 3 MCP·RAG | `StationId`는 `^ST-\d+$`만 받기 (대여소번호 형식 빼기), `RegionId`는 가짜 데이터를 옮긴 뒤 `^[NS]\d{2}$`로. 가짜 데이터의 구역·대여소를 실제 ID로. [MCP.md](../MCP.md)의 미결 표(대여소·구역 ID 형식) 정리 |
-| 4 백엔드 | 대여소·구역 기준 표 적재(`ref.stations`, `ref.regions`), 재고·예측 표(`live.station_status`, `forecast.station_forecasts`)와 Forecast 시간별 값, 시각 `+09:00`, 대여소 API, 경로 계산 입력(`solve.requests`의 `availableUntil`에 EVE 끝 21:00). 가짜 에이전트(`FakeAgent.java`)와 테스트의 `gwangjin-seongdong`·`ST-101`~`ST-104`를 실제 구역·대여소로 |
-| 5 최적화 | 시드에는 이미 `api_station_id` 열이 있다. 메시지로 주고받는 대여소 ID를 `api_station_id`(`ST-`)로 쓰고, 시드를 17개 구역으로 넓힌다(시드 해시 테스트 `test_seeds.py` 함께). 큰 구역 성능(18번, N01 265곳) 확인 |
-| 6 데이터 | 실시간 수집기는 API의 `ST-` 값을 그대로 `live.station_status`에. 예측은 `ST-`로 바꿔 `forecast.station_forecasts`에. 시뮬레이터 `SHIFTS`의 EVE 19–21, `sim_kpi.csv`의 `region_id`는 `N`·`S` 구역. 내보내는 시각은 `+09:00` |
+| 4 백엔드 | **끝남:** 대여소·구역 기준 표(`ref.stations`, `ref.regions`), 재고·예측 표(`live.station_status`, `forecast.station_forecasts`)와 Forecast 시간별 값, 시각 `+09:00`. **남음:** 대여소 API, 경로 계산 입력(`solve.requests`의 `availableUntil`에 EVE 끝 21:00), 가짜 에이전트(`FakeAgent.java`)와 테스트의 `gwangjin-seongdong`·`ST-101`~`ST-104`를 실제 구역·대여소로 |
+| 5 최적화 | 시드에는 이미 `api_station_id` 열이 있다. 메시지로 주고받는 대여소 ID를 `api_station_id`(`ST-`)로 쓰고, 시드를 17개 구역으로 넓힌다(시드 해시 테스트 `test_seeds.py` 함께). 큰 구역 성능(N01 265곳, NFR-01 300곳 기준) 확인. `predict()` 시그니처 받기(14), `compute_imbalances` 기본 구간 3시간(16), `Station.capacity` → `Station.docks`(17), 운행 파라미터를 시뮬레이터와 같은 값으로(19) |
+| 6 데이터 | 실시간 수집기는 API의 `ST-` 값을 그대로 `live.station_status`에. 예측은 `ST-`로 바꿔 `forecast.station_forecasts`에. 시뮬레이터 `SHIFTS`의 EVE 19–21, `sim_kpi.csv`의 `region_id`는 `N`·`S` 구역. 내보내는 시각은 `+09:00`. 현장 이벤트 주입 시나리오를 2에게(24번, M4) |
 | 화면 담당 | 더미·시연 데이터의 대여소 ID(`ST-5xx`, `ST-101`~`ST-104`)는 실제 다른 대여소를 가리킨다. 대여소 API(4)가 나오면 더미를 걷어 내고, 그 전까지 `더미` 표시 유지. 시연 구역 `gwangjin-seongdong`은 `shared/region/regions.ts`, `shared/dummy.ts`, `plan-map/demo.ts`, `TaskConsoleView.vue` 기본값, `tests/dashboard.test.ts`에 있다(가짜 데이터를 옮긴 뒤 뺀다). 시각은 문자열로 정렬하지 말고 시각으로 비교한다(`+09:00`과 `Z`가 섞이면 순서가 틀린다) |
+| 기획 리드 | PRD 반영: 9.2 주 지표와 판단 기준(26), 9.1 단순 규칙(27), NFR-01 대여소 300곳(18), [06-data-sim.md](../roles/06-data-sim.md) 7절 목록(28) |
