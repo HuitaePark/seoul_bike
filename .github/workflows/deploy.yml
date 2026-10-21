@@ -19,6 +19,8 @@ on:
       - ".dockerignore"
       - "docs/specs/**"
       - "docs/evidence/**"
+      # backend가 jar에 넣는 구역·대여소 기준 정보 (compose additional_contexts refdata). 매주 갱신된다.
+      - "analysis/out/ref_*.csv"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
