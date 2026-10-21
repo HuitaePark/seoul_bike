@@ -1,6 +1,15 @@
 # 역할 5 진행 정리 — 2026-10-21
 
-## 합의사항 추가 대응과 마무리 준비
+## 현재 상태 (main a5fac87, #98 병합 후)
+
+[PR #94](https://github.com/HuitaePark/skala_seoul_bike/pull/94)(08:17)와 [PR #98](https://github.com/HuitaePark/skala_seoul_bike/pull/98)(09:22)이 main에 병합됐다.
+`hyunmoo`는 main과 같고 열린 역할 5 PR은 없다. #98은 #94 리뷰 후속(OSRM 배포·env 주의, 시연 거점, 시드 검사 완화)과
+도로 자료 포함 범위 검사 `rebalancing.roadcheck`, Python 3.11 CLI 상호 배타 인자 정리를 담았다.
+남은 일은 실제 입력·도로 자료·통합 실행이 필요한 운영 마무리다. [현재 상태](pr-readiness.md)와 [마무리 인계](final-handoff.md)를 따른다.
+
+아래 절부터는 #94 이전의 진행 이력이다.
+
+## 합의사항 추가 대응과 마무리 준비 (#94)
 
 최신 main b31fcec(#88 N02 전환·#93 collector 포함)와 `docs/data/agreements.md`의 결정/합의 상태를 기준으로 역할 5의 독립 작업을 추가했다.
 결과 occurredAt/eta는 +09:00으로 생성하며 입력 RFC 3339 오프셋은 계속 수용한다. UTC 로그와 기존 저장 결과 재발행은 유지한다.
@@ -16,7 +25,7 @@ OSRM 선택 overlay는 기존 worker/상태 볼륨에 도로 버전·읽기 전�
 
 작업 중 PR #90이 이전 head 0c1d529로 dda31f0에 병합됐다. 이번 PR #89 호환 검사/문서 f49645b는 별도 후속이다.
 최신 main 1d68daa의 PR #90 병합 결과와 PR #92 TruckStates 공통화를 추가 반영했고 내부 API 기준은 0.8.3이다.
-직전 요청에서는 후속 변경을 hyunmoo에만 push했다. 이번에는 아래 합의 대응과 함께 후속 PR 범위로 묶는다.
+직전 요청에서는 후속 변경을 hyunmoo에만 push했다. 이후 아래 합의 대응과 함께 PR #94로 제출해 병합됐다.
 
 ## PR #89 병합 대응
 
