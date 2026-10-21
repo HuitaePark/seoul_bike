@@ -79,7 +79,7 @@ def _initial_plan() -> Json:
             {"truckId": "TR-03", "capacity": TRUCK_CAPACITY, "startLoad": 0, "stops": []},
         ],
         "unserved": [{"stationId": "ST-1188", "stationName": STATIONS["ST-1188"]["name"], "priority": 21.0,
-                      "reason": "TIME"}],
+                      "reason": "NOT_SELECTED"}],
         "explanation": "광진구 북부의 출근 시간 빈 대여소 위험을 우선 해소했습니다. (가짜 데이터)",
     }
 
@@ -297,7 +297,7 @@ class FakeInternalApi:
             for s in before:
                 if s not in kept:
                     plan["unserved"].append({"stationId": s["stationId"], "stationName": s["stationName"],
-                                             "priority": 0.0, "reason": "EXCLUDED"})
+                                             "priority": 0.0, "reason": "BLOCKED"})
             load = route["startLoad"]
             for i, s in enumerate(kept, start=1):
                 load += s["bikes"] if s["action"] == "PICKUP" else -s["bikes"]

@@ -7,7 +7,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.redpanda.RedpandaContainer;
 import org.testcontainers.utility.DockerImageName;
 
-/** 운영과 같은 이미지(PostGIS, Redpanda). 같은 설정을 쓰는 테스트는 컨테이너와 컨텍스트를 함께 쓴다. */
+/** 운영과 같은 이미지(PostGIS, Redpanda). IntegrationTest가 넣으며, 모든 통합 테스트가 이 컨테이너 한 벌과 컨텍스트 하나를 같이 쓴다. */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestInfra {
 
@@ -21,6 +21,7 @@ public class TestInfra {
 			app.solve.timeout=5s
 			app.auth.login-max-failures=3
 			app.auth.max-pending-signups=5
+			server.shutdown=immediate
 			""";
 
 	@Bean

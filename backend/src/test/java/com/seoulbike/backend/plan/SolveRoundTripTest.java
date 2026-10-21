@@ -5,23 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.MessageListenerContainer;
@@ -32,50 +23,18 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import com.seoulbike.backend.DeadLetters;
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 
 /**
  * solve.requests → (가짜 optimizer) → solve.results 왕복과 계획 후보 저장. 가짜 optimizer는 근무조마다 정한 답을 보낸다
  * (진짜 worker처럼 requestId·shiftId·traceId를 그대로 돌려준다). 테스트마다 새 근무조를 써서 서로 섞이지 않는다.
  * 기다림 한도는 TestInfra의 app.solve.timeout(5초)이다.
  */
-@SpringBootTest(properties = TestInfra.PROPS)
-@Import({ TestInfra.class, SolveRoundTripTest.FakeOptimizer.class })
+@IntegrationTest
 class SolveRoundTripTest {
 
 	private static final String DLQ = SolveTopics.SOLVE_RESULTS + ".dlq";
 	private static final Instant T0 = Instant.parse("2026-10-20T23:00:00Z");
-
-	/** 테스트 전용 optimizer. 근무조마다 요청 → 보낼 결과들을 정한다. 정하지 않은 근무조에는 답하지 않는다. */
-	@TestConfiguration(proxyBeanMethods = false)
-	static class FakeOptimizer {
-
-		final Map<String, Function<JsonNode, List<String>>> answers = new ConcurrentHashMap<>();
-		final Map<String, BlockingQueue<JsonNode>> received = new ConcurrentHashMap<>();
-		private final KafkaTemplate<String, String> kafka;
-		private final JsonMapper json;
-
-		FakeOptimizer(KafkaTemplate<String, String> kafka, JsonMapper json) {
-			this.kafka = kafka;
-			this.json = json;
-		}
-
-		@KafkaListener(topics = SolveTopics.SOLVE_REQUESTS, groupId = "test-fake-optimizer")
-		void onRequest(String value) {
-			JsonNode request = json.readTree(value);
-			String shiftId = request.path("shiftId").asString();
-			received.computeIfAbsent(shiftId, s -> new LinkedBlockingQueue<>()).add(request);
-			for (String result : answers.getOrDefault(shiftId, r -> List.of()).apply(request)) {
-				kafka.send(SolveTopics.SOLVE_RESULTS, shiftId, result);
-			}
-		}
-
-		JsonNode lastRequest(String shiftId) throws InterruptedException {
-			JsonNode request = received.computeIfAbsent(shiftId, s -> new LinkedBlockingQueue<>()).poll(10, TimeUnit.SECONDS);
-			assertThat(request).as("가짜 optimizer가 받은 요청").isNotNull();
-			return request;
-		}
-	}
 
 	@Autowired
 	SolveGateway gateway;

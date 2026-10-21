@@ -65,11 +65,13 @@ def test_evidence_docs_follow_agreement_head(docs):
 
 
 def test_agreement_head_only_doc_is_readable(tmp_path):
-    """6번 rebal-summary처럼 합의 머리말만 있는 문서: source가 기본 근거, doc_type은 알려진 표로 정한다."""
+    """합의 머리말만 있는 문서: source가 기본 근거, doc_type이 없으면 general, 있으면 그대로 읽는다."""
     p = tmp_path / "rebal-summary.md"
     p.write_text(REBAL_LIKE, encoding="utf-8")
     doc = parse_doc(p)
-    assert doc.doc_type == "reverse_analysis" and doc.updated == "2026-10-20"
+    assert doc.doc_type == "general" and doc.updated == "2026-10-20"
+    p.write_text(REBAL_LIKE.replace("\n---\n\n#", "\ndoc_type: reverse_analysis\n---\n\n#", 1), encoding="utf-8")
+    assert parse_doc(p).doc_type == "reverse_analysis"
     chunks = chunk_doc(doc)
     assert chunks and all(c.basis == "primary" for c in chunks)
     assert chunks[-1].citation.startswith("「따릉이 재배치 역산 정리」") and chunks[-1].status.startswith("추정치")

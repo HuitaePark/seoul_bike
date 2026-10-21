@@ -6,23 +6,21 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 
 /** 회원가입은 승인 전까지 로그인 불가, 관리자만 승인·발급·비활성화, 기사는 트럭 필수. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = TestInfra.PROPS)
-@Import(TestInfra.class)
+@IntegrationTest
 class AccountFlowTest {
 
 	@LocalServerPort
@@ -152,7 +150,7 @@ class AccountFlowTest {
 	}
 
 	private HttpResponse<String> loginFrom(String ip, String loginId, String password) throws Exception {
-		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login"))
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login")).timeout(Duration.ofSeconds(30))
 			.header("Content-Type", "application/json")
 			.header("X-Forwarded-For", ip)
 			.POST(HttpRequest.BodyPublishers.ofString(
@@ -222,7 +220,7 @@ class AccountFlowTest {
 	}
 
 	private HttpResponse<String> call(String method, String path, String token, String body) throws Exception {
-		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+		var req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).timeout(Duration.ofSeconds(30))
 			.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
 		if (body != null) {
 			req.header("Content-Type", "application/json");

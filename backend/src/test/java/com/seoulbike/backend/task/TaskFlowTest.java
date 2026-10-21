@@ -19,15 +19,13 @@ import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-import com.seoulbike.backend.TestInfra;
+import com.seoulbike.backend.IntegrationTest;
 import com.seoulbike.backend.common.ApiException;
 import com.seoulbike.backend.route.RouteChangeGrade;
 
@@ -35,8 +33,7 @@ import com.seoulbike.backend.route.RouteChangeGrade;
  * M2 완료 기준: 로그인 → 작업 202 → SSE로 진행 이벤트 → 승인 → 같은 스트림에서 DONE.
  * 가짜 에이전트가 진짜 Kafka(Redpanda)를 거쳐 ai.tasks/ai.events를 주고받는다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = TestInfra.PROPS)
-@Import(TestInfra.class)
+@IntegrationTest
 class TaskFlowTest {
 
 	private static final Duration WAIT = Duration.ofSeconds(30);

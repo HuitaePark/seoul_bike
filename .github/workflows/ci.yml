@@ -96,11 +96,21 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "25"
           cache: gradle
       # 테스트가 Testcontainers로 PostGIS·Redpanda를 띄운다 (러너의 Docker 사용).
       - run: ./gradlew test --no-daemon
         working-directory: backend
+      # 테스트 중 앱 로그(Kafka 리스너 배정·토픽 생성)는 콘솔에 안 나오고 결과 XML의 system-out에만 남는다.
+      - name: 실패한 backend 테스트 기록
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v5
+        with:
+          name: backend-test-results
+          path: |
+            backend/build/test-results/test/
+            backend/build/reports/tests/test/
+          retention-days: 7
 
   frontend:
     runs-on: ubuntu-latest
