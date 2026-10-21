@@ -36,6 +36,11 @@ public class AuditLog {
 			return new Actor(userId, Role.MANAGER.name(), display(Role.MANAGER, null));
 		}
 
+		/** 경로 변경을 마지막으로 수락한 그 트럭 기사. 적용은 이 수락으로 실행된다 (FR-13). */
+		public static Actor approvingDriver(String userId, String truckId) {
+			return new Actor(userId, Role.DRIVER.name(), display(Role.DRIVER, truckId));
+		}
+
 		/** backend가 스스로 한 일 (예: 재개 명령을 못 보내 결정을 되돌림). */
 		public static Actor system() {
 			return new Actor(null, "SYSTEM", "시스템");

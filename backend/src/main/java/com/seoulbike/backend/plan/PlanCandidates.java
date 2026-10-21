@@ -64,33 +64,49 @@ class PlanCandidates {
 		plan.set("unserved", unserved);
 		plan.putNull("explanation");
 
-		ArrayNode diffsOut = candidate.putArray("diffs");
 		ArrayNode approvers = json.createArrayNode();
 		var active = plans.active(shiftId);
 		if (active.isEmpty()) {
+			candidate.putArray("diffs");
 			candidate.putNull("grade");
 		}
 		else {
-			List<RouteDiff> diffs = new ArrayList<>();
-			for (Map.Entry<String, JsonNode[]> truck : byTruck(json.readTree(active.get().routesJson()), routes).entrySet()) {
-				JsonNode before = truck.getValue()[0];
-				JsonNode after = truck.getValue()[1];
-				double addedMinutes = addedMinutes(before, after);
-				diffs.add(new RouteDiff(truck.getKey(), gradeStops(before), gradeStops(after), addedMinutes));
-				ObjectNode diff = diffsOut.addObject();
-				diff.put("truckId", truck.getKey());
-				diff.set("before", before.deepCopy());
-				diff.set("after", after.deepCopy());
-				diff.put("addedMinutes", addedMinutes);
-			}
-			RouteDiff.Origin origin = taskId != null && requests.fromFieldReport(taskId) ? RouteDiff.Origin.FIELD_REPORT
-					: RouteDiff.Origin.MANAGER_REQUEST;
-			RouteChangeGrade grade = grader.grade(diffs, origin);
-			candidate.put("grade", grade.name());
-			grade.requiredApprovers().forEach(r -> approvers.add(r.name()));
+			Comparison comparison = compare(active.get().routesJson(), routes, taskId);
+			candidate.set("diffs", comparison.diffs());
+			candidate.put("grade", comparison.grade().name());
+			comparison.grade().requiredApprovers().forEach(r -> approvers.add(r.name()));
 		}
 		candidate.set("requiredApprovers", approvers);
 		return candidate;
+	}
+
+	/** 활성 계획 대비 트럭별 변경(계약 RouteDiff 배열)과 등급. */
+	record Comparison(ArrayNode diffs, RouteChangeGrade grade) {
+	}
+
+	/**
+	 * 후보 경로를 활성 계획과 비교해 등급을 매긴다. 후보를 만들 때와 경로를 적용할 때 같은 규칙을 쓴다
+	 * (적용 API는 카드에 적힌 등급을 믿지 않고 여기서 다시 계산한다).
+	 *
+	 * @param taskId 요청한 작업. 현장 보고 작업이면 FIELD_REPORT, 아니면(없어도) 관리자 요청으로 등급을 매긴다
+	 */
+	Comparison compare(String activeRoutesJson, JsonNode candidateRoutes, UUID taskId) {
+		ArrayNode diffsOut = json.createArrayNode();
+		List<RouteDiff> diffs = new ArrayList<>();
+		for (Map.Entry<String, JsonNode[]> truck : byTruck(json.readTree(activeRoutesJson), candidateRoutes).entrySet()) {
+			JsonNode before = truck.getValue()[0];
+			JsonNode after = truck.getValue()[1];
+			double addedMinutes = addedMinutes(before, after);
+			diffs.add(new RouteDiff(truck.getKey(), gradeStops(before), gradeStops(after), addedMinutes));
+			ObjectNode diff = diffsOut.addObject();
+			diff.put("truckId", truck.getKey());
+			diff.set("before", before.deepCopy());
+			diff.set("after", after.deepCopy());
+			diff.put("addedMinutes", addedMinutes);
+		}
+		RouteDiff.Origin origin = taskId != null && requests.fromFieldReport(taskId) ? RouteDiff.Origin.FIELD_REPORT
+				: RouteDiff.Origin.MANAGER_REQUEST;
+		return new Comparison(diffsOut, grader.grade(diffs, origin));
 	}
 
 	/** 활성 계획과 후보 중 어느 쪽에든 있는 트럭 → [before 정류장, after 정류장]. 활성 계획의 트럭 순서를 따른다. */
