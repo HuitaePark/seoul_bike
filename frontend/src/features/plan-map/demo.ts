@@ -1,6 +1,6 @@
 import { ReviewError, type Plan, type PlanReviewSource, type Station, type Task } from './model.ts'
 
-export const DEMO_REGION = 'gwangjin-seongdong'
+export const DEMO_REGION = 'N02'
 export const DEMO_SHIFT = `${DEMO_REGION}:2026-10-21:AM`
 export const DEMO_TASK_ID = 'dd39466c-c263-4da9-8848-38273793215a'
 const observedAt = '2026-10-21T08:00:00+09:00'
