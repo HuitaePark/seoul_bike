@@ -45,6 +45,6 @@
 | ISS-R9 | 원격 `revert-3-성훈` 브랜치 (구 ISS-15) | 원격에서 삭제됨. PR #3은 main에 유지 | - |
 | ISS-R10 | 계약 `threadId`가 근무조 단위 (구 ISS-03) | asyncapi v0.3에서 작업 단위 `{shiftId}:{taskId}`로 변경 | `0fd5ad6` (main) |
 | ISS-R11 | 계약 `requestedBy`에 기사 `truckId` 없음 (구 ISS-04) | asyncapi v0.3 `requestedBy.truckId`. Harness는 이 값으로 기사 범위 한정 | `0fd5ad6` (main) |
-| ISS-R12 | `FAILED` 이벤트에 실패 코드 없음 (구 ISS-05) | 계약 `code` 필드. Harness가 `FAILED.code`로 발행 | 이번 커밋 |
-| ISS-R13 | `get_audit` 도구 없음 (구 ISS-06) | internal-api v0.5 `GET /internal/shifts/{shiftId}/audit`, business-mcp `get_audit`. `qa` 허용 목록에 추가, SC-07 | 이번 커밋 |
+| ISS-R12 | `FAILED` 이벤트에 실패 코드 없음 (구 ISS-05) | 계약 `code` 필드. Harness가 `FAILED.code`로 발행 | `4157927` |
+| ISS-R13 | `get_audit` 도구 없음 (구 ISS-06) | internal-api v0.5 `GET /internal/shifts/{shiftId}/audit`, business-mcp `get_audit`. `qa` 허용 목록에 추가, SC-07 | `4157927` |
 | ISS-R14 | MCP 도구 인자 이름 규칙 (구 ISS-17) | 실제 business-mcp가 Harness와 같은 snake_case 인자, `approval_id`·`task_id`는 Harness가 채우는 인자로 구현됨 | main `business-mcp/` |
