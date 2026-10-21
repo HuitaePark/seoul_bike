@@ -243,7 +243,8 @@ async def test_replan_minor_requires_driver_only(client):
     assert cand["status"] == "OK" and cand["plan"]["status"] == "DRAFT"
     assert (cand["grade"], cand["requiredApprovers"]) == ("MINOR", ["DRIVER"])
     assert cand["diffs"][0]["truckId"] == "TR-01"
-    assert any(u["stationId"] == "ST-2240" and u["reason"] == "EXCLUDED" for u in cand["plan"]["unserved"])
+    # 관리자 제외는 openapi Unserved.reason BLOCKED (PR #34)
+    assert any(u["stationId"] == "ST-2240" and u["reason"] == "BLOCKED" for u in cand["plan"]["unserved"])
 
 
 async def test_replan_major_requires_manager_then_driver(client):
@@ -295,7 +296,7 @@ def test_unserved_and_explanation_are_trimmed_before_stops():
 
     stop = {"seq": 1, "stationId": "ST-1", "action": "PICKUP", "bikes": 3, "status": "PENDING"}
     plan = {"planId": "P-1", "routes": [{"truckId": "TR-1", "stops": [dict(stop, seq=i) for i in range(1, 6)]}],
-            "unserved": [{"stationId": f"ST-{i}", "priority": 1.0, "reason": "TIME"} for i in range(300)],
+            "unserved": [{"stationId": f"ST-{i}", "priority": 1.0, "reason": "NOT_SELECTED"} for i in range(300)],
             "explanation": "설명" * 400}
     out = _fit_plan(plan, 2000)
     assert len(json.dumps(out, ensure_ascii=False)) <= 2000

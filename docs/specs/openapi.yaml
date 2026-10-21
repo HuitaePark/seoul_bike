@@ -394,7 +394,7 @@ paths:
         - name: horizonH
           in: query
           description: 예측 구간(시간)
-          schema: { type: integer, minimum: 1, maximum: 6, default: 3 }
+          schema: { type: integer, minimum: 1, maximum: 5, default: 3 }
       responses:
         '200':
           description: 대여소 목록
