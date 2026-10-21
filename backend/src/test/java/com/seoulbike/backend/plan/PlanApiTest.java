@@ -49,8 +49,8 @@ class PlanApiTest {
 	@Test
 	void activationNeedsThisPlansManagerApprovalAndClosesThePreviousActive() throws Exception {
 		String shift = newShift();
-		String v1 = plan(shift, 1, "ACTIVE", routes(route("truck-1", stop("ST-1", "PICKUP", 5))), null);
-		String v2 = plan(shift, 2, "PROPOSED", routes(route("truck-1", stop("ST-2", "PICKUP", 5))), 1);
+		String v1 = plan(shift, 1, "ACTIVE", routes(route("TR-01", stop("ST-1", "PICKUP", 5))), null);
+		String v2 = plan(shift, 2, "PROPOSED", routes(route("TR-01", stop("ST-2", "PICKUP", 5))), 1);
 		UUID task = task(shift, "PLAN_DRAFT");
 
 		UUID constraintCard = approval(task, "ADD_CONSTRAINT", "MANAGER", null, null, null, "u-manager");
@@ -85,14 +85,14 @@ class PlanApiTest {
 		assertThat(audit.get(0).path("actor").path("display").asString()).isEqualTo("관리자");
 		assertThat(audit.get(0).path("targetId").asString()).isEqualTo(v2);
 		assertThat(audit.get(0).path("detail").asString()).startsWith("v2");
-		String v3 = plan(shift, 3, "PROPOSED", routes(route("truck-1", stop("ST-3", "PICKUP", 5))), 2);
+		String v3 = plan(shift, 3, "PROPOSED", routes(route("TR-01", stop("ST-3", "PICKUP", 5))), 2);
 		assertThat(code(activate(v3, card, task))).isEqualTo("APPROVAL_ALREADY_USED");
 
 		// 닫힌 계획, 그리고 지금 활성 계획보다 옛 버전을 기준으로 계산한 후보는 활성화하지 않는다.
 		var closed = activate(v1, approval(task, "SUBMIT_PLAN", "MANAGER", null, null, v1, "u-manager"), task);
 		assertThat(closed.statusCode()).isEqualTo(409);
 		assertThat(code(closed)).isEqualTo("PLAN_SUPERSEDED");
-		String stale = plan(shift, 4, "PROPOSED", routes(route("truck-1", stop("ST-4", "PICKUP", 5))), 1);
+		String stale = plan(shift, 4, "PROPOSED", routes(route("TR-01", stop("ST-4", "PICKUP", 5))), 1);
 		var staleRes = activate(stale, approval(task, "SUBMIT_PLAN", "MANAGER", null, null, stale, "u-manager"), task);
 		assertThat(code(staleRes)).isEqualTo("PLAN_SUPERSEDED");
 		assertThat(detail(staleRes)).contains("request_route_plan");
@@ -103,22 +103,22 @@ class PlanApiTest {
 	@Test
 	void routeApplyMakesANewActiveVersionWithOnlyThatTruckChanged() throws Exception {
 		String shift = newShift();
-		JsonNode truck2 = route("truck-2", stop("ST-3", "PICKUP", 4));
+		JsonNode truck2 = route("TR-02", stop("ST-3", "PICKUP", 4));
 		String v1 = plan(shift, 1, "ACTIVE",
-				routes(route("truck-1", stop("ST-1", "PICKUP", 5), stop("ST-2", "DROPOFF", 5)), truck2), null);
-		JsonNode changed = route("truck-1", stop("ST-1", "PICKUP", 7), stop("ST-2", "DROPOFF", 7));
+				routes(route("TR-01", stop("ST-1", "PICKUP", 5), stop("ST-2", "DROPOFF", 5)), truck2), null);
+		JsonNode changed = route("TR-01", stop("ST-1", "PICKUP", 7), stop("ST-2", "DROPOFF", 7));
 		// 현장 보고 작업에서 한 트럭만 조금 바뀐 후보라 MINOR: 그 트럭 기사의 수락만 있으면 된다.
 		UUID task = task(shift, "FIELD_REPORT");
 		String candidate = plan(shift, 2, "PROPOSED", routes(changed, truck2), 1, task);
 
-		var noDriver = apply("truck-1", UUID.randomUUID(), task, candidate);
+		var noDriver = apply("TR-01", UUID.randomUUID(), task, candidate);
 		assertThat(noDriver.statusCode()).isEqualTo(403);
-		assertThat(detail(noDriver)).contains("truck-1 기사 승인이 없다");
-		UUID otherTruck = approval(task, "ROUTE_CHANGE", "DRIVER", "truck-2", candidate, null, "u-driver-2");
-		assertThat(code(apply("truck-1", otherTruck, task, candidate))).isEqualTo("APPROVAL_REQUIRED");
+		assertThat(detail(noDriver)).contains("TR-01 기사 승인이 없다");
+		UUID otherTruck = approval(task, "ROUTE_CHANGE", "DRIVER", "TR-02", candidate, null, "u-driver-2");
+		assertThat(code(apply("TR-01", otherTruck, task, candidate))).isEqualTo("APPROVAL_REQUIRED");
 
-		UUID accepted = approval(task, "ROUTE_CHANGE", "DRIVER", "truck-1", candidate, null, "u-driver-1");
-		var first = apply("truck-1", accepted, task, candidate);
+		UUID accepted = approval(task, "ROUTE_CHANGE", "DRIVER", "TR-01", candidate, null, "u-driver-1");
+		var first = apply("TR-01", accepted, task, candidate);
 		assertThat(first.statusCode()).isEqualTo(200);
 		assertThat(json.readTree(first.body())).isEqualTo(changed);
 
@@ -133,7 +133,7 @@ class PlanApiTest {
 			.single()).isEqualTo("u-driver-1");
 
 		// 재시도는 같은 경로, 새 버전·기록 없음. 같은 승인으로 다른 트럭을 바꿀 수 없다.
-		var retry = apply("truck-1", accepted, task, candidate);
+		var retry = apply("TR-01", accepted, task, candidate);
 		assertThat(retry.statusCode()).isEqualTo(200);
 		assertThat(json.readTree(retry.body())).isEqualTo(changed);
 		assertThat(jdbc.sql("select count(*) from plans where shift_id = :s").param("s", shift).query(Integer.class).single())
@@ -141,14 +141,14 @@ class PlanApiTest {
 		JsonNode audit = json.readTree(call("GET", "/internal/shifts/" + shift + "/audit", null, TOKEN, null).body());
 		assertThat(audit).hasSize(1);
 		assertThat(audit.get(0).path("type").asString()).isEqualTo("ROUTE_CHANGED");
-		assertThat(audit.get(0).path("actor").path("display").asString()).isEqualTo("truck-1 기사");
-		assertThat(audit.get(0).path("targetId").asString()).isEqualTo("truck-1");
+		assertThat(audit.get(0).path("actor").path("display").asString()).isEqualTo("TR-01 기사");
+		assertThat(audit.get(0).path("targetId").asString()).isEqualTo("TR-01");
 		assertThat(audit.get(0).path("detail").asString()).contains(candidate, "v3");
-		assertThat(code(apply("truck-2", accepted, task, candidate))).isEqualTo("APPROVAL_ALREADY_USED");
+		assertThat(code(apply("TR-02", accepted, task, candidate))).isEqualTo("APPROVAL_ALREADY_USED");
 
 		// 후보는 v1 기준인데 활성 계획이 v3이 됐다. 같은 후보를 새 승인으로 다시 적용하지 않는다.
-		UUID again = approval(task, "ROUTE_CHANGE", "DRIVER", "truck-1", candidate, null, "u-driver-1");
-		var stale = apply("truck-1", again, task, candidate);
+		UUID again = approval(task, "ROUTE_CHANGE", "DRIVER", "TR-01", candidate, null, "u-driver-1");
+		var stale = apply("TR-01", again, task, candidate);
 		assertThat(stale.statusCode()).isEqualTo(409);
 		assertThat(code(stale)).isEqualTo("STALE_CANDIDATE");
 		assertThat(detail(stale)).contains("request_route_plan");
@@ -158,26 +158,26 @@ class PlanApiTest {
 	@Test
 	void routeApplyUsesTheTaskThatMadeTheCandidate() throws Exception {
 		String shift = newShift();
-		JsonNode truck2 = route("truck-2", stop("ST-3", "PICKUP", 4));
-		plan(shift, 1, "ACTIVE", routes(route("truck-1", stop("ST-1", "PICKUP", 5)), truck2), null);
-		JsonNode changed = route("truck-1", stop("ST-1", "PICKUP", 6));
+		JsonNode truck2 = route("TR-02", stop("ST-3", "PICKUP", 4));
+		plan(shift, 1, "ACTIVE", routes(route("TR-01", stop("ST-1", "PICKUP", 5)), truck2), null);
+		JsonNode changed = route("TR-01", stop("ST-1", "PICKUP", 6));
 		UUID request = task(shift, "REQUEST");
 		String candidate = plan(shift, 2, "PROPOSED", routes(changed, truck2), 1, request);
 
 		// 현장 보고 작업의 기사 카드로는 관리자 요청 후보(MAJOR)를 MINOR처럼 적용할 수 없다.
 		UUID fieldReport = task(shift, "FIELD_REPORT");
-		UUID otherTaskCard = approval(fieldReport, "ROUTE_CHANGE", "DRIVER", "truck-1", candidate, null, "u-driver-1");
-		var otherTask = apply("truck-1", otherTaskCard, fieldReport, candidate);
+		UUID otherTaskCard = approval(fieldReport, "ROUTE_CHANGE", "DRIVER", "TR-01", candidate, null, "u-driver-1");
+		var otherTask = apply("TR-01", otherTaskCard, fieldReport, candidate);
 		assertThat(otherTask.statusCode()).isEqualTo(403);
 		assertThat(code(otherTask)).isEqualTo("APPROVAL_REQUIRED");
 		assertThat(detail(otherTask)).contains("작업 " + request + "에서 만든 후보다");
 
 		// 만든 작업에서도 관리자 요청이라 MAJOR: 기사 수락만으로는 안 되고 관리자 → 기사 순서가 필요하다.
-		UUID driverOnly = approval(request, "ROUTE_CHANGE", "DRIVER", "truck-1", candidate, null, "u-driver-1");
-		assertThat(detail(apply("truck-1", driverOnly, request, candidate))).contains("관리자 승인이 없다");
+		UUID driverOnly = approval(request, "ROUTE_CHANGE", "DRIVER", "TR-01", candidate, null, "u-driver-1");
+		assertThat(detail(apply("TR-01", driverOnly, request, candidate))).contains("관리자 승인이 없다");
 		approval(request, "ROUTE_CHANGE", "MANAGER", null, candidate, null, "u-manager");
-		UUID accepted = approval(request, "ROUTE_CHANGE", "DRIVER", "truck-1", candidate, null, "u-driver-1");
-		var applied = apply("truck-1", accepted, request, candidate);
+		UUID accepted = approval(request, "ROUTE_CHANGE", "DRIVER", "TR-01", candidate, null, "u-driver-1");
+		var applied = apply("TR-01", accepted, request, candidate);
 		assertThat(applied.statusCode()).isEqualTo(200);
 		assertThat(json.readTree(applied.body())).isEqualTo(changed);
 	}
@@ -192,8 +192,8 @@ class PlanApiTest {
 		String manager = login("manager");
 		assertThat(code(call("GET", "/api/shifts/" + shift + "/plan", manager, null, null))).isEqualTo("NOT_FOUND");
 
-		String active = plan(shift, 1, "ACTIVE", routes(route("truck-1", stop("ST-1", "PICKUP", 5))), null);
-		String proposed = plan(shift, 2, "PROPOSED", routes(route("truck-1", stop("ST-2", "PICKUP", 5))), 1);
+		String active = plan(shift, 1, "ACTIVE", routes(route("TR-01", stop("ST-1", "PICKUP", 5))), null);
+		String proposed = plan(shift, 2, "PROPOSED", routes(route("TR-01", stop("ST-2", "PICKUP", 5))), 1);
 		JsonNode current = json.readTree(call("GET", "/internal/shifts/" + shift + "/plan", null, TOKEN, null).body());
 		assertThat(current.path("planId").asString()).isEqualTo(active);
 		assertThat(current.path("routes").get(0).path("stops").get(0).path("stationId").asString()).isEqualTo("ST-1");
@@ -209,7 +209,7 @@ class PlanApiTest {
 
 	@Test
 	void driverSeesOnlyTheirOwnTrucksActiveRoute() throws Exception {
-		String truck = "truck-" + UUID.randomUUID().toString().substring(0, 8);
+		String truck = "TR-" + (100_000 + (int) (Math.random() * 900_000));
 		String driver = newDriver(truck);
 		var none = call("GET", "/api/drivers/me/route", driver, null, null);
 		assertThat(none.statusCode()).isEqualTo(404);
@@ -222,7 +222,7 @@ class PlanApiTest {
 
 		JsonNode own = route(truck, stop("ST-7", "DROPOFF", 3));
 		String today = LocalDate.now(ZoneId.of("Asia/Seoul")).toString();
-		plan(newShift(today), 1, "ACTIVE", routes(route("truck-1", stop("ST-1", "PICKUP", 5)), own), null);
+		plan(newShift(today), 1, "ACTIVE", routes(route("TR-01", stop("ST-1", "PICKUP", 5)), own), null);
 		var res = call("GET", "/api/drivers/me/route", driver, null, null);
 		assertThat(res.statusCode()).isEqualTo(200);
 		assertThat(json.readTree(res.body())).isEqualTo(own);

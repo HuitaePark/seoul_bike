@@ -59,7 +59,7 @@
 - LangGraph `thread_id`는 **작업 단위 `{shiftId}:{taskId}`**다. backend가 `TaskCommand.threadId`로 보내고 agent는 직접 만들지 않고 그대로 쓴다. 근무조 상태(계획)의 원본은 DB다. (근무조 단위로 쓰면 같은 근무조 작업끼리 대기 중인 승인이 섞인다. HARNESS ISS-03)
 - 기사 작업은 `requestedBy.truckId`로 그 트럭에 한정한다 (NFR-06). backend는 JWT의 트럭으로 채운다.
 - SSE로는 계약 `TaskEvent` 필드만 보낸다. agent의 `harness` 같은 확장 필드는 저장·전달하지 않는다.
-- **감사 기록(`audit_events`)은 append-only**다 (DB 트리거가 수정·삭제·TRUNCATE를 막는다). 승인·거절·되돌림과 제약 추가는 그 변경과 같은 트랜잭션에서, 현장 보고는 보고가 확정되는 마지막 단계(저장 또는 재경로 작업 연결)와 같은 트랜잭션에서 남긴다. 사람 이름 대신 "관리자", "truck-1 기사"로 가린다. FR-18 "무승인 변경 0건"의 증거다.
+- **감사 기록(`audit_events`)은 append-only**다 (DB 트리거가 수정·삭제·TRUNCATE를 막는다). 승인·거절·되돌림과 제약 추가는 그 변경과 같은 트랜잭션에서, 현장 보고는 보고가 확정되는 마지막 단계(저장 또는 재경로 작업 연결)와 같은 트랜잭션에서 남긴다. 사람 이름 대신 "관리자", "TR-01 기사"로 가린다. FR-18 "무승인 변경 0건"의 증거다.
 - **현장 보고 작업(FIELD_REPORT)은 기사의 `POST /api/reports`로만 생긴다** (`issue`가 있을 때). 작업 API로는 만들지 않는다(400 `USE_REPORTS_API`). 명령에 `reportId`와 보고 값 `report`를 싣는다 (AGENT-GRAPH G13·G2).
 
 ## 확인이 필요한 것 (담당자에게)

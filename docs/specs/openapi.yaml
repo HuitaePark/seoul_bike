@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.13.0-draft
+  version: 0.13.1-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
     **초안 v0.13.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.13.1: 트럭 ID는 서울 전체에서 이어 매기는 `TR-NN`(TR-01~TR-35, 합의 30)이다. 계정 발급·승인에서 기사 트럭이 트럭 목록에 없거나 운행하지 않으면 400 `TRUCK_NOT_FOUND`(`suggestions`에 활성 트럭 ID). 예전 `truck-N` 기사 계정은 `TR-0N`으로 옮겼고 다시 로그인해야 한다.
     - v0.13: 현황 지도 `GET /api/regions/{regionId}/stations` 구현 규칙 (어느 대여소가 나오는지, 어느 관측·예측을 쓰는지, 위험 판단 기준). 없는 구역 404 `REGION_NOT_FOUND`, `horizonH` 범위 밖 400.
     - v0.12.1: 응답·SSE의 시각은 모두 서울 오프셋 `+09:00`으로 쓴다 (예 `2026-10-21T07:00:00+09:00`). 형식(RFC 3339)은 그대로다.
     - v0.12: 비활성 계정을 다시 여는 `POST /api/admin/users/{userId}/enable` (승인된 적 있는 계정만, 비활성화 전에 받은 토큰은 다시 열어도 401). `Account.approvedAt` 추가.
@@ -288,7 +289,7 @@ paths:
       operationId: createAccount
       tags: [accounts]
       summary: 계정 발급 (관리자)
-      description: 바로 쓸 수 있는(ACTIVE) 계정을 만든다. 기사는 트럭이 필요하다.
+      description: 바로 쓸 수 있는(ACTIVE) 계정을 만든다. 기사는 트럭이 필요하다 (TRUCK_REQUIRED). 트럭은 트럭 목록의 운행 중인 트럭이어야 한다 (TRUCK_NOT_FOUND).
       requestBody:
         required: true
         content:
@@ -300,7 +301,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Account' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400':
+          description: |
+            요청 형식 오류, 기사인데 트럭 없음(TRUCK_REQUIRED), 또는 트럭 목록에 없거나 운행하지 않는 트럭(TRUCK_NOT_FOUND).
+            TRUCK_NOT_FOUND면 `suggestions`에 고를 수 있는 활성 트럭 ID가 번호 순으로 있다 (예 TR-01 … TR-35).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409':
@@ -314,7 +321,7 @@ paths:
       operationId: approveAccount
       tags: [accounts]
       summary: 가입 신청 승인 (관리자)
-      description: 역할과 트럭을 확정하고 ACTIVE로 바꾼다. 기사로 승인하려면 truckId가 필요하다 (TRUCK_REQUIRED).
+      description: 역할과 트럭을 확정하고 ACTIVE로 바꾼다. 기사로 승인하려면 truckId가 필요하고 (TRUCK_REQUIRED), 트럭 목록의 운행 중인 트럭이어야 한다 (TRUCK_NOT_FOUND). 승인 대기가 아닌 계정은 트럭을 보지 않고 409다.
       parameters:
         - $ref: '#/components/parameters/UserId'
       requestBody:
@@ -328,7 +335,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Account' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400':
+          description: |
+            요청 형식 오류, 기사인데 트럭 없음(TRUCK_REQUIRED), 또는 트럭 목록에 없거나 운행하지 않는 트럭(TRUCK_NOT_FOUND).
+            TRUCK_NOT_FOUND면 `suggestions`에 고를 수 있는 활성 트럭 ID가 번호 순으로 있다 (예 TR-01 … TR-35).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -634,7 +647,8 @@ components:
         role: { $ref: '#/components/schemas/Role' }
         truckId:
           type: [string, 'null']
-          description: DRIVER만
+          description: DRIVER만. 트럭 ID `TR-NN` (합의 30)
+          examples: [TR-01]
 
     AccountStatus:
       type: string
@@ -692,7 +706,8 @@ components:
         truckId:
           type: [string, 'null']
           maxLength: 64
-          description: DRIVER면 필수
+          description: DRIVER면 필수. 트럭 목록의 운행 중인 트럭 ID `TR-NN` (합의 30). 다른 역할이면 버린다
+          examples: [TR-01]
 
     ApproveAccountRequest:
       type: object
@@ -702,7 +717,8 @@ components:
         truckId:
           type: [string, 'null']
           maxLength: 64
-          description: DRIVER면 필수
+          description: DRIVER면 필수. 트럭 목록의 운행 중인 트럭 ID `TR-NN` (합의 30). 다른 역할이면 버린다
+          examples: [TR-01]
 
     TaskType:
       type: string

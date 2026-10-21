@@ -43,7 +43,7 @@ class FakeAgent {
 
 	private static final Logger log = LoggerFactory.getLogger(FakeAgent.class);
 	private static final String LABEL = "[가짜 에이전트] ";
-	private static final String TRUCK = "truck-1";
+	private static final String TRUCK = "TR-01";
 	private static final List<Stop> ROUTE = List.of(new Stop("ST-101", Action.PICKUP, 5),
 			new Stop("ST-102", Action.PICKUP, 3), new Stop("ST-103", Action.DROPOFF, 6), new Stop("ST-104", Action.DROPOFF, 2));
 

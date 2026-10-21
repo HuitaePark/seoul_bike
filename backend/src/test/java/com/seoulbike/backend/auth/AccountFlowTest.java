@@ -14,6 +14,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -28,6 +29,9 @@ class AccountFlowTest {
 
 	@Autowired
 	JsonMapper json;
+
+	@Autowired
+	JdbcClient jdbc;
 
 	private final HttpClient http = HttpClient.newHttpClient();
 
@@ -55,17 +59,17 @@ class AccountFlowTest {
 		assertThat(code(call("POST", "/api/admin/users/" + userId + "/approve", manager, "{\"role\":\"DRIVER\"}")))
 			.isEqualTo("TRUCK_REQUIRED");
 		var approved = call("POST", "/api/admin/users/" + userId + "/approve", manager,
-				"{\"role\":\"DRIVER\",\"truckId\":\"truck-9\"}");
+				"{\"role\":\"DRIVER\",\"truckId\":\"TR-09\"}");
 		assertThat(approved.statusCode()).isEqualTo(200);
 		assertThat(json.readTree(approved.body()).path("status").asString()).isEqualTo("ACTIVE");
 		assertThat(code(call("POST", "/api/admin/users/" + userId + "/approve", manager,
-				"{\"role\":\"DRIVER\",\"truckId\":\"truck-9\"}"))).isEqualTo("ACCOUNT_NOT_PENDING");
+				"{\"role\":\"DRIVER\",\"truckId\":\"TR-09\"}"))).isEqualTo("ACCOUNT_NOT_PENDING");
 
 		var loggedIn = login(loginId, "password-123");
 		assertThat(loggedIn.statusCode()).isEqualTo(200);
 		JsonNode user = json.readTree(loggedIn.body()).path("user");
 		assertThat(user.path("role").asString()).isEqualTo("DRIVER");
-		assertThat(user.path("truckId").asString()).isEqualTo("truck-9");
+		assertThat(user.path("truckId").asString()).isEqualTo("TR-09");
 	}
 
 	@Test
@@ -91,6 +95,50 @@ class AccountFlowTest {
 		assertThat(code(call("POST", "/api/admin/users/u-manager/disable", manager, null))).isEqualTo("CANNOT_DISABLE_SELF");
 		assertThat(code(call("POST", "/api/admin/users", manager,
 				body(uniqueLoginId(), "password-123", "트럭 없는 기사", "role", "DRIVER")))).isEqualTo("TRUCK_REQUIRED");
+	}
+
+	@Test
+	void driverAccountsGetOnlyActiveTrucksFromTheTruckList() throws Exception {
+		String manager = token("manager");
+		// 비활성 트럭: trucks_min이 줄어 운행하지 않게 된 트럭. 다른 테스트와 겹치지 않는 번호를 쓰고 지운다.
+		jdbc.sql("insert into ref.trucks (truck_id, region_id, active) values ('TR-990', 'N01', false)").update();
+		try {
+			var signup = call("POST", "/api/auth/signup", null,
+					body(uniqueLoginId(), "password-123", "새 기사", "requestedRole", "DRIVER"));
+			String userId = json.readTree(signup.body()).path("id").asString();
+			// 예전 꼴(truck-1), 목록에 없는 번호, 비활성 트럭은 모두 받지 않고 계정은 승인 대기로 남는다.
+			for (String truck : new String[] { "truck-1", "TR-99", "TR-990" }) {
+				var res = call("POST", "/api/admin/users/" + userId + "/approve", manager,
+						"{\"role\":\"DRIVER\",\"truckId\":\"" + truck + "\"}");
+				assertThat(res.statusCode()).isEqualTo(400);
+				assertThat(code(res)).isEqualTo("TRUCK_NOT_FOUND");
+				JsonNode problem = json.readTree(res.body());
+				assertThat(problem.path("detail").asString()).contains(truck, "TR-01");
+				// 고를 수 있는 활성 트럭 35대를 번호 순으로 준다. 비활성 트럭은 후보가 아니다.
+				var suggestions = problem.path("suggestions").valueStream().map(JsonNode::asString).toList();
+				assertThat(suggestions).hasSize(35).startsWith("TR-01", "TR-02").endsWith("TR-35").doesNotContain("TR-990");
+			}
+			assertThat(call("GET", "/api/admin/users?status=PENDING", manager, null).body()).contains(userId);
+			assertThat(code(call("POST", "/api/admin/users", manager,
+					"{\"loginId\":\"" + uniqueLoginId() + "\",\"password\":\"password-123\",\"name\":\"기사\","
+							+ "\"role\":\"DRIVER\",\"truckId\":\"truck-2\"}")))
+				.isEqualTo("TRUCK_NOT_FOUND");
+
+			// 트럭 목록의 활성 트럭(서울 전체 TR-01~TR-35)은 받는다. 앞뒤 공백은 지운다.
+			var created = call("POST", "/api/admin/users", manager,
+					"{\"loginId\":\"" + uniqueLoginId() + "\",\"password\":\"password-123\",\"name\":\"기사\","
+							+ "\"role\":\"DRIVER\",\"truckId\":\" TR-35 \"}");
+			assertThat(created.statusCode()).isEqualTo(201);
+			assertThat(json.readTree(created.body()).path("truckId").asString()).isEqualTo("TR-35");
+			// 승인도 같다. 대기 건을 남기지 않아 뒤 테스트의 가입 상한을 막지 않는다.
+			var approved = call("POST", "/api/admin/users/" + userId + "/approve", manager,
+					"{\"role\":\"DRIVER\",\"truckId\":\"TR-02\"}");
+			assertThat(approved.statusCode()).isEqualTo(200);
+			assertThat(json.readTree(approved.body()).path("truckId").asString()).isEqualTo("TR-02");
+		}
+		finally {
+			jdbc.sql("delete from ref.trucks where truck_id = 'TR-990'").update();
+		}
 	}
 
 	@Test
