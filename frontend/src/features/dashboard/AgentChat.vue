@@ -1,6 +1,6 @@
 <!--
 에이전트 대화. 근무조 작업의 승인 요청(승인 카드)과 묻기·결정의 결과를 대화처럼 보여 준다 (useShiftFeed가 SSE로 채운다).
-질문은 대시보드 맨 위 묻기 줄(AskBar)에서 하고, 계획을 새로 만드는 일은 작업 콘솔에서 한다.
+질문은 같은 에이전트 화면의 묻기 줄(AskBar)에서 하고, 계획을 새로 만드는 일은 작업 콘솔에서 한다.
 변경안을 펼치거나 '지도에서 보기'를 누르면 위 지도에 그 변경안만 겹쳐 보인다 (preview).
 -->
 <script setup lang="ts">
@@ -20,8 +20,9 @@ const props = withDefaults(
     /** 결정을 보내는 중인 승인 요청 */
     busy?: string | null
     errors?: Record<string, string>
+    visible?: boolean
   }>(),
-  { previewing: null, busy: null, errors: () => ({}) },
+  { previewing: null, busy: null, errors: () => ({}), visible: true },
 )
 const emit = defineEmits<{ decide: [body: ApprovalDecision, card: LiveCard]; preview: [card: LiveCard | null, scroll: boolean] }>()
 
@@ -54,10 +55,16 @@ watch(
 watch(
   () => [props.log.length, props.log.at(-1)?.text],
   async () => {
+    if (!props.visible) return
     await nextTick()
     body.value?.scrollTo({ top: body.value.scrollHeight, behavior: 'smooth' })
   },
 )
+watch(() => props.visible, async (visible) => {
+  if (!visible) return
+  await nextTick()
+  body.value?.scrollTo({ top: body.value.scrollHeight })
+})
 </script>
 
 <template>

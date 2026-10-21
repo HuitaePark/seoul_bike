@@ -148,8 +148,8 @@ const riskColor: Record<Schemas['RiskKind'], string> = { EMPTY: 'var(--empty)', 
     </g>
 
     <g v-for="t in trucks" :key="t.truckId" :transform="`translate(${t.x},${t.y})`" filter="url(#shadow)" :opacity="t.dim ? 0.3 : 1">
-      <rect x="-30" y="-36" width="60" height="22" rx="11" :fill="colors[t.truckId]" />
-      <text y="-21" class="truck-label">{{ t.truckId.replace('truck-', 'T') }} {{ t.load }}/{{ t.capacity }}</text>
+      <rect x="-39" y="-36" width="78" height="22" rx="11" :fill="colors[t.truckId]" />
+      <text y="-21" class="truck-label">{{ t.truckId }} {{ t.load }}/{{ t.capacity }}</text>
       <path d="M0 -14 L-6 -6 H6 Z" :fill="colors[t.truckId]" />
       <circle r="6" fill="#fff" :stroke="colors[t.truckId]" stroke-width="3" />
     </g>

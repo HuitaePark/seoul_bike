@@ -63,7 +63,7 @@ class TaskFlowTest {
 		String executive = login("executive");
 
 		var created = call("POST", "/api/ai/tasks", manager,
-				"{\"type\":\"PLAN_DRAFT\",\"shiftId\":\"gwangjin-seongdong:2026-11-03:AM\"}");
+				"{\"type\":\"PLAN_DRAFT\",\"shiftId\":\"N02:2026-11-03:AM\"}");
 		assertThat(created.statusCode()).isEqualTo(202);
 		String taskId = json.readTree(created.body()).path("taskId").asString();
 
@@ -105,7 +105,7 @@ class TaskFlowTest {
 	@Test
 	void routeChangeCanOnlyBeApprovedByThatTrucksDriver() throws Exception {
 		String manager = login("manager");
-		var reported = report(login("driver1"), "gwangjin-seongdong:2026-11-03:PM", "BLOCKED");
+		var reported = report(login("driver1"), "N02:2026-11-03:PM", "BLOCKED");
 		String taskId = json.readTree(reported.body()).path("taskId").asString();
 
 		String approvalId;
@@ -113,12 +113,12 @@ class TaskFlowTest {
 			SseEvent approval = stream.readUntil(e -> e.type().equals("APPROVAL_REQUIRED")).getLast();
 			JsonNode card = json.readTree(approval.data()).path("approval");
 			assertThat(card.path("approver").asString()).isEqualTo("DRIVER");
-			assertThat(card.path("truckId").asString()).isEqualTo("TR-01");
+			assertThat(card.path("truckId").asString()).isEqualTo("TR-03");
 			approvalId = card.path("approvalId").asString();
 		}
 
 		String body = "{\"approvalId\":\"" + approvalId + "\",\"decision\":\"REJECT\"}";
-		// TR-02 기사는 이 작업을 볼 수도 없다. 관리자도 기사 대신 결정할 수 없다.
+		// TR-04 기사는 이 작업을 볼 수도 없다. 관리자도 기사 대신 결정할 수 없다.
 		assertThat(call("POST", "/api/ai/tasks/" + taskId + "/approval", login("driver2"), body).statusCode()).isEqualTo(404);
 		assertThat(call("POST", "/api/ai/tasks/" + taskId + "/approval", manager, body).statusCode()).isEqualTo(403);
 
@@ -131,7 +131,7 @@ class TaskFlowTest {
 	@Test
 	void fieldReportReroutesTheReportersTruck() throws Exception {
 		String driver2 = login("driver2");
-		var reported = report(driver2, "gwangjin-seongdong:2026-11-06:AM", "CONSTRUCTION");
+		var reported = report(driver2, "N02:2026-11-06:AM", "CONSTRUCTION");
 		assertThat(reported.statusCode()).isEqualTo(202);
 		JsonNode accepted = json.readTree(reported.body());
 		assertThat(accepted.path("reportId").asString()).isNotBlank();
@@ -140,7 +140,7 @@ class TaskFlowTest {
 		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), driver2, null)) {
 			JsonNode card = nextCard(stream);
 			assertThat(card.path("approver").asString()).isEqualTo("DRIVER");
-			assertThat(card.path("truckId").asString()).isEqualTo("TR-02");
+			assertThat(card.path("truckId").asString()).isEqualTo("TR-04");
 			assertThat(decide(taskId, driver2, card)).isEqualTo(202);
 			assertThat(stream.readUntil(e -> e.type().equals("DONE") || e.type().equals("FAILED")).getLast().type())
 				.isEqualTo("DONE");
@@ -151,13 +151,13 @@ class TaskFlowTest {
 	@Test
 	void reportsAreForDriversAndOnlyIssuesStartReroutes() throws Exception {
 		String manager = login("manager");
-		var progressOnly = report(login("driver1"), "gwangjin-seongdong:2026-11-06:PM", null);
+		var progressOnly = report(login("driver1"), "N02:2026-11-06:PM", null);
 		assertThat(progressOnly.statusCode()).isEqualTo(202);
 		assertThat(json.readTree(progressOnly.body()).path("taskId").isNull()).isTrue();
 
-		assertThat(report(manager, "gwangjin-seongdong:2026-11-06:PM", "BLOCKED").statusCode()).isEqualTo(403);
+		assertThat(report(manager, "N02:2026-11-06:PM", "BLOCKED").statusCode()).isEqualTo(403);
 		var viaTasks = call("POST", "/api/ai/tasks", manager,
-				"{\"type\":\"FIELD_REPORT\",\"shiftId\":\"gwangjin-seongdong:2026-11-06:PM\"}");
+				"{\"type\":\"FIELD_REPORT\",\"shiftId\":\"N02:2026-11-06:PM\"}");
 		assertThat(viaTasks.statusCode()).isEqualTo(400);
 		assertThat(json.readTree(viaTasks.body()).path("code").asString()).isEqualTo("USE_REPORTS_API");
 
@@ -173,7 +173,7 @@ class TaskFlowTest {
 	@Test
 	void driverCannotCreatePlanTasks() throws Exception {
 		var res = call("POST", "/api/ai/tasks", login("driver1"),
-				"{\"type\":\"PLAN_DRAFT\",\"shiftId\":\"gwangjin-seongdong:2026-11-03:AM\"}");
+				"{\"type\":\"PLAN_DRAFT\",\"shiftId\":\"N02:2026-11-03:AM\"}");
 		assertThat(res.statusCode()).isEqualTo(403);
 		assertThat(json.readTree(res.body()).path("code").asString()).isEqualTo("TASK_TYPE_NOT_ALLOWED");
 	}
@@ -195,7 +195,7 @@ class TaskFlowTest {
 	@Test
 	void approvalAfterTaskFailedIsRejected() throws Exception {
 		String manager = login("manager");
-		String shiftId = "gwangjin-seongdong:2026-11-04:AM";
+		String shiftId = "N02:2026-11-04:AM";
 		var created = call("POST", "/api/ai/tasks", manager, "{\"type\":\"PLAN_DRAFT\",\"shiftId\":\"" + shiftId + "\"}");
 		String taskId = json.readTree(created.body()).path("taskId").asString();
 
@@ -276,7 +276,7 @@ class TaskFlowTest {
 		String manager = login("manager");
 		String driver1 = login("driver1");
 		var created = call("POST", "/api/ai/tasks", manager,
-				"{\"type\":\"REQUEST\",\"shiftId\":\"gwangjin-seongdong:2026-11-05:AM\",\"text\":\"행사로 ST-201 수요 증가\"}");
+				"{\"type\":\"REQUEST\",\"shiftId\":\"N02:2026-11-05:AM\",\"text\":\"행사로 ST-97 수요 증가\"}");
 		UUID taskId = UUID.fromString(json.readTree(created.body()).path("taskId").asString());
 
 		try (var stream = SseStream.open(http, uri("/api/ai/tasks/" + taskId + "/stream"), manager, null)) {
@@ -295,21 +295,21 @@ class TaskFlowTest {
 
 			// 기사는 자기 트럭 변경이 오는 것을 볼 수 있지만, 관리자 카드를 대신 결정할 수는 없다.
 			assertThat(decide(taskId, driver1, managerCard)).isEqualTo(403);
-			assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, managerCardId, "TR-01", candidateId,
+			assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, managerCardId, "TR-03", candidateId,
 					RouteChangeGrade.MAJOR))
 				.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("관리자 승인이 없다"));
 			assertThat(decide(taskId, manager, managerCard)).isEqualTo(202);
 
 			JsonNode driverCard = nextCard(stream);
 			assertThat(driverCard.path("approver").asString()).isEqualTo("DRIVER");
-			assertThat(driverCard.path("truckId").asString()).isEqualTo("TR-01");
+			assertThat(driverCard.path("truckId").asString()).isEqualTo("TR-03");
 			assertThat(driverCard.path("candidateId").asString()).isEqualTo(candidateId);
 			assertThat(decide(taskId, driver1, driverCard)).isEqualTo(202);
 
 			// 가짜 에이전트는 적용 전에 같은 확인 규칙을 부른다. 통과해야 DONE이다.
 			SseEvent end = stream.readUntil(e -> e.type().equals("DONE") || e.type().equals("FAILED")).getLast();
 			assertThat(end.type()).as(end.data()).isEqualTo("DONE");
-			assertThat(json.readTree(end.data()).path("answer").asString()).contains("TR-01 경로 변경을 적용");
+			assertThat(json.readTree(end.data()).path("answer").asString()).contains("TR-03 경로 변경을 적용");
 		}
 	}
 
@@ -317,7 +317,7 @@ class TaskFlowTest {
 	@Test
 	void applyCheckFollowsBackendGradeAndTruck() throws Exception {
 		String manager = login("manager");
-		var reported = report(login("driver1"), "gwangjin-seongdong:2026-11-05:PM", "BLOCKED");
+		var reported = report(login("driver1"), "N02:2026-11-05:PM", "BLOCKED");
 		UUID taskId = UUID.fromString(json.readTree(reported.body()).path("taskId").asString());
 
 		JsonNode driverCard;
@@ -332,17 +332,17 @@ class TaskFlowTest {
 		String candidateId = driverCard.path("candidateId").asString();
 		UUID driverCardId = UUID.fromString(driverCard.path("approvalId").asString());
 
-		changeApprovals.requireRouteChange(taskId, driverCardId, "TR-01", candidateId, RouteChangeGrade.MINOR);
-		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "TR-01", candidateId,
+		changeApprovals.requireRouteChange(taskId, driverCardId, "TR-03", candidateId, RouteChangeGrade.MINOR);
+		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "TR-03", candidateId,
 				RouteChangeGrade.MAJOR))
 			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code()).isEqualTo("APPROVAL_REQUIRED"));
-		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "TR-02", candidateId,
+		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "TR-04", candidateId,
 				RouteChangeGrade.MINOR))
-			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("TR-02 기사 승인이 없다"));
-		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, UUID.randomUUID(), "TR-01", candidateId,
+			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("TR-04 기사 승인이 없다"));
+		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, UUID.randomUUID(), "TR-03", candidateId,
 				RouteChangeGrade.MINOR))
 			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getMessage()).contains("마지막 승인이 아니다"));
-		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "TR-01", candidateId,
+		assertThatThrownBy(() -> changeApprovals.requireRouteChange(taskId, driverCardId, "TR-03", candidateId,
 				RouteChangeGrade.NONE))
 			.isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.code()).isEqualTo("NOTHING_TO_APPLY"));
 	}

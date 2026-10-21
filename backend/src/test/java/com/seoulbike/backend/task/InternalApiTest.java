@@ -75,7 +75,7 @@ class InternalApiTest {
 		assertThat(events.valueStream().map(e -> e.path("type").asString()))
 			.containsExactly("FIELD_REPORT", "APPROVAL_APPROVED", "CONSTRAINT_ADDED");
 		assertThat(events.valueStream().map(e -> e.path("actor").path("display").asString()))
-			.containsExactly("TR-02 기사", "관리자", "관리자");
+			.containsExactly("TR-04 기사", "관리자", "관리자");
 		assertThat(events.get(0).path("detail").asString()).contains("재경로");
 		assertThat(events.get(1).path("targetId").asString()).isNotBlank();
 		assertThat(res.body()).doesNotContain("u-manager", "u-driver-2", "관제 관리자");
@@ -100,8 +100,8 @@ class InternalApiTest {
 		var res = call("GET", "/internal/shifts/" + shift + "/reports", null, TOKEN, null);
 		JsonNode reports = json.readTree(res.body());
 		assertThat(reports).hasSize(2);
-		assertThat(reports.get(0).path("truckId").asString()).isEqualTo("TR-01");
-		assertThat(reports.get(0).path("driver").asString()).isEqualTo("TR-01 기사");
+		assertThat(reports.get(0).path("truckId").asString()).isEqualTo("TR-03");
+		assertThat(reports.get(0).path("driver").asString()).isEqualTo("TR-03 기사");
 		assertThat(reports.get(1).path("issue").asString()).isEqualTo("CONSTRUCTION");
 		assertThat(res.body()).doesNotContain("u-driver-1", "기사 1");
 
