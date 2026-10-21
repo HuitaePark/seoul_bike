@@ -466,3 +466,37 @@ test('로드된 배경지도 타일 실패 후 같은 스타일을 다시 불러
   await expect.poll(() => tiles, { timeout: 5000 }).toBeGreaterThan(initialTiles)
   await expect(retry).toHaveCount(0)
 })
+
+
+
+test('대여소 API: 관측 없는 실제 구역의 빈 목록을 오류나 시연 자료로 바꾸지 않는다', async ({ page }) => {
+  const calls = await mockApi(page, { planStatus: 404, stations: [] })
+  await page.goto('/plans/review?regionId=N01&shiftId=N01%3A2026-10-21%3AAM')
+  await expect(page.getByRole('heading', { name: '이 근무조의 계획이 아직 없습니다' })).toBeVisible()
+  await expect(page.getByText('표시할 대여소 현황이 없습니다.')).toBeVisible()
+  await expect(page.locator('.plan-review [role="alert"]')).toHaveCount(0)
+  await expect(page.locator('.demo-banner')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'truck-1', exact: true })).toHaveCount(0)
+  expect(calls.some(c => c.path === '/api/regions/N01/stations')).toBe(true)
+  expect(calls.every(c => c.method === 'GET')).toBe(true)
+})
+
+test('대여소 API: 예측이 없는 실제 ST-ID의 null 값을 0으로 표시하지 않는다', async ({ page }) => {
+  const station: Station = { ...structuredClone(demoStations[0]!), stationId: 'ST-144', name: '탑골공원 앞',
+    lat: 37.57039642, lon: 126.9881897, docks: 11, bikes: 2, role: 'VARIABLE', risk: 'EMPTY',
+    forecastBikes: null, observedAt: '2026-10-21T07:05:00+09:00' }
+  await mockApi(page, { planStatus: 404, stations: [station] })
+  await page.goto('/plans/review?regionId=N01&shiftId=N01%3A2026-10-21%3AAM')
+  const table = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: '현재 / 거치대' }) })
+  const row = table.locator('tbody tr')
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('탑골공원 앞')
+  await expect(row).toContainText('ST-144')
+  await expect(row.locator('td').nth(2)).toHaveText('미제공')
+  await expect(row).toContainText('빈 대여소 위험')
+  await row.getByRole('button', { name: '탑골공원 앞 상세' }).click()
+  await expect(page.locator('.detail h2')).toHaveText('탑골공원 앞')
+  await expect(page.locator('.detail .facts div').filter({ hasText: '3시간 후 예상 재고' }).locator('dd')).toHaveText('미제공')
+  await expect(page.getByRole('button', { name: '현재 안 최종 승인' })).toHaveCount(0)
+  await expect(page.locator('.plan-review [role="alert"]')).toHaveCount(0)
+})

@@ -82,8 +82,8 @@ class HeuristicPredictor:
                         returns_h=tuple(t for _, t in values), model_version="heuristic-v1")
 
     def _one_hour(self, station: Station, hour: int) -> tuple[int, int]:
-        base = max(2, station.capacity // 5)  # 평소(출퇴근이 아닐 때)의 대여·반납 수
-        peak = station.capacity // 2  # 출퇴근 때 한쪽으로 추가로 몰리는 양
+        base = max(2, station.docks // 5)  # 평소(출퇴근이 아닐 때)의 대여·반납 수
+        peak = station.docks // 2  # 출퇴근 때 한쪽으로 추가로 몰리는 양
         kind = self._kinds.get(station.id, "leisure")  # 유형을 모르면 평범한 곳(leisure)으로 본다
 
         rentals = returns = base

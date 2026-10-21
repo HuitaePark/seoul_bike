@@ -29,14 +29,14 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from rebalancing.geo import distance_matrix, haversine_m
+from rebalancing.geo import haversine_m
 from rebalancing.models import Plan, Station, Truck
-from rebalancing.travel_time import TravelMatrix
+from rebalancing.travel_time import DEFAULT_DETOUR_FACTOR, DEFAULT_SPEED_KPH, HaversineTravelTime
 
 ROOT = Path(__file__).resolve().parents[1]
 SHIFTS = ((7, 10), (13, 16), (19, 21))  # 근무조 (PRD 7.4, 역산 추정)
-SPEED_KMH = 20  # 시내 트럭 평균 속도 (초기값)
-DETOUR = 1.3  # 직선거리 → 도로 거리 보정 (초기값. OSRM이 생기면 바꾼다)
+SPEED_KMH = DEFAULT_SPEED_KPH  # 시내 트럭 평균 속도 (초기값)
+DETOUR = DEFAULT_DETOUR_FACTOR  # 직선거리 → 도로 거리 보정 (초기값. OSRM이 생기면 바꾼다)
 
 
 @dataclass
@@ -88,18 +88,20 @@ def stop_minutes(bikes: int) -> float:
 
 
 class SimTravelTime:
-    """5의 TravelTime 구현. 최적화기가 근무 시간 예산을 엔진과 같은 이동 시간(직선 × DETOUR, SPEED_KMH)으로 계산하게 한다(합의 19번).
-    5의 기본값(HaversineTravelTime: 직선, 시속 30km)은 엔진보다 2배쯤 빨라, 짠 경로가 엔진에서 시간 안에 끝나지 않는다."""
+    """Use the optimizer's shared estimate (agreement 19), matching leg_minutes.
+
+    Road-adjusted integer distances now also use DETOUR, instead of reporting
+    straight-line distances while budgeting road-adjusted travel time.
+    """
 
     def matrix(self, points):
-        d = distance_matrix(points)
-        return TravelMatrix(d, [[math.ceil(x * DETOUR / (SPEED_KMH / 3.6)) for x in row] for row in d], "sim")
+        return HaversineTravelTime(SPEED_KMH, DETOUR).matrix(points)
 
 
 def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Result:
     end = day.start + timedelta(days=1)
     stock = {s: st.bikes for s, st in day.stations.items()}
-    hold = {s: st.capacity for s, st in day.stations.items()}
+    hold = {s: st.docks for s, st in day.stations.items()}
     since = {s: day.start for s in stock}  # 재고가 마지막으로 바뀐 시각(지표 적분용)
     res = Result()
     depot_bikes = trucks * truck_capacity // 2  # 거점 예비 자전거. 트럭이 반쯤 싣고 나가게(plan_greedy 가정)
@@ -176,7 +178,7 @@ def replay(day: Day, policy, trucks: int = 3, truck_capacity: int = 15) -> Resul
             change(s, now, +1)
         elif kind == "plan":
             v, shift_end = v
-            snapshot = [Station(s, st.name, st.lat, st.lon, st.capacity, stock[s]) for s, st in day.stations.items()]
+            snapshot = [Station(s, st.name, st.lat, st.lon, st.docks, stock[s]) for s, st in day.stations.items()]
             blocked = frozenset(s for s, cl in day.closures.items() if any(a < v and b > now for a, b, _ in cl))  # 이 계획이 도는 동안 닫히는 곳
             if carry:
                 for i in range(trucks):

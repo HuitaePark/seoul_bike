@@ -19,7 +19,7 @@ from .matrix_cache import CachedTravelTime
 from .osrm import OsrmTravelTime, TravelTimeError
 from .planner import plan_routes
 from .problem import PlanningOptions
-from .travel_time import HaversineTravelTime
+from .travel_time import DEFAULT_DETOUR_FACTOR, DEFAULT_SPEED_KPH, HaversineTravelTime
 
 
 def print_plan(plan: Plan, names: dict[int, str]) -> None:
@@ -41,13 +41,14 @@ def main() -> None:
     when = ap.add_mutually_exclusive_group()
     when.add_argument("--hour", type=int, default=8, help="mock hour on fixed 2026-10-20 KST (0-23)")
     when.add_argument("--start", help="explicit whole-hour ISO datetime; naive values mean KST")
-    ap.add_argument("--horizon-h", type=int, default=1, choices=range(1, 6), help="forecast hours (default 1)")
+    ap.add_argument("--horizon-h", type=int, default=3, choices=range(1, 6), help="forecast hours (default 3)")
     ap.add_argument("--trucks", type=int, default=3)
     ap.add_argument("--truck-capacity", type=int, default=15)
     ap.add_argument("--start-load", type=int, default=0)
     ap.add_argument("--shift-minutes", type=int, default=180)
     ap.add_argument("--solution-limit", type=int, default=50)
-    ap.add_argument("--speed-kph", type=float, default=30, help="development travel estimate, not live traffic")
+    ap.add_argument("--speed-kph", type=float, default=DEFAULT_SPEED_KPH, help="development travel estimate, not live traffic")
+    ap.add_argument("--detour-factor", type=float, default=DEFAULT_DETOUR_FACTOR, help="straight-line distance multiplier (default 1.3)")
     ap.add_argument("--osrm-url", help="OSRM server URL; omit to use the development estimate")
     ap.add_argument("--osrm-data-version", default="unversioned", help="road/profile/engine version; required for disk cache")
     ap.add_argument("--osrm-max-locations", type=int, default=100)
@@ -79,7 +80,7 @@ def main() -> None:
     trucks = [replace(t, load=args.start_load, available_time_s=args.shift_minutes * 60)
               for t in make_trucks(args.trucks, args.truck_capacity)]
     try:
-        provider = HaversineTravelTime(args.speed_kph)
+        provider = HaversineTravelTime(args.speed_kph, args.detour_factor)
         if args.osrm_url:
             road = OsrmTravelTime(args.osrm_url, data_version=args.osrm_data_version,
                                   max_locations=args.osrm_max_locations, timeout_s=args.osrm_timeout_seconds,
@@ -96,7 +97,8 @@ def main() -> None:
         ap.error(f"travel time [{error.code}, retryable={error.retryable}]: {error}")
     travel_settings = ({"travel_source": "osrm", "data_version": args.osrm_data_version,
                         "cache_hits": provider.hits, "cache_misses": provider.misses}
-                       if args.osrm_url else {"travel_source": "haversine-estimate", "speed_kph": args.speed_kph})
+                       if args.osrm_url else {"travel_source": "haversine-estimate", "speed_kph": args.speed_kph,
+                                             "detour_factor": args.detour_factor})
     if args.json:
         print(json.dumps({"hour": args.hour, "seed": args.seed,
                           "settings": {"forecast_start_kst": start.isoformat(), "forecast_horizon_h": args.horizon_h,

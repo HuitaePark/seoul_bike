@@ -12,7 +12,7 @@ from rebalancing.imbalance import compute_imbalances, healthy_band
 from rebalancing.models import Forecast, Station
 
 START = datetime(2025, 6, 16, 8)
-STATION = Station(1, "A", 37.5, 127.0, capacity=10, bikes=2)
+STATION = Station(1, "A", 37.5, 127.0, docks=10, bikes=2)
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -28,7 +28,7 @@ def test_hourly_totals_and_model_provenance_are_preserved():
 
 def test_heuristic_uses_each_hour_across_midnight_without_losing_date():
     start = datetime(2025, 6, 16, 23)
-    station = replace(STATION, capacity=20)
+    station = replace(STATION, docks=20)
     forecast = HeuristicPredictor({1: "residential"}, seed=7).predict(station, start, 3)
     sequential = HeuristicPredictor({1: "residential"}, seed=7)
     hours = [sequential.predict(station, start + timedelta(hours=i), 1) for i in range(3)]
@@ -41,7 +41,7 @@ def test_heuristic_uses_each_hour_across_midnight_without_losing_date():
 def test_forecast_is_not_rounded_before_quantity_conversion():
     predictor = Mock()
     predictor.predict.return_value = prediction()
-    result = compute_imbalances([STATION], predictor, START)
+    result = compute_imbalances([STATION], predictor, START, horizon_h=1)
     # 2.5-1.5+2 = 3; rounding the two forecasts separately would hide this shortage.
     assert [(i.station_id, i.delta) for i in result] == [(1, -1)]
     assert predictor.predict.return_value.rentals_h == (2.5,)
@@ -58,7 +58,7 @@ def test_integer_band_protects_lower_and_upper_targets(rentals, returns, expecte
 def test_fractional_pickup_never_rounds_up_the_removable_quantity():
     predictor = Mock()
     predictor.predict.return_value = prediction((0.2,), (0.8,))
-    result = compute_imbalances([replace(STATION, bikes=10)], predictor, START)
+    result = compute_imbalances([replace(STATION, bikes=10)], predictor, START, horizon_h=1)
     assert [i.delta for i in result] == [1]
 
 
@@ -69,7 +69,7 @@ def test_decimal_hourly_sums_do_not_invent_an_extra_bicycle():
 
 
 def test_operating_target_is_not_a_hard_dock_limit():
-    station = replace(STATION, capacity=20, operating_limit=8)
+    station = replace(STATION, docks=20, operating_limit=8)
     assert healthy_band(station, 2.5, 1.5, 2) == (3, 9)
     assert healthy_band(station, 2.5, 1.5, 2, operating_limit=0) == (3, 3)
 
@@ -79,14 +79,14 @@ def test_operating_target_is_not_a_hard_dock_limit():
 def test_kst_and_utc_call_the_data_predictor_with_the_same_local_window(start):
     predictor = Mock()
     predictor.predict.return_value = prediction()
-    assert [i.delta for i in compute_imbalances([STATION], predictor, start)] == [-1]
+    assert [i.delta for i in compute_imbalances([STATION], predictor, start, horizon_h=1)] == [-1]
     predictor.predict.assert_called_once_with(STATION, START, 1)
 
 
 def test_forecast_start_may_have_an_equivalent_timezone():
     predictor = Mock()
     predictor.predict.return_value = replace(prediction(), start=datetime(2025, 6, 15, 23, tzinfo=timezone.utc))
-    assert [i.delta for i in compute_imbalances([STATION], predictor, START)] == [-1]
+    assert [i.delta for i in compute_imbalances([STATION], predictor, START, horizon_h=1)] == [-1]
 
 
 @pytest.mark.parametrize("horizon", [0, -1, 6, True, 1.5, None])
@@ -117,14 +117,14 @@ def test_malformed_data_forecast_is_rejected(patch):
     predictor = Mock()
     predictor.predict.return_value = SimpleNamespace(**{**asdict(prediction()), **patch})
     with pytest.raises(ValueError):
-        compute_imbalances([STATION], predictor, START)
+        compute_imbalances([STATION], predictor, START, horizon_h=1)
 
 
 def test_forecast_values_from_numpy_models_are_accepted_without_coercing_strings():
     import numpy as np
     predictor = Mock()
     predictor.predict.return_value = prediction((np.float64(2.5),), (np.float32(1.5),))
-    assert [i.delta for i in compute_imbalances([STATION], predictor, START)] == [-1]
+    assert [i.delta for i in compute_imbalances([STATION], predictor, START, horizon_h=1)] == [-1]
 
 
 def test_forecast_total_cannot_exceed_supported_demand_range():
@@ -172,7 +172,8 @@ def test_explicit_three_and_five_hour_windows_are_supported():
 
 
 @pytest.mark.parametrize("args,expected_start,horizon", [
-    (["--hour", "8"], "2026-10-20T08:00:00", 1),
+    (["--hour", "8"], "2026-10-20T08:00:00", 3),
+    (["--hour", "8", "--horizon-h", "1"], "2026-10-20T08:00:00", 1),
     (["--start", "2025-06-15T23:00:00Z", "--horizon-h", "3"], "2025-06-16T08:00:00", 3),
 ])
 def test_cli_keeps_hour_mode_and_accepts_explicit_forecast_windows(monkeypatch, capsys, args, expected_start, horizon):
@@ -200,3 +201,16 @@ def test_cli_rejects_ambiguous_or_invalid_forecast_windows(monkeypatch, args):
     with pytest.raises(SystemExit) as caught:
         main()
     assert caught.value.code == 2
+
+
+
+def test_default_window_uses_all_three_hours_and_explicit_one_hour_is_preserved():
+    predictor = Mock()
+    predictor.predict.side_effect = lambda station, start, horizon: Forecast(
+        start, (2.5,) * horizon, (0.5,) * horizon, "hourly-data")
+    result = compute_imbalances([STATION], predictor, START)
+    assert [i.delta for i in result] == [-6]
+    predictor.predict.assert_called_once_with(STATION, START, 3)
+    predictor.predict.reset_mock()
+    assert [i.delta for i in compute_imbalances([STATION], predictor, START, horizon_h=1)] == [-2]
+    predictor.predict.assert_called_once_with(STATION, START, 1)

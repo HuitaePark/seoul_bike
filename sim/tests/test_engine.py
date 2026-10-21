@@ -340,3 +340,17 @@ class RecentSourcesTest(unittest.TestCase):
         net = w.assign(x=w.n.where(w.kind == "pick", -w.n)).groupby("st").x.sum() / 56
         day = load_day("강북-04", t0.date(), latent=False, sources_weeks=8)
         self.assertEqual(day.pickup_sources, frozenset(net[net >= 2].index) & day.stations.keys())
+
+
+
+def test_optimizer_and_simulator_share_distance_time_and_leg_budget():
+    from math import ceil
+    from rebalancing.travel_time import HaversineTravelTime
+    from sim.engine import SimTravelTime, leg_minutes
+    points = [(37.5, 127.0), (37.501, 127.002), (37.503, 127.001)]
+    actual, expected = SimTravelTime().matrix(points), HaversineTravelTime().matrix(points)
+    assert actual.distances_m == expected.distances_m
+    assert actual.durations_s == expected.durations_s
+    for i, a in enumerate(points):
+        for j, b in enumerate(points):
+            assert actual.durations_s[i][j] == ceil(leg_minutes(a, b) * 60)

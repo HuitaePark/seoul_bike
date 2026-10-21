@@ -22,7 +22,7 @@ from .osrm import OsrmTravelTime
 from .planner import plan_routes
 from .problem import PlanningOptions
 from .seeds import REFERENCE_REGIONS, REFERENCE_STATIONS, load_region_seed
-from .travel_time import HaversineTravelTime
+from .travel_time import DEFAULT_DETOUR_FACTOR, DEFAULT_SPEED_KPH, HaversineTravelTime
 
 
 class TimedTravelTime:
@@ -77,6 +77,7 @@ def build_case(args, provider):
     if args.region:
         seed = load_region_seed(REFERENCE_REGIONS, REFERENCE_STATIONS, args.region)
         # Real geography, explicitly artificial inventory/workload for scale testing.
+        truck_count = args.trucks if args.trucks is not None else seed.trucks_min
         quantities = [min(5, s.docks) for s in seed.stations]
         stations = [Station(int(s.data_id), s.name, *s.position, s.docks, q if i % 2 == 0 else 0)
                     for i, (s, q) in enumerate(zip(seed.stations, quantities))]
@@ -88,17 +89,18 @@ def build_case(args, provider):
                      "inventory": "synthetic; alternating min(5, docks) and zero",
                      "demand": "synthetic; alternating pickup/dropoff min(5, docks)",
                      "depot_basis": "station-coordinate-mean; not an operational depot",
-                     "trucks_basis": "explicit benchmark count; not regional trucks_min"}
-        case = BenchmarkCase(stations, jobs, make_trucks(args.trucks), PlanningOptions(solution_limit=args.solution_limit),
+                     "trucks_basis": "explicit benchmark count" if args.trucks is not None else "regional trucks_min reference default"}
+        case = BenchmarkCase(stations, jobs, make_trucks(truck_count), PlanningOptions(solution_limit=args.solution_limit),
                              depot=seed.depot, reference=reference)
     else:
+        truck_count = args.trucks if args.trucks is not None else 5
         stations, kinds = make_stations(per_cluster=ceil(args.stations / 5), seed=args.seed)
         stations = stations[:args.stations]
         if args.all_candidates:
             stations = [replace(s, bikes=5 if s.id % 2 == 0 else 0) for s in stations]
         jobs = ([Imbalance(s.id, 5 if s.id % 2 == 0 else -5) for s in stations]
                 if args.all_candidates else compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), datetime(2026, 10, 20, 8)))
-        case = BenchmarkCase(stations, jobs, make_trucks(args.trucks), PlanningOptions(solution_limit=args.solution_limit))
+        case = BenchmarkCase(stations, jobs, make_trucks(truck_count), PlanningOptions(solution_limit=args.solution_limit))
     if args.scenario == "plan":
         return case
 
@@ -182,7 +184,7 @@ def parser():
     geography = cli.add_mutually_exclusive_group()
     geography.add_argument("--stations", type=int, default=200)
     geography.add_argument("--region", help="use all reference stations of this region; requires --all-candidates")
-    cli.add_argument("--trucks", type=int, default=5)
+    cli.add_argument("--trucks", type=int, help="override fleet size; default regional trucks_min with --region, otherwise 5")
     cli.add_argument("--seed", type=int, default=7)
     cli.add_argument("--repeats", type=int, default=3)
     cli.add_argument("--solution-limit", type=int, default=50)
@@ -191,6 +193,8 @@ def parser():
     cli.add_argument("--cache-mode", choices=("none", "cold", "warm", "compare"), default="none")
     cli.add_argument("--travel-source", choices=("haversine", "osrm"), default="haversine")
     cli.add_argument("--profile-stages", action="store_true", help="record prepare/model/search/extract samples")
+    cli.add_argument("--speed-kph", type=float, default=DEFAULT_SPEED_KPH)
+    cli.add_argument("--detour-factor", type=float, default=DEFAULT_DETOUR_FACTOR)
     cli.add_argument("--osrm-url")
     cli.add_argument("--osrm-data-version")
     return cli
@@ -199,7 +203,7 @@ def parser():
 def main(argv=None):
     cli = parser()
     args = cli.parse_args(argv)
-    if min(args.stations, args.trucks, args.repeats, args.solution_limit) < 1:
+    if min(args.stations, args.repeats, args.solution_limit) < 1 or (args.trucks is not None and args.trucks < 1):
         cli.error("stations, trucks, repeats and solution-limit must be positive")
     if args.region and not args.all_candidates:
         cli.error("--region requires --all-candidates: reference files contain no observed inventory or forecasts")
@@ -214,8 +218,11 @@ def main(argv=None):
     else:
         if args.osrm_url or args.osrm_data_version:
             cli.error("OSRM settings require --travel-source osrm")
-        provider = HaversineTravelTime()
-        namespace = "benchmark:haversine:30kph:v1"
+        try:
+            provider = HaversineTravelTime(args.speed_kph, args.detour_factor)
+        except ValueError as error:
+            cli.error(str(error))
+        namespace = provider.cache_namespace
     setup_started = perf_counter()
     try:
         case = build_case(args, provider)
@@ -232,11 +239,14 @@ def main(argv=None):
               "repeats": args.repeats, "p95_method": "nearest-rank", "travel_source": args.travel_source,
               "road_data_version": args.osrm_data_version, "cache_mode": args.cache_mode,
               "profile_stages": args.profile_stages,
-              "input_sha256": case.fingerprint(), "setup_s": setup_s,
+              "input_sha256": fingerprint({"case": case.fingerprint(), "travel_namespace": namespace}), "setup_s": setup_s,
               "completed_stations": len(case.completed), "blocked_stations": len(case.blocked),
               "snapshot_elapsed_s": case.snapshot_elapsed_s,
               "positioned_trucks": sum(t.position is not None for t in case.trucks),
               "start_loads": [t.load for t in case.trucks]}
+    report["travel_namespace"] = namespace
+    if args.travel_source == "haversine":
+        report["travel_settings"] = {"speed_kph": args.speed_kph, "detour_factor": args.detour_factor}
     if case.reference is not None:
         report["reference"] = case.reference
     modes = ("none", "cold", "warm") if args.cache_mode == "compare" else (args.cache_mode,)

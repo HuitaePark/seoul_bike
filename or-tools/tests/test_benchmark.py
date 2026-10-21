@@ -168,11 +168,11 @@ def test_reference_n01_uses_every_station_and_correct_depot_with_synthetic_state
     seed = load_region_seed(REFERENCE_REGIONS, REFERENCE_STATIONS, "N01")
     assert len(case.stations) == len(case.jobs) == 265
     assert case.depot == seed.depot != DEPOT
-    assert {s.id: (s.name, s.lat, s.lon, s.capacity) for s in case.stations} == {
+    assert {s.id: (s.name, s.lat, s.lon, s.docks) for s in case.stations} == {
         int(s.data_id): (s.name, *s.position, s.docks) for s in seed.stations}
     assert case.reference["region_id"] == "N01" and case.reference["wire_id_field"] == "api_station_id"
     assert case.reference["inventory"].startswith("synthetic")
-    assert all(0 <= s.bikes <= s.capacity for s in case.stations)
+    assert all(0 <= s.bikes <= s.docks for s in case.stations)
     assert sum(s.bikes for s in case.stations) + sum(t.load for t in case.trucks) == 133 * 5
     if scenario == "replan":
         assert case.completed and case.blocked
@@ -197,3 +197,26 @@ def test_reference_inputs_reject_missing_workload_unknown_region_or_truncation(a
     with pytest.raises(SystemExit) as error:
         main(args)
     assert error.value.code == 2
+
+
+
+@pytest.mark.parametrize("region,count", [("N01", 2), ("N04", 2), ("S05", 3), ("S06", 4), ("S09", 1)])
+def test_region_default_fleet_uses_reference_lower_bound_and_allows_explicit_override(region, count):
+    args = parser().parse_args(["--region", region, "--all-candidates", "--solution-limit", "1"])
+    case = build_case(args, HaversineTravelTime())
+    assert len(case.trucks) == count
+    assert case.reference["trucks_basis"] == "regional trucks_min reference default"
+    args.trucks = 5
+    case = build_case(args, HaversineTravelTime())
+    assert len(case.trucks) == 5 and case.reference["trucks_basis"] == "explicit benchmark count"
+
+
+def test_mock_default_fleet_and_travel_provenance_are_explicit(capsys):
+    base = ["--stations", "10", "--all-candidates", "--solution-limit", "1", "--repeats", "1"]
+    report = main(base)
+    legacy = main([*base, "--speed-kph", "30", "--detour-factor", "1"])
+    capsys.readouterr()
+    assert report["trucks"] == 5
+    assert report["travel_settings"] == {"speed_kph": 20.0, "detour_factor": 1.3}
+    assert report["travel_namespace"] != legacy["travel_namespace"]
+    assert report["input_sha256"] != legacy["input_sha256"]

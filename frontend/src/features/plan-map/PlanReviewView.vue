@@ -117,11 +117,12 @@ function selectTruck(id: string) {
         <p v-if="notice" role="status" class="callout success">{{ notice }}</p><p v-if="errors.decision" role="alert" class="callout warning">{{ errors.decision }}</p>
       </section>
 
-      <section class="panel" aria-labelledby="stations-heading"><div class="section-heading"><h2 id="stations-heading">권역 대여소 현황</h2><span class="muted">{{ filteredStations.length }} / {{ stations.length }}곳</span></div>
+    </template>
+    <StationDetail v-if="loaded && !plan && selectedStation" :id="selectedStation" :stations="stationMap" :plan="plan" :horizon="loadedQuery?.horizonH ?? 3" />
+    <section v-if="loaded" class="panel" aria-labelledby="stations-heading"><div class="section-heading"><h2 id="stations-heading">권역 대여소 현황</h2><span class="muted">{{ filteredStations.length }} / {{ stations.length }}곳</span></div>
         <div v-if="filteredStations.length" class="table-scroll" tabindex="0" aria-label="권역 대여소 표"><table><thead><tr><th>대여소</th><th>현재 / 거치대</th><th>{{ loadedQuery?.horizonH }}시간 후</th><th>위험</th><th>관측 (한국 시간)</th></tr></thead><tbody><tr v-for="s in filteredStations" :key="s.stationId" :class="{ focused: selectedStation === s.stationId }"><td><button class="station-button" :aria-label="`${s.name} 상세`" @click="selectedStation = s.stationId">{{ s.name }}</button><span class="small-line">{{ s.stationId }}</span></td><td>{{ numberText(s.bikes) }} / {{ numberText(s.docks) }}</td><td>{{ numberText(s.forecastBikes) }}</td><td><span class="risk-dot" :class="s.risk" aria-hidden="true"></span>{{ label(riskLabels, s.risk) }}</td><td>{{ timeText(s.observedAt) }}</td></tr></tbody></table></div>
         <p v-else class="empty-inline">{{ stations.length ? '검색 조건에 맞는 대여소가 없습니다.' : '표시할 대여소 현황이 없습니다.' }}</p>
-      </section>
-    </template>
+    </section>
   </div>
 </template>
 

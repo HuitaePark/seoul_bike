@@ -60,9 +60,9 @@ class SimpleRule(Policy):
         todo = []
         for s in stations:
             if s.bikes <= LOW:
-                delta = s.bikes - max(s.capacity // 2, FILL_MIN)
-            elif s.id in self.fixed_pickup and s.bikes > s.capacity:
-                delta = s.bikes - s.capacity
+                delta = s.bikes - max(s.docks // 2, FILL_MIN)
+            elif s.id in self.fixed_pickup and s.bikes > s.docks:
+                delta = s.bikes - s.docks
             else:
                 continue
             # 한 번에 트럭 용량을 넘게는 못 옮긴다(plan_greedy는 용량보다 큰 불균형을 아예 건너뛴다)
@@ -144,10 +144,10 @@ class Agent(Policy):
             sure = max(t - self.z_pick * d for t, d in zip(traj, sd))  # 궤적 최고의 아래쪽 추정
             if need > 0:
                 delta = -math.ceil(need)
-            elif s.id in self.sources and s.capacity and max(traj) > s.capacity and spare > 0:
-                delta = math.floor(min(spare, max(traj) - s.capacity))
-            elif self.pick_margin is not None and s.capacity and sure > s.capacity + self.pick_margin and spare > 0:
-                delta = math.floor(min(spare, sure - s.capacity))
+            elif s.id in self.sources and s.docks and max(traj) > s.docks and spare > 0:
+                delta = math.floor(min(spare, max(traj) - s.docks))
+            elif self.pick_margin is not None and s.docks and sure > s.docks + self.pick_margin and spare > 0:
+                delta = math.floor(min(spare, sure - s.docks))
             else:
                 continue
             if delta:  # 회수량을 내림하면 0이 될 수 있다

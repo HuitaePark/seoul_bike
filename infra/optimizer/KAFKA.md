@@ -27,7 +27,8 @@ uv로 만든 환경은 pip 대신 `uv pip install --python .venv/bin/python`에 
 worker는 requests와 requests.retry만 구독하고 토픽을 자동 생성하지 않는다.
 backend는 requests.retry·requests.dlq도 기존 solve 토픽과 같은 app.kafka.partitions(기본 6)로 생성한다. 운영에서는
 보존·접근 권한을 정한 뒤 worker를 시작해야 한다. 이 초기화 명령은 운영용이 아니다.
-기본 worker는 메시지의 depot·asOf와 **개발용 하버사인 추정치**를 사용한다.
+기본 worker는 메시지의 depot·asOf와 **개발용 하버사인 거리 ×1.3·시속 20km 추정치**를 사용한다.
+OSRM 모드는 서버의 도로 거리·시간을 그대로 사용한다. neededBikes·priority·실제 가용 트럭 목록은 생산자 입력이다.
 
 예시 메시지 발행:
 

@@ -25,7 +25,7 @@ class Station:
     name: str
     lat: float  # 위도
     lon: float  # 경도
-    capacity: int  # 대여소 용량: 자전거를 세울 수 있는 거치대 수
+    docks: int  # 대여소 거치대 수. Truck.capacity(트럭 적재 용량)와 구분
     bikes: int  # 지금 대여소에 세워져 있는 자전거 수
     operating_limit: int | None = None  # 운영상 목표 상한. None이면 거치대 수를 초기값으로 사용
 

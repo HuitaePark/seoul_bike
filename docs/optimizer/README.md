@@ -52,17 +52,19 @@ cd or-tools
 기본 출발 적재량은 두 정책 모두 0대다. 차고지에 충분한 재고가 있다는 이유로
 솔버가 임의로 자전거를 만들어 싣지 않는다. 차고지 재적재·부분 처리는 아직 지원하지 않는다.
 
-합의 16~20의 기본 3시간·Station.docks·직선거리 ×1.3/시속 20km·구역별 트럭 하한은 결정됐으나
-현재 구현의 기본값에는 아직 적용하지 않았다. 다음 적용·300곳 검사 순서는 [PR 준비 상태](pr-readiness.md)를 따른다.
+합의 16~20을 반영해 기본 예측 3시간, `Station.docks`, 직선거리 ×1.3/시속 20km를 적용했다.
+시뮬레이터의 대여소 필드와 이동 공급자도 같은 구현을 사용한다. 구역 참조 benchmark는 트럭 수를 생략하면
+`trucks_min`을 쓰며 명시한 값이 우선한다. 운영 fleet은 생산자가 현재 가용 차량으로 구성한다.
+[설정·300곳 검증 기록](benchmarks/agreed-policy-300.md)과 [PR 준비 상태](pr-readiness.md)를 따른다.
 
 ## 시간별 데이터 예측기 사용
 
-`compute_imbalances(stations, predictor, start, horizon_h=1, safety=2)`로 호출한다.
+`compute_imbalances(stations, predictor, start, horizon_h=3, safety=2)`로 호출한다.
 `predictor`에는 데이터 파트의 BaselinePredictor·LightGBMPredictor·NowcastPredictor처럼
 `predict(station, start, horizon_h)`를 제공하는 객체를 넣는다. 학습·파일 로딩은 호출자가 미리 수행한다.
 
 `start`는 정시이며 naive datetime은 KST다. UTC나 다른 시간대를 주면 KST로 바꿔 데이터 표의 키와 맞춘다.
-예측 구간은 1~5시간이다. 기존 `--hour` 데모는 재현용 고정 날짜 2026-10-20과 기본 1시간을 사용하고,
+예측 구간은 1~5시간이며 기본은 3시간이다. `--hour` 데모는 재현용 고정 날짜 2026-10-20을 사용하고,
 `--start`·`--horizon-h`로 날짜·구간을 명시할 수 있다. 두 시각 옵션은 함께 사용하지 않는다.
 CLI는 계속 규칙 기반 시연이며 `--start`만으로 학습 모델이나 운영 데이터를 불러오지 않는다.
 
@@ -79,7 +81,9 @@ CLI는 계속 규칙 기반 시연이며 `--start`만으로 학습 모델이나 
 - 행/열은 요청받은 `points` 순서를 그대로 따른다. 좌표는 `(위도, 경도)`다.
 - `distances_m`: 정수 미터, `durations_s`: 정수 초. 비대칭 행렬을 허용한다.
 - `None`, 음수, 잘못된 크기는 거부한다. 도달 불가 구간을 0으로 바꾸면 안 된다.
-- 기본 공급자는 하버사인 거리와 시속 30km로 만든 **개발용 추정치**다. 실제 도로 경로나 실시간 교통이 아니다.
+- 기본 공급자는 하버사인 거리 ×1.3, 시속 20km의 **개발용 추정치**다. 거리·시간을 각각 정수로 올림한다.
+  실제 도로 경로나 실시간 교통이 아니다. `--speed-kph`·`--detour-factor`로 명시 설정을 바꿀 수 있다.
+  속도·보정계수가 캐시 namespace와 benchmark 입력 해시에 포함된다. OSRM 행렬에는 이 보정을 다시 적용하지 않는다.
 - `OsrmTravelTime`은 OSRM Table API의 도로 거리·시간을 연결한다. 초·미터는 올림하여 정수로 만들고,
   중복 좌표를 한 번만 조회한 뒤 원래 순서로 복원한다. 기본 100개 좌표 한도를 넘으면 두 축을 분할한다.
 - `CachedTravelTime`은 메모리 LRU와 선택적 디스크 캐시를 제공한다. 두 저장소 모두 최대 16개 행렬,
@@ -151,7 +155,7 @@ replan은 먼저 초기 경로를 계산하고, 사용 차량마다 첫 작업�
 | timings.non_matrix | 엔진 호출에서 matrix 시간을 뺀 나머지. 순수 솔버 시간과 다름 |
 | stages.prepare_problem/build_model/search/extract_plan | --profile-stages에서만 추가하는 단계별 표본·중앙값·p95. matrix/provider는 prepare_problem 안에 포함 |
 | cache_hits·cache_misses·provider_calls | 측정 구간의 횟수. warm 준비 호출은 제외. provider_calls는 matrix 호출 수이며 OSRM 분할 HTTP 횟수가 아님 |
-| input_sha256·plan_sha256 | 같은 입력인지, 반복·캐시 모드에서 같은 계획이 나오는지 확인 |
+| input_sha256·plan_sha256 | 계산 사례와 이동 설정 namespace, 전체 계획의 SHA-256. 반복·캐시 모드에서 결과 일치 확인 |
 
 compare는 캐시 없이 매번 공급자 호출(none), 매번 새 메모리 캐시(cold), 한 번 준비한 캐시(warm)를 비교한다.
 warm의 사전 엔진 호출은 warmup_s에 별도로 남기고 표본·캐시 횟수·공급자 횟수에서 제외한다.
@@ -164,7 +168,7 @@ Kafka 대기·backend·LLM을 포함한 "현장 보고부터 변경안 생성까
 
 거리·작업시간·적재 변화는 native 행렬/벡터로 등록해 탐색 중 Python 반복 호출을 줄였다.
 원본 공급자/캐시 행렬은 보존하고 실제 복귀·용량·근무시간·탐색 설정을 유지한다.
-가상 200곳·5대·warm 재경로 20회에서 p95 5984.98→1043.75ms와 동일한 전체 계획 해시를 확인했다.
+이전 운행 설정의 가상 200곳·5대·warm 재경로 20회에서 p95 5984.98→1043.75ms와 동일한 전체 계획 해시를 확인했다.
 [전후 측정·재현·한계](benchmarks/native-transit.md)와 [검증 기록](validation.md)에 상세를 남겼다.
 실제 도로·운영 서버의 성능 보장으로 사용하지 않는다.
 
@@ -189,3 +193,6 @@ Kafka 대기·backend·LLM을 포함한 "현장 보고부터 변경안 생성까
 
 [PR 준비 상태](pr-readiness.md)에 현재 브랜치의 검증 범위, PR 제출 시 확인할 항목,
 실데이터·도로·팀 정책 결정이 필요한 후속 작업을 구분해 둔다.
+
+현재 기본 3시간은 구간 끝 정책에 적용한다. backend의 StationRisk(내부 API 0.8)는 별도의 관측 시각·시간별 궤적 규칙으로
+neededBikes와 priority를 만든다. worker는 그 계산된 값을 그대로 소비하며 로컬 예측 데모의 정책으로 다시 계산하지 않는다.

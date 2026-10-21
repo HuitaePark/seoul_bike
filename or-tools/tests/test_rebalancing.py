@@ -11,17 +11,18 @@ from rebalancing.imbalance import compute_imbalances, healthy_band
 from rebalancing.mock_data import DEPOT, make_stations, make_trucks
 from rebalancing.models import Station
 from rebalancing.planner import plan_routes
+from rebalancing.travel_time import HaversineTravelTime
 
 
-def build(hour: int, seed: int = 7, trucks: int = 3):
+def build(hour: int, seed: int = 7, trucks: int = 3, horizon_h: int = 3):
     stations, kinds = make_stations(seed=seed)
-    imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=seed), datetime(2026, 10, 20, hour))
+    imbalances = compute_imbalances(stations, HeuristicPredictor(kinds, seed=seed), datetime(2026, 10, 20, hour), horizon_h=horizon_h)
     return stations, imbalances, make_trucks(trucks)
 
 
 class HealthyBandTest(unittest.TestCase):
     def test_band_targets_end_inventory_without_hard_dock_cap(self):
-        s = Station(0, "x", 0, 0, capacity=20, bikes=10)
+        s = Station(0, "x", 0, 0, docks=20, bikes=10)
         lo, hi = healthy_band(s, rentals=8, returns=2, safety=2)
         self.assertEqual((lo, hi), (8, 26))  # can start above 20; net outflow brings it back to 20
         lo, hi = healthy_band(s, rentals=2, returns=8, safety=2)
@@ -61,9 +62,12 @@ class PlannerInvariantsTest(unittest.TestCase):
         self.check_plan(plan_greedy(DEPOT, stations, imbalances, trucks), imbalances, trucks)
 
     def test_ortools_not_worse_than_greedy_when_all_served(self):
-        stations, imbalances, trucks = build(8)
-        greedy = plan_greedy(DEPOT, stations, imbalances, trucks)
-        ortools = plan_routes(DEPOT, stations, imbalances, trucks)
+        # Preserve the original all-served comparison workload explicitly.
+        # The feasibility scenarios above exercise the newly agreed defaults.
+        stations, imbalances, trucks = build(8, horizon_h=1)
+        travel = HaversineTravelTime(speed_kph=30, detour_factor=1)
+        greedy = plan_greedy(DEPOT, stations, imbalances, trucks, travel_time=travel)
+        ortools = plan_routes(DEPOT, stations, imbalances, trucks, travel_time=travel)
         self.assertEqual(greedy.unserved_bikes, 0)
         self.assertEqual(ortools.unserved_bikes, 0)
         self.assertLessEqual(ortools.total_distance_m, greedy.total_distance_m)

@@ -35,7 +35,7 @@ def healthy_band(
     require_int("safety", safety)
     limit = operating_limit if operating_limit is not None else station.operating_limit
     if limit is None:
-        limit = station.capacity
+        limit = station.docks
     require_int("operating_limit", limit)
     lo = max(0, int((net_outflow + safety).to_integral_value(rounding=ROUND_CEILING)))
     hi = max(0, int((Decimal(limit) + net_outflow).to_integral_value(rounding=ROUND_FLOOR)))
@@ -62,12 +62,13 @@ def _forecast_totals(forecast: HourlyForecast, start: datetime, horizon_h: int) 
 
 def compute_imbalances(
     stations: list[Station], predictor: DemandPredictor, start: datetime,
-    horizon_h: int = 1, safety: int = 2,
+    horizon_h: int = 3, safety: int = 2,
 ) -> list[Imbalance]:
     """Use hourly predictor outputs with the existing endpoint target policy.
 
     A naive start means KST; an aware start is converted before calling data
-    predictors. The one-hour default preserves the former mock pipeline.
+    predictors. The three-hour default follows agreement 16; explicit 1..5
+    hour windows remain supported. Intermediate trajectories are a later policy.
     """
     start = forecast_window(start, horizon_h)
     require_int("safety", safety)

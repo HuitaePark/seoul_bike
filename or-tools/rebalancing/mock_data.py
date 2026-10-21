@@ -44,7 +44,7 @@ def make_stations(per_cluster: int = 6, seed: int = 7) -> tuple[list[Station], d
                     name=f"{name}-{n + 1:02d}",  # 예: 강남-01
                     lat=lat + rng.uniform(-0.013, 0.013),
                     lon=lon + rng.uniform(-0.016, 0.016),
-                    capacity=capacity,
+                    docks=capacity,
                     bikes=rng.randint(0, capacity),  # 현재 재고는 0~용량 사이 무작위
                 )
             )
