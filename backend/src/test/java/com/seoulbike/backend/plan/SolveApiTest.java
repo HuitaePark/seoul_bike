@@ -296,6 +296,65 @@ class SolveApiTest {
 		assertThat(ids(json.readTree(unknownTruck.body()).path("suggestions"), null)).containsExactly(t1, t2);
 	}
 
+	/** optimizer는 정류장이 없는 트럭을 결과에서 뺀다. 후보에는 빈 경로로 남아 활성화 뒤에도 그 트럭으로 재경로할 수 있다. */
+	@Test
+	void optimizer가_뺀_트럭도_빈_경로로_남아_활성화_뒤_재경로할_수_있다() throws Exception {
+		String day = futureDay();
+		String shift = REGION + ":" + day + ":AM";
+		String t1 = trucks.get(0), idle = trucks.get(1);
+		observe(st.get(0), 13, 10);
+		answerOk(shift, json.createArrayNode().add(route(t1, 0, stop(1, st.get(0), "PICKUP", 3, 3, "PENDING"))));
+
+		var res = solve(body(shift, "PLAN"));
+
+		assertThat(res.statusCode()).as(res.body()).isEqualTo(200);
+		JsonNode candidate = json.readTree(res.body());
+		JsonNode routes = candidate.path("plan").path("routes");
+		assertThat(ids(routes, "truckId")).containsExactlyElementsOf(trucks);
+		JsonNode empty = routes.get(1);
+		assertThat(empty.path("capacity").asInt()).isEqualTo(15);
+		assertThat(empty.path("startLoad").asInt()).isZero();
+		assertThat(empty.path("stops")).isEmpty();
+
+		String planId = candidate.path("candidateId").asString();
+		UUID task = task(shift, "PLAN_DRAFT");
+		var activated = call("POST", "/internal/plans/" + planId + "/activate", json.writeValueAsString(
+				json.createObjectNode().put("approvalId", approval(task, "SUBMIT_PLAN", planId).toString())
+					.put("taskId", task.toString())));
+		assertThat(activated.statusCode()).as(activated.body()).isEqualTo(200);
+		optimizer.lastRequest(shift);
+
+		answerOk(shift, json.createArrayNode());
+		ObjectNode replan = body(shift, "REPLAN");
+		replan.putArray("truckIds").add(idle);
+		var again = solve(replan);
+		assertThat(again.statusCode()).as(again.body()).isEqualTo(200);
+		JsonNode sent = optimizer.lastRequest(shift);
+		assertThat(ids(sent.path("trucks"), "truckId")).containsExactly(idle);
+		assertThat(sent.path("trucks").get(0).path("load").asInt()).isZero();
+		assertThat(ids(json.readTree(again.body()).path("plan").path("routes"), "truckId"))
+			.containsExactlyElementsOf(trucks);
+	}
+
+	/** 정류장을 계획 순서와 다르게 끝냈어도 새 정류장의 seq가 끝낸 정류장과 겹치지 않는다. */
+	@Test
+	void 재경로_새_정류장의_seq는_끝낸_정류장의_가장_큰_seq_다음부터다() throws Exception {
+		String shift = REGION + ":" + futureDay() + ":AM";
+		String first = st.get(0), doneOutOfOrder = st.get(1), last = st.get(2);
+		String t1 = trucks.get(0);
+		insertActive(shift, json.createArrayNode().add(route(t1, 0, stop(1, first, "DROPOFF", 3, 0, "PENDING"),
+				stop(2, doneOutOfOrder, "PICKUP", 3, 3, "DONE"), stop(3, last, "DROPOFF", 3, 0, "PENDING"))));
+		answerOk(shift, json.createArrayNode().add(route(t1, 3, stop(1, first, "DROPOFF", 3, 0, "PENDING"),
+				stop(2, last, "PICKUP", 2, 2, "PENDING"))));
+
+		var res = solve(body(shift, "REPLAN"));
+
+		assertThat(res.statusCode()).as(res.body()).isEqualTo(200);
+		JsonNode stops = json.readTree(res.body()).path("plan").path("routes").get(0).path("stops");
+		assertThat(ids(stops, "stationId")).containsExactly(doneOutOfOrder, first, last);
+		assertThat(stops.valueStream().map(s -> s.path("seq").asInt())).containsExactly(2, 3, 4);
+	}
+
 	@Test
 	void 근무조_형식_구역_활성_계획_대여소_작업을_검사한다() throws Exception {
 		var malformed = solve(body("S02-2026-10-21-AM", "PLAN"));

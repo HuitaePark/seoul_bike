@@ -54,15 +54,42 @@ class PlanCandidates {
 	}
 
 	/**
-	 * optimizer의 OK 결과.
+	 * optimizer의 OK 결과. optimizer는 정류장이 없는 트럭을 결과에서 뺀다. 그대로 저장하면 활성화한 계획에서 그 트럭이 사라져
+	 * 뒤의 REPLAN이 그 트럭을 찾지 못한다. 그래서 입력 트럭 순서대로 결과에 없는 트럭은 빈 경로(capacity, startLoad = 입력 load)로
+	 * 채운다 (탐욕 임시안과 같은 모양).
 	 *
 	 * @param taskId 요청한 작업. 현장 보고 작업이면 FIELD_REPORT, 아니면(없어도) 관리자 요청으로 등급을 매긴다
+	 * @param inputTrucks 보낸 SolveRequest의 trucks
 	 * @param replan REPLAN이면 기준 계획, PLAN이면 null
 	 */
 	@Transactional
-	ObjectNode create(String shiftId, String requestId, UUID taskId, JsonNode result, Replan replan) {
-		return insert(shiftId, requestId, taskId, array(result.path("routes")), array(result.path("unserved")), replan,
-				false, null);
+	ObjectNode create(String shiftId, String requestId, UUID taskId, JsonNode result, JsonNode inputTrucks,
+			Replan replan) {
+		return insert(shiftId, requestId, taskId, withAllTrucks(array(result.path("routes")), inputTrucks),
+				array(result.path("unserved")), replan, false, null);
+	}
+
+	/** 입력 트럭 순서대로 결과 경로를 두고, 결과에 없는 트럭은 빈 경로로 채운다. 입력에 없는 결과 트럭은 뒤에 그대로 둔다. */
+	private ArrayNode withAllTrucks(ArrayNode routes, JsonNode inputTrucks) {
+		Map<String, JsonNode> byTruck = new LinkedHashMap<>();
+		routes.forEach(r -> byTruck.put(r.path("truckId").asString(), r));
+		ArrayNode out = json.createArrayNode();
+		for (JsonNode truck : inputTrucks) {
+			String truckId = truck.path("truckId").asString();
+			JsonNode route = byTruck.remove(truckId);
+			if (route == null) {
+				ObjectNode empty = out.addObject();
+				empty.put("truckId", truckId);
+				empty.put("capacity", truck.path("capacity").asInt());
+				empty.put("startLoad", truck.path("load").asInt());
+				empty.putArray("stops");
+			}
+			else {
+				out.add(route);
+			}
+		}
+		byTruck.values().forEach(out::add);
+		return out;
 	}
 
 	/** optimizer가 답하지 못해 backend가 만든 임시안. 같은 요청(requestId)에 묶어 둔다. */
@@ -113,7 +140,10 @@ class PlanCandidates {
 		return candidate;
 	}
 
-	/** 활성 계획의 트럭 순서대로. 다시 푼 트럭은 끝낸 정류장 + 새 정류장(seq를 이어 매긴다), 출발 적재량은 활성 계획 그대로. */
+	/**
+	 * 활성 계획의 트럭 순서대로. 다시 푼 트럭은 끝낸 정류장 + 새 정류장, 출발 적재량은 활성 계획 그대로. 새 정류장의 seq는 끝낸
+	 * 정류장의 가장 큰 seq 다음부터다 (정류장을 계획 순서와 다르게 끝냈으면 개수 + 1부터 매길 때 겹친다).
+	 */
 	private ArrayNode merge(JsonNode activeRoutes, ArrayNode solved, Set<String> truckIds) {
 		Map<String, JsonNode> byTruck = new LinkedHashMap<>();
 		solved.forEach(r -> byTruck.put(r.path("truckId").asString(), r));
@@ -126,15 +156,17 @@ class PlanCandidates {
 			}
 			ObjectNode route = (ObjectNode) active.deepCopy();
 			ArrayNode stops = route.putArray("stops");
+			int seq = 0;
 			for (JsonNode stop : active.path("stops")) {
 				if (!"PENDING".equals(stop.path("status").asString("PENDING"))) {
 					stops.add(stop.deepCopy());
+					seq = Math.max(seq, stop.path("seq").asInt());
 				}
 			}
 			JsonNode next = byTruck.remove(truckId);
 			if (next != null) {
 				for (JsonNode stop : next.path("stops")) {
-					stops.add(((ObjectNode) stop.deepCopy()).put("seq", stops.size() + 1));
+					stops.add(((ObjectNode) stop.deepCopy()).put("seq", ++seq));
 				}
 			}
 			out.add(route);

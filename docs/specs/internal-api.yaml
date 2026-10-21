@@ -230,12 +230,14 @@ paths:
         - 대여소: 구역의 운영 중이고 관측이 있는 대여소 중 `neededBikes`가 0이 아닌 것. 필요 대수·우선순위는 `get_risk_stations`(3시간)와
           같은 계산이다. `kind`는 배치(음수)면 EMPTY, 회수(양수)면 OVERFLOW.
         - **PLAN**: 구역의 운영 중인 트럭 전부(트럭 ID 순)가 차고지에서 빈 채로(`load` 0) 출발한다. `truckIds`는 쓰지 않는다.
+          optimizer가 정류장이 없어 결과에서 뺀 트럭도 후보에 빈 경로(`stops: []`, 입력의 `capacity`·`load`)로 남긴다
+          (활성화한 뒤 그 트럭으로 REPLAN할 수 있게).
         - **REPLAN**: 근무조의 ACTIVE 계획에서 시작한다 (없으면 404 `SHIFT_NOT_FOUND`). 트럭은 계획의 트럭(`truckIds`로 거르고, 계획에 없는
           트럭이면 404 `TRUCK_NOT_FOUND`, `suggestions`에 계획의 트럭). 위치는 마지막으로 끝낸(`DONE`) 정류장, 없으면 차고지.
           적재는 그 정류장의 `loadAfter`, 없으면 경로의 `startLoad`. 그 트럭의 남은(`PENDING`) 정류장이 `fixedStationIds`다(계산 대상이고
           막히지 않은 것만, 트럭 간 이동 방지). 계획 전체에서 끝낸 정류장과, 다시 풀지 않는 트럭의 남은 정류장은 대여소에서 뺀다.
-          후보는 활성 계획 전체다: 다시 푼 트럭은 끝낸 정류장(`PENDING`이 아닌 것) 뒤에 새 정류장을 이어 붙이고(`seq`를 이어 매김,
-          `startLoad`는 그대로), 다시 풀지 않은 트럭은 그대로 둔다. 입력을 읽은 뒤 활성 계획이 바뀌었으면 409 `PLAN_CHANGED`.
+          후보는 활성 계획 전체다: 다시 푼 트럭은 끝낸 정류장(`PENDING`이 아닌 것) 뒤에 새 정류장을 이어 붙이고(`seq`는 끝낸 정류장의
+          가장 큰 `seq` 다음부터, `startLoad`는 그대로), 다시 풀지 않은 트럭은 그대로 둔다. 입력을 읽은 뒤 활성 계획이 바뀌었으면 409 `PLAN_CHANGED`.
         - **제약**(`add_constraint`): 이 근무조의 제약 중 `[asOf, 근무조 끝)`과 겹치는 것. `STATION_SUSPENDED`·`STATION_BLOCKED`는
           `blockedStationIds`, `INVENTORY_OVERRIDE`는 위험 판단 전에 관측 재고를 `value`로 바꾼다(여럿이면 가장 늦게 시작한 것).
           `TARGET_ADJUST`는 목표 재고 가감이라 `neededBikes`에서 `value`를 뺀다(+v면 v대 더 배치, 여럿이면 합). 바꾼 뒤에도 배치는 지금 빈

@@ -132,8 +132,8 @@ public class SolveGateway {
 			return new SolveOutcome(SolveOutcome.Status.valueOf(status), requestId, null, answer.path("code").asString(null),
 					answer.path("retryable").asBoolean(false), answer.path("error").asString(null));
 		}
-		return new SolveOutcome(SolveOutcome.Status.OK, requestId, candidates.create(shiftId, requestId, taskId, answer, replan),
-				null, false, null);
+		return new SolveOutcome(SolveOutcome.Status.OK, requestId,
+				candidates.create(shiftId, requestId, taskId, answer, inputs.path("trucks"), replan), null, false, null);
 	}
 
 	/** 결과 저장이 커밋된 뒤 SolveResultConsumer가 부른다. 기다리는 요청이 없으면(시간 초과) 저장만 하고 끝난다. */
