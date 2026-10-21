@@ -43,6 +43,8 @@ export function useShiftFeed(shiftId: MaybeRefOrGetter<string>) {
   const decided = new Set<string>()
   let generation = 0
   let lastRefresh = 0
+  /** 화면을 떠났다. 늦게 끝난 목록 읽기·묻기·결정이 아무도 닫지 않을 스트림을 새로 열지 않게 막는다. */
+  let disposed = false
 
   function say(who: Line['who'], text: string, state: Line['state'] = 'done'): Line {
     const line = reactive<Line>({ who, text, state })
@@ -68,7 +70,7 @@ export function useShiftFeed(shiftId: MaybeRefOrGetter<string>) {
   }
 
   function watchTask(taskId: string) {
-    if (streams.has(taskId) || finished.has(taskId)) return
+    if (disposed || streams.has(taskId) || finished.has(taskId)) return
     const epoch = generation
     streams.set(
       taskId,
@@ -115,6 +117,7 @@ export function useShiftFeed(shiftId: MaybeRefOrGetter<string>) {
   }
 
   async function refresh() {
+    if (disposed) return
     const call = ++lastRefresh
     const id = toValue(shiftId)
     try {
@@ -140,6 +143,7 @@ export function useShiftFeed(shiftId: MaybeRefOrGetter<string>) {
     qa.value.push({ q: text, a: answer })
     try {
       const { data, error } = await api.POST('/api/ai/tasks', { body: { type: 'QUESTION', shiftId: toValue(shiftId), text } })
+      if (disposed) return
       if (error || !data) {
         answer.state = 'failed'
         answer.text = problemMessage(error)
@@ -175,6 +179,8 @@ export function useShiftFeed(shiftId: MaybeRefOrGetter<string>) {
     } finally {
       busy.value = null
     }
+    // 결정은 보냈다. 화면을 떠났으면 결과를 받을 곳이 없으니 스트림은 열지 않는다.
+    if (disposed) return true
     decided.add(card.approvalId)
     cards.delete(card.taskId)
     say('me', `「${card.summary}」 ${body.decision === 'APPROVE' ? '승인' : '거절'}`)
@@ -203,6 +209,9 @@ export function useShiftFeed(shiftId: MaybeRefOrGetter<string>) {
   )
   const timer = window.setInterval(() => void refresh(), POLL_MS)
   onScopeDispose(() => {
+    disposed = true
+    // 읽는 중인 목록은 버린다 (call !== lastRefresh)
+    lastRefresh++
     window.clearInterval(timer)
     for (const handle of streams.values()) handle.close()
     streams.clear()
