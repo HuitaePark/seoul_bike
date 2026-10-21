@@ -66,14 +66,16 @@
 
 ## 결정 뒤 할 일 (2026-10-21)
 
-위 결정으로 역할마다 바꿀 것이다. 시연 구역 `gwangjin-seongdong`은 **가짜 데이터(3)를 실제 구역·대여소 ID로 옮긴 뒤에** 화면 목록에서 뺀다. 순서를 바꾸면 지금 시연 흐름이 끊긴다.
+위 결정으로 역할마다 바꿀 것이다. 시연 구역(`gwangjin-seongdong`, 평가용 `yeongdeungpo`)은 **가짜 데이터(2·3)를 실제 구역·대여소 ID로 옮긴 뒤에** 화면 목록에서 뺀다. business-mcp 가짜는 다른 구역·근무조를 거부하므로 순서를 바꾸면 지금 시연 흐름이 끊긴다.
+
+**지금 가짜·더미 데이터의 대여소 ID는 실제로 있는 다른 대여소의 ID다.** 예: 시연 데이터의 `ST-102`는 실제로는 자양사거리 광진아크로텔 앞, `ST-502`·`ST-511`도 다른 실제 대여소다. 실제 대여소로 옮길 때 이름과 ID를 대응표(`ref_stations.csv`)에서 함께 가져온다.
 
 | 역할 | 할 일 |
 | --- | --- |
 | 1 에이전트 | 에이전트가 내보내는 시각을 `+09:00`으로. 근무조 ID·구역 예시를 `N02:2026-10-21:AM` 모양으로 |
-| 2 Harness | `id_pattern: ST-\d+`는 **그대로** (바꿀 것 없음). 평가셋·가짜 MCP의 구역·근무조 ID(`gwangjin-seongdong`)를 `N`·`S` 구역으로 |
+| 2 Harness | `id_pattern: ST-\d+`는 **그대로** (바꿀 것 없음). 평가셋·가짜 MCP(`agent/evaluation/fake_mcp.py`)의 구역 `yeongdeungpo`와 근무조 ID를 `N`·`S` 구역으로, 대여소 ID(`ST-2001` 등)를 실제 대여소로 |
 | 3 MCP·RAG | `StationId`는 `^ST-\d+$`만 받기 (대여소번호 형식 빼기), `RegionId`는 가짜 데이터를 옮긴 뒤 `^[NS]\d{2}$`로. 가짜 데이터의 구역·대여소를 실제 ID로. [MCP.md](../MCP.md)의 미결 표(대여소·구역 ID 형식) 정리 |
-| 4 백엔드 | 대여소·구역 기준 표 적재(`ref.stations`, `ref.regions`), 재고·예측 표(`live.station_status`, `forecast.station_forecasts`)와 Forecast 시간별 값, 시각 `+09:00`, 대여소 API, 경로 계산 입력 |
-| 5 최적화 | 시드(`infra/optimizer/seeds/s05-stations.csv`)의 대여소 ID를 `api_station_id`(`ST-`)로. 17개 구역 전체가 대상이라 큰 구역 성능(18번, N01 265곳) 확인. EVE 끝 19:00–21:00을 `availableUntil`에 |
+| 4 백엔드 | 대여소·구역 기준 표 적재(`ref.stations`, `ref.regions`), 재고·예측 표(`live.station_status`, `forecast.station_forecasts`)와 Forecast 시간별 값, 시각 `+09:00`, 대여소 API, 경로 계산 입력(`solve.requests`의 `availableUntil`에 EVE 끝 21:00). 가짜 에이전트(`FakeAgent.java`)와 테스트의 `gwangjin-seongdong`·`ST-101`~`ST-104`를 실제 구역·대여소로 |
+| 5 최적화 | 시드에는 이미 `api_station_id` 열이 있다. 메시지로 주고받는 대여소 ID를 `api_station_id`(`ST-`)로 쓰고, 시드를 17개 구역으로 넓힌다(시드 해시 테스트 `test_seeds.py` 함께). 큰 구역 성능(18번, N01 265곳) 확인 |
 | 6 데이터 | 실시간 수집기는 API의 `ST-` 값을 그대로 `live.station_status`에. 예측은 `ST-`로 바꿔 `forecast.station_forecasts`에. 시뮬레이터 `SHIFTS`의 EVE 19–21, `sim_kpi.csv`의 `region_id`는 `N`·`S` 구역. 내보내는 시각은 `+09:00` |
-| 화면 담당 | 더미 대여소 ID(`ST-5xx`)는 실제 ID가 아니다. 대여소 API(4)가 나오면 더미를 걷어 낸다. 그 전까지는 `더미` 표시 유지 |
+| 화면 담당 | 더미·시연 데이터의 대여소 ID(`ST-5xx`, `ST-101`~`ST-104`)는 실제 다른 대여소를 가리킨다. 대여소 API(4)가 나오면 더미를 걷어 내고, 그 전까지 `더미` 표시 유지. 시연 구역 `gwangjin-seongdong`은 `shared/region/regions.ts`, `shared/dummy.ts`, `plan-map/demo.ts`, `TaskConsoleView.vue` 기본값, `tests/dashboard.test.ts`에 있다(가짜 데이터를 옮긴 뒤 뺀다). 시각은 문자열로 정렬하지 말고 시각으로 비교한다(`+09:00`과 `Z`가 섞이면 순서가 틀린다) |
