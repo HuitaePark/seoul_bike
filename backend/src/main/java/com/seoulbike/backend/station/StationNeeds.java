@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 경로 계산 입력(asyncapi SolveStation)에 쓸 대여소별 필요 대수·우선순위. 위험 판단은 위험 대여소 API와 같은 StationRisk다
- * (운영 중이고 관측이 있는 대여소, 가장 최근 관측, 끝나지 않은 가장 이른 예측 구간).
+ * (운영 중이고 관측이 있는 대여소, 실시간 수집에 현장 보고를 반영한 재고(StationRepository), 끝나지 않은 가장 이른 예측 구간).
  * 제약 두 가지는 여기서 반영한다. 재고와 거치대 수, 유형 가중치가 이 패키지에 있어서다.
  */
 @Component

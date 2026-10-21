@@ -3,7 +3,7 @@
 // 관제 대시보드와 기사 앱이 같은 근무조를 보도록 한 곳에 둔다.
 
 import type { Schemas } from './api/client'
-import { todayInSeoul } from './region/regions'
+import { todayInSeoul } from './region/regions.ts'
 
 type StationStatus = Schemas['StationStatus']
 type Plan = Schemas['Plan']
@@ -89,7 +89,7 @@ export const DUMMY_PLAN: Plan = {
     },
     {
       truckId: 'TR-05',
-      capacity: 12,
+      capacity: 15,
       startLoad: 0,
       stops: [
         { seq: 1, stationId: 'ST-530', stationName: '한양대역 2번출구', action: 'PICKUP', bikes: 8, loadAfter: 8, eta: at(7, 15), status: 'DONE', reason: '22대 예상, 거치대 20 초과' },
@@ -118,5 +118,5 @@ export type TruckLive = {
 export const DUMMY_TRUCKS: TruckLive[] = [
   { truckId: 'TR-03', driver: '김기사', lat: 37.5458, lon: 127.0518, load: 7, capacity: 15, moving: true, updatedSec: 3 },
   { truckId: 'TR-04', driver: '이기사', lat: 37.5440, lon: 127.0720, load: 12, capacity: 15, moving: true, updatedSec: 2 },
-  { truckId: 'TR-05', driver: '박기사', lat: 37.5612, lon: 127.0371, load: 0, capacity: 12, moving: false, updatedSec: 4 },
+  { truckId: 'TR-05', driver: '박기사', lat: 37.5612, lon: 127.0371, load: 0, capacity: 15, moving: false, updatedSec: 4 },
 ]

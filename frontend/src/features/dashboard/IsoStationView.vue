@@ -279,8 +279,8 @@ const waves = [[3, 13], [7.5, 12.8], [11, 13.3], [15, 12.9], [18.5, 13.2]].map((
 
     <!-- 트럭 이름표 -->
     <g v-for="t in trucks" :key="'tl' + t.truckId" :transform="`translate(${t.label[0]} ${t.label[1]})`" :opacity="t.dim ? 0.3 : 1" class="truck-tag">
-      <rect x="-29" y="-22" width="58" height="20" rx="10" :fill="colors[t.truckId]" />
-      <text y="-8">{{ t.truckId.replace('truck-', 'T') }} {{ t.load }}/{{ t.capacity }}</text>
+      <rect x="-38" y="-22" width="76" height="20" rx="10" :fill="colors[t.truckId]" />
+      <text y="-8">{{ t.truckId }} {{ t.load }}/{{ t.capacity }}</text>
       <path d="M-5 -2 L0 4 L5 -2 Z" :fill="colors[t.truckId]" />
     </g>
 

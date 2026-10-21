@@ -59,6 +59,25 @@ class OsrmTravelTime:
         normalized = normalized_points(points)
         unique = list(dict.fromkeys(normalized))
         positions = {point: i for i, point in enumerate(unique)}
+        distances, durations, _ = self._table(unique, keep_unreachable=False)
+        order = [positions[point] for point in normalized]
+        result = TravelMatrix([[distances[i][j] for j in order] for i in order],
+                              [[durations[i][j] for j in order] for i in order], source="osrm")
+        try:
+            result.validate(len(points))
+        except ValueError as error:
+            raise TravelTimeError("invalid_response", str(error)) from error
+        return result
+
+    def reachability(self, points: list[LatLon]) -> tuple[list[list[int | None]], str | None]:
+        """Directed durations for distinct points; None marks an unreachable pair. Diagnostics only."""
+        unique = normalized_points(points)
+        if len(set(unique)) != len(unique):
+            raise ValueError("reachability points must be distinct")
+        _, durations, version = self._table(unique, keep_unreachable=True)
+        return durations, version
+
+    def _table(self, unique: list[LatLon], *, keep_unreachable: bool):
         size = len(unique)
         distances = [[0] * size for _ in unique]
         durations = [[0] * size for _ in unique]
@@ -101,18 +120,27 @@ class OsrmTravelTime:
                         for j, destination in enumerate(destinations):
                             value = values[i][j]
                             if value is None:
-                                raise TravelTimeError("unreachable", "OSRM returned an unreachable pair")
+                                if not keep_unreachable:
+                                    raise TravelTimeError("unreachable", "OSRM returned an unreachable pair")
+                                target[source][destination] = None
+                                continue
                             if type(value) not in (int, float) or not isfinite(value) or not 0 <= value <= 1e9:
                                 raise TravelTimeError("invalid_response", f"OSRM {name} value is invalid")
                             target[source][destination] = ceil(value)
-        order = [positions[point] for point in normalized]
-        result = TravelMatrix([[distances[i][j] for j in order] for i in order],
-                              [[durations[i][j] for j in order] for i in order], source="osrm")
-        try:
-            result.validate(len(points))
-        except ValueError as error:
-            raise TravelTimeError("invalid_response", str(error)) from error
-        return result
+        return distances, durations, observed_version
+
+    def nearest_distance(self, point: LatLon) -> float | None:
+        """Metres from a point to the nearest routable road; None when OSRM finds none. Diagnostics only."""
+        lat, lon = normalized_points([point])[0]
+        payload = self._request(f"{self.base_url.rstrip('/')}/nearest/v1/{self.profile}/{lon},{lat}?number=1",
+                                self.timeout_s)
+        waypoints = payload.get("waypoints")
+        if not isinstance(waypoints, list) or not waypoints:
+            return None
+        distance = waypoints[0].get("distance") if isinstance(waypoints[0], dict) else None
+        if type(distance) not in (int, float) or not isfinite(distance) or distance < 0:
+            raise TravelTimeError("invalid_response", "OSRM nearest distance is invalid")
+        return float(distance)
 
     def _request(self, url: str, timeout: float) -> dict:
         try:

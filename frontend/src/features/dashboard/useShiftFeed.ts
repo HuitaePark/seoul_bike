@@ -162,20 +162,31 @@ export function useShiftFeed(shiftId: MaybeRefOrGetter<string>) {
   async function decide(card: LiveCard, body: ApprovalDecision): Promise<boolean> {
     busy.value = card.approvalId
     delete errors[card.approvalId]
+    // 결과 줄은 보내기 전에 걸어 둔다. 재개된 에이전트의 첫 이벤트(TOKEN 등)가 승인 응답보다 먼저 SSE로 올 수 있어서,
+    // 응답을 받은 뒤에 걸면 그 이벤트가 버려진다 (답 앞부분이 잘린다). 대화에는 받아들여진 뒤에 붙인다.
+    const line = reactive<Line>({ who: 'agent', text: '결정을 에이전트에 넘겼다. 이어지는 결과를 기다린다.', state: 'working' })
+    const reply = { line, waitFor: streams.has(card.taskId) ? null : card.approvalId }
+    const previous = replies.get(card.taskId)
+    replies.set(card.taskId, reply)
+    const fail = (message: string) => {
+      if (replies.get(card.taskId) === reply) {
+        if (previous) replies.set(card.taskId, previous)
+        else replies.delete(card.taskId)
+      }
+      errors[card.approvalId] = message
+      return false
+    }
     try {
       const { error, response } = await api.POST('/api/ai/tasks/{taskId}/approval', {
         params: { path: { taskId: card.taskId } },
         body,
       })
       if (error || !response.ok) {
-        errors[card.approvalId] =
-          response.status === 409 ? '이미 처리됐거나 더 새로운 변경안으로 대체됐다. 목록을 다시 읽는다.' : problemMessage(error)
         if (response.status === 409) void refresh()
-        return false
+        return fail(response.status === 409 ? '이미 처리됐거나 더 새로운 변경안으로 대체됐다. 목록을 다시 읽는다.' : problemMessage(error))
       }
     } catch {
-      errors[card.approvalId] = '결정을 보냈는지 알 수 없다. 작업 콘솔에서 처리 여부를 확인한다.'
-      return false
+      return fail('결정을 보냈는지 알 수 없다. 작업 콘솔에서 처리 여부를 확인한다.')
     } finally {
       busy.value = null
     }
@@ -184,9 +195,8 @@ export function useShiftFeed(shiftId: MaybeRefOrGetter<string>) {
     decided.add(card.approvalId)
     cards.delete(card.taskId)
     say('me', `「${card.summary}」 ${body.decision === 'APPROVE' ? '승인' : '거절'}`)
-    const line = say('agent', '결정을 에이전트에 넘겼다. 이어지는 결과를 기다린다.', 'working')
+    log.value.push(line)
     mine.add(card.taskId)
-    replies.set(card.taskId, { line, waitFor: streams.has(card.taskId) ? null : card.approvalId })
     watchTask(card.taskId)
     return true
   }

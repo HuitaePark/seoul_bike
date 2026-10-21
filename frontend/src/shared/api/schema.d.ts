@@ -251,7 +251,7 @@ export interface paths {
          * 권역 대여소 현황과 예측 (현황 지도)
          * @description 로그인한 모든 역할(관리자·기사·책임자)이 본다. 운영 중인 대여소 가운데 실시간 재고 관측이 하나라도 있는 것만 대여소 ID 순으로 준다.
          *     관측이 없는 대여소는 빠진다 (위험을 판단할 재고가 없다). 관측이 하나도 없는 구역은 빈 목록이다.
-         *     `bikes`·`docks`·`observedAt`은 대여소마다 **가장 최근 관측**이다.
+         *     `bikes`는 실시간 수집에 3시간 안의 가장 최근 기사 현장 보고를 반영한 재고다 (`StationStatus.bikes`). `docks`는 가장 최근 실시간 수집 값이다.
          *     예측은 `horizonH`가 같고 **아직 끝나지 않은 구간**(시작 + `horizonH`시간 > 지금) 중 시작이 가장 이른 것을 쓴다:
          *     진행 중인 근무조의 예측이 있으면 그것, 없으면 다음 근무조 예측(시작 30분 전에 들어온다). 지난 근무조 예측은 쓰지 않는다.
          *     고를 예측이 없으면 `forecastBikes`는 null이고 위험은 현재 재고로만 판단한다. 판단 기준은 `RiskKind`.
@@ -593,13 +593,18 @@ export interface components {
             name: string;
             lat: number;
             lon: number;
-            /** @description 거치대 수 (가장 최근 관측) */
+            /** @description 거치대 수 (가장 최근 실시간 수집) */
             docks: number;
-            /** @description 현재 재고 (가장 최근 관측) */
+            /**
+             * @description 현재 재고. 실시간 수집에 3시간 안의 가장 최근 기사 현장 보고를 반영한다:
+             *     보고가 수집보다 늦으면 보고 재고(도착 재고 − 실은 대수 + 내린 대수).
+             *     재고 불일치(`INVENTORY_MISMATCH`) 보고 뒤에 수집이 왔으면 최근 수집 + (도착 재고 − 보고 때 앱 재고). 앱 숫자가 틀렸다는 보고라 다음 수집이 덮지 않는다.
+             *     그 밖에는 최근 수집 값. 0 밑으로 내려가지 않는다 (거치대보다 많을 수는 있다)
+             */
             bikes: number;
             /**
              * Format: date-time
-             * @description 그 관측 시각
+             * @description 그 재고의 시각 (보고가 수집보다 늦으면 보고 시각, 아니면 최근 수집 시각)
              */
             observedAt: string;
             /** @description 예측 구간 끝의 예상 재고 = 재고 궤적의 끝 점 (0 밑으로 내려가지 않는다). 고를 예측이 없으면 null */

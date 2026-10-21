@@ -8,7 +8,7 @@ const observedAt = '2026-10-21T08:00:00+09:00'
 // Inventory, forecast, route and observations below remain synthetic offline fixtures.
 const referenceStations = [
   {"stationId": "ST-102", "name": "자양사거리 광진아크로텔 앞", "lat": 37.53701019, "lon": 127.08224487, "docks": 11, "elevationM": 30.0, "role": "VARIABLE"},
-  {"stationId": "ST-1660", "name": "건대입구역 사거리(롯데백화점)", "lat": 37.5392952, "lon": 127.07078552, "docks": 10, "elevationM": 21.0, "role": "FIXED_PICKUP"},
+  {"stationId": "ST-2308", "name": "건대병원후문", "lat": 37.53956604, "lon": 127.0724411, "docks": 12, "elevationM": 17.0, "role": "VARIABLE"},
   {"stationId": "ST-97", "name": "어린이대공원역 3번출구 앞", "lat": 37.54697037, "lon": 127.07466888, "docks": 5, "elevationM": 30.0, "role": "VARIABLE"},
   {"stationId": "ST-253", "name": "군자역 7번출구 베스트샵 앞", "lat": 37.55603027, "lon": 127.0786438, "docks": 8, "elevationM": 25.0, "role": "VARIABLE"},
   {"stationId": "ST-3121", "name": "성수역 1번출구 주변", "lat": 37.54555893, "lon": 127.05336761, "docks": 8, "elevationM": 23.0, "role": "VARIABLE"},
@@ -27,7 +27,7 @@ export const demoPlan: Plan = {
   routes: [
     { truckId: 'TR-03', capacity: 15, startLoad: 4, stops: [
       { seq: 1, stationId: 'ST-102', action: 'PICKUP', bikes: 6, loadAfter: 10, eta: '2026-10-21T08:20:00+09:00', status: 'PENDING', reason: '과적재 위험 거점에서 회수해 빈 대여소에 보충합니다. (시연)' },
-      { seq: 2, stationId: 'ST-1660', action: 'DROPOFF', bikes: 7, loadAfter: 3, eta: '2026-10-21T08:40:00+09:00', status: 'PENDING', reason: '예상 재고가 부족한 거점입니다. (시연)' },
+      { seq: 2, stationId: 'ST-2308', action: 'DROPOFF', bikes: 7, loadAfter: 3, eta: '2026-10-21T08:40:00+09:00', status: 'PENDING', reason: '예상 재고가 부족한 거점입니다. (시연)' },
       { seq: 3, stationId: 'ST-97', action: 'PICKUP', bikes: 5, loadAfter: 8, eta: '2026-10-21T09:00:00+09:00', status: 'PENDING' },
       { seq: 4, stationId: 'ST-253', action: 'DROPOFF', bikes: 4, loadAfter: 4, eta: '2026-10-21T09:20:00+09:00', status: 'PENDING' },
     ] },
