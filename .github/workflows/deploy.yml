@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.repository == 'HuitaePark/skala_seoul_bike' && github.ref == 'refs/heads/main'
+    if: github.repository == 'skala-ai-mini-project-1/skala_seoul_bike' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, macOS, ARM64, seoul-bike]
     environment: production
     timeout-minutes: 30
