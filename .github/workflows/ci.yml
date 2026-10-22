@@ -170,6 +170,7 @@ jobs:
       - name: 무중단 배포 스크립트·edge 설정 검증
         run: |
           bash -n infra/deploy.sh
+          bash -n infra/optimizer/deploy-settings.sh
           docker build -q -t seoul-bike-edge-check infra/edge
           docker run --rm seoul-bike-edge-check nginx -t
       - name: 최적화 독립 개발 환경 검증

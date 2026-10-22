@@ -5,8 +5,8 @@
 
 | 참조 명세 | 문서 버전 |
 | --- | --- |
-| 공개 API (OpenAPI) | 0.13.1-draft |
-| 내부 API (OpenAPI) | 0.8.3-draft |
+| 공개 API (OpenAPI) | 0.15.0-draft |
+| 내부 API (OpenAPI) | 0.8.5-draft |
 | Kafka (AsyncAPI) | 0.5.1-draft |
 
 메시지 payload의 schemaVersion은 여전히 **1**이다. 문서 버전과 별도로 관리한다.
@@ -80,6 +80,13 @@ SolveStation은 **계산된 필요량**이다. RoutingStation으로 받아 재�
   optimizer가 별도 PlanCandidate를 만들거나 저장 결과의 차량/seq를 확장하지 않는다.
 - priority는 backend가 계산한 점수를 그대로 받으며 기본 penaltyScale만 생략 시 3000을 사용한다.
   내부 API의 요청/응답·오류·제약 상세는 [internal-api.yaml](internal-api.yaml)의 /internal/plans/solve를 따른다.
+- PR #96(내부 API 0.8.4)부터 재고는 실시간 수집에 기사 현장 보고를 반영한다. 보고로 필요 대수가 0이 된 남은 정류장은
+  REPLAN `stations`와 `fixedStationIds`에서 함께 빠진다. 계약 필드는 같고, 정류장이 모두 빠지면 빈 `stations`로 온다.
+  optimizer는 받은 대여소만 방문·미처리로 돌려주고 빠진 정류장을 되살리지 않는다. 빈 입력은 경로 없는 OK이며
+  적재가 남은 트럭의 이전 정류장·startLoad는 backend가 보존한다.
+- PR #108부터 DONE 현장 보고의 실은·내린 대수가 이전 적재에 반영된다. REPLAN은 마지막 DONE 위치와
+  이 실제 적재를 받는다. SKIPPED는 마지막 DONE 위치·적재를 바꾸지 않는다. 역할 5는 이미 반영된 load를
+  그대로 시작 적재로 사용하고 보고 대수를 다시 더하거나 빼지 않는다. 현장 보고 저장 자체는 backend 책임이다.
 
 ## 로컬 수요 예측 연결
 
@@ -267,3 +274,16 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 
 예시는 개발 추정을 명시적으로 선택한다. 운영 도로 연결에서는 OSRM 공급자로 교체한다.
 현장 보고부터 변경안 생성까지 10초는 Kafka·backend·설명을 포함해 별도로 검증한다.
+로컬 benchmark와 도로 포함 범위 검사는 `--depot LAT,LON`으로 같은 차고지를 지정하고 사용 좌표를 결과에 기록한다.
+기본값은 기존 참조 좌표 평균/합성 차고지이며 실제 차고지를 지정해도 작업량은 합성이다([측정 안내](../optimizer/README.md#재현성과-성능)).
+
+
+## OSRM 자료 경로
+
+준비용과 운영용 Compose는 `OSRM_DATA_DIR`의 같은 전처리 결과를 사용한다. 원본 PBF는
+준비용 `OSRM_INPUT_DIR`로 지정한다. 미지정 시 기존 개발 경로이며 서버에서는 checkout 밖 절대 경로를 쓴다.
+운영 서버와 worker는 전처리 결과를 읽기 전용으로 공유하고, 중복 방지 상태와 행렬 캐시는 기존 named volume을 유지한다.
+hyunmoo는 production 변수 `OSRM_ENABLED`(기본 false)로 배포 구성을 선택하도록 연결했다. true이면
+checkout 밖의 기존 `OSRM_DATA_DIR`, 완료 해시(data-version)와 CH 자료를 컨테이너 변경 전에 검사한다.
+`OSRM_INPUT_DIR`는 전처리용 선택 변수다. OSRM healthy 이후 backend·worker를 갱신하며 기존 상태 볼륨은 유지한다.
+실제 도로 준비·서버 변수 등록·운영 검증은 별도다. [배포 설정](../../infra/optimizer/README.md#운영-compose에-선택적으로-연결)을 따른다.

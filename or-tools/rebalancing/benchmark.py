@@ -13,6 +13,7 @@ from time import perf_counter
 
 import ortools
 
+from .cli import depot_coordinate
 from .forecast import HeuristicPredictor
 from .imbalance import compute_imbalances
 from .matrix_cache import CachedTravelTime
@@ -88,10 +89,10 @@ def build_case(args, provider):
                      "stations_sha256": sha256(REFERENCE_STATIONS.read_bytes()).hexdigest(),
                      "inventory": "synthetic; alternating min(5, docks) and zero",
                      "demand": "synthetic; alternating pickup/dropoff min(5, docks)",
-                     "depot_basis": "station-coordinate-mean; not an operational depot",
+                     "depot_basis": "explicit --depot" if args.depot is not None else "station-coordinate-mean; not an operational depot",
                      "trucks_basis": "explicit benchmark count" if args.trucks is not None else "regional trucks_min reference default"}
         case = BenchmarkCase(stations, jobs, make_trucks(truck_count), PlanningOptions(solution_limit=args.solution_limit),
-                             depot=seed.depot, reference=reference)
+                             depot=args.depot if args.depot is not None else seed.depot, reference=reference)
     else:
         truck_count = args.trucks if args.trucks is not None else 5
         stations, kinds = make_stations(per_cluster=ceil(args.stations / 5), seed=args.seed)
@@ -100,7 +101,8 @@ def build_case(args, provider):
             stations = [replace(s, bikes=5 if s.id % 2 == 0 else 0) for s in stations]
         jobs = ([Imbalance(s.id, 5 if s.id % 2 == 0 else -5) for s in stations]
                 if args.all_candidates else compute_imbalances(stations, HeuristicPredictor(kinds, seed=args.seed), datetime(2026, 10, 20, 8)))
-        case = BenchmarkCase(stations, jobs, make_trucks(truck_count), PlanningOptions(solution_limit=args.solution_limit))
+        case = BenchmarkCase(stations, jobs, make_trucks(truck_count), PlanningOptions(solution_limit=args.solution_limit),
+                             depot=args.depot if args.depot is not None else DEPOT)
     if args.scenario == "plan":
         return case
 
@@ -185,6 +187,8 @@ def parser():
     # default=None: argparse may not see an explicit value equal to the default as a --region conflict.
     geography.add_argument("--stations", type=int, help="synthetic station count (default 200)")
     geography.add_argument("--region", help="use all reference stations of this region; requires --all-candidates")
+    cli.add_argument("--depot", type=depot_coordinate,
+                     help="return/start depot LAT,LON; default reference coordinate mean or synthetic depot")
     cli.add_argument("--trucks", type=int, help="override fleet size; default regional trucks_min with --region, otherwise 5")
     cli.add_argument("--seed", type=int, default=7)
     cli.add_argument("--repeats", type=int, default=3)
@@ -241,6 +245,9 @@ def main(argv=None):
               "operation": args.scenario.upper(), "solution_limit": args.solution_limit,
               "repeats": args.repeats, "p95_method": "nearest-rank", "travel_source": args.travel_source,
               "road_data_version": args.osrm_data_version, "cache_mode": args.cache_mode,
+              "depot": {"lat": case.depot[0], "lon": case.depot[1]},
+              "depot_basis": ("explicit --depot" if args.depot is not None else
+                              case.reference["depot_basis"] if case.reference else "mock_data.DEPOT (synthetic)"),
               "profile_stages": args.profile_stages,
               "input_sha256": fingerprint({"case": case.fingerprint(), "travel_namespace": namespace}), "setup_s": setup_s,
               "completed_stations": len(case.completed), "blocked_stations": len(case.blocked),

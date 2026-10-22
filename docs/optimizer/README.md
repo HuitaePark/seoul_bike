@@ -144,6 +144,27 @@ OR-Tools 버전을 고정하고 입력의 대여소·트럭 순서를 정규화�
   --all-candidates --scenario replan --cache-mode warm --profile-stages
 ```
 
+구역 참조와 합성 입력 모두 `--depot LAT,LON`으로 출발·복귀 차고지를 지정할 수 있다.
+생략하면 기존 참조 좌표 평균/합성 차고지를 사용한다. PLAN과 REPLAN 준비 경로, 남은 계산의 복귀 위치에 같은 값을 사용한다.
+NaN·무한대·위경도 범위 밖 좌표는 실행 전에 거부한다. `roadcheck`도 같은 인자와 검증을 사용한다.
+
+실제 도로 자료와 차고지가 준비되면 같은 좌표·도로 버전으로 검사와 측정을 실행한다.
+아래 `DEPOT_LAT_LON`은 서버 담당자가 제공한 실제 LAT,LON 값이며 좌표 예시로 대신하지 않는다.
+
+```bash
+# or-tools/에서 실행. OSRM_DATA_DIR에는 준비된 외부 도로 폴더를 지정한다.
+ROAD_VERSION=$(cat "$OSRM_DATA_DIR/data-version")
+../.venv/bin/python -m rebalancing.roadcheck --region N01 --depot "$DEPOT_LAT_LON" \
+  --osrm-url http://127.0.0.1:5000 --osrm-data-version "$ROAD_VERSION"
+../.venv/bin/python -m rebalancing.benchmark --region N01 --all-candidates --trucks 5 \
+  --depot "$DEPOT_LAT_LON" --scenario replan --repeats 20 --cache-mode compare \
+  --travel-source osrm --osrm-url http://127.0.0.1:5000 --osrm-data-version "$ROAD_VERSION"
+```
+
+300곳 합성 검사는 같은 seed(기본 7)와 차고지를 유지하고 roadcheck의 `--mock-stations 300`,
+benchmark의 `--stations 300 --all-candidates`를 사용한다. 실제 차고지를 지정해도 대여소 작업량은 합성이며,
+실제 운영 입력/전체 10초 검증으로 해석하지 않는다.
+
 기존 명령은 유지하며, 출력에 후보 수·계산 시간·버전·미처리량·반복 결과 해시와 p95를 남긴다.
 p95는 nearest-rank 방식으로 정렬한 표본의 ceil(0.95 × 반복 수)번째 값이다.
 기본 3회에서는 p95가 최댓값과 같으므로 비교 기록에는 20회 이상을 사용한다.
@@ -161,7 +182,8 @@ replan은 먼저 초기 경로를 계산하고, 사용 차량마다 첫 작업�
 | timings.non_matrix | 엔진 호출에서 matrix 시간을 뺀 나머지. 순수 솔버 시간과 다름 |
 | stages.prepare_problem/build_model/search/extract_plan | --profile-stages에서만 추가하는 단계별 표본·중앙값·p95. matrix/provider는 prepare_problem 안에 포함 |
 | cache_hits·cache_misses·provider_calls | 측정 구간의 횟수. warm 준비 호출은 제외. provider_calls는 matrix 호출 수이며 OSRM 분할 HTTP 횟수가 아님 |
-| input_sha256·plan_sha256 | 계산 사례와 이동 설정 namespace, 전체 계획의 SHA-256. 반복·캐시 모드에서 결과 일치 확인 |
+| input_sha256·plan_sha256 | 계산 사례(차고지 포함)와 이동 설정 namespace, 전체 계획의 SHA-256. 반복·캐시 모드에서 결과 일치 확인 |
+| depot·depot_basis | 실제 사용한 차고지 좌표와 지정 근거. explicit --depot / 참조 좌표 평균 / 합성 차고지를 구분 |
 
 compare는 캐시 없이 매번 공급자 호출(none), 매번 새 메모리 캐시(cold), 한 번 준비한 캐시(warm)를 비교한다.
 warm의 사전 엔진 호출은 warmup_s에 별도로 남기고 표본·캐시 횟수·공급자 횟수에서 제외한다.

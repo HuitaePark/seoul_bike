@@ -1,6 +1,6 @@
 # 공통 solve 명세 대응 기록
 
-공개 API 0.13.1-draft, 내부 API 0.8.3-draft·Kafka 0.5.1-draft를 따른다.
+공개 API 0.15.0-draft, 내부 API 0.8.5-draft·Kafka 0.5.1-draft를 따른다.
 공유 YAML을 유지하고 구현 코드·문서를 맞췄다. 메시지 schemaVersion은 1이다.
 역할 명세는 [optimizer.md](../specs/optimizer.md)다.
 
@@ -23,6 +23,10 @@ PR #89로 실제 구역·스냅샷·트럭 입력 조립과 backend 탐욕 임�
 발행 직후 장애에서는 같은 결과 eventId가 재전달될 수 있어 backend 소비자 중복 제거도 필요하다.
 worker의 요청 제한 재시도·DLQ를 구현했고 backend가 요청 retry/DLQ 토픽도 생성한다. 운영 상태 저장·관제·배포 정책은 담당자와 연결해야 한다.
 순수 계산 함수 자체는 저장하지 않는다.
+
+PR #108 현장 보고 후 입력도 두 정책에서 검증한다. 마지막 DONE 위치와 실제 load, 남은 고정 작업을 사용하고
+완료 대여소를 다시 만들지 않는다. SKIPPED 차단 대여소는 방문 없이 BLOCKED로 반환한다.
+이 검사는 backend가 조립한 형태의 합성 입력이며 Java/DB 왕복 검증은 아니다.
 
 테스트는 공통 YAML을 직접 읽어 정상·부분 처리·오류·타임아웃 결과를 검증한다.
 실제 도로 품질·서버 배포·전체 응답시간 완료를 의미하지 않는다.

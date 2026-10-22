@@ -1,44 +1,59 @@
-# 역할 5 — 후속 PR 범위와 마무리 준비 (2026-10-21)
+# 역할 5 — 현재 상태와 PR 제출 범위 (2026-10-22)
 
-기준 main은 `b31fcec`(#89·#90·#92·#88·#93)이며 브랜치는 `hyunmoo`다.
-기존 [PR #90](https://github.com/HuitaePark/skala_seoul_bike/pull/90)은 이전 head `0c1d529`로 병합됐다.
-이번 PR은 그 병합에 포함되지 않은 #89 호환 검사/문서와 [합의사항](../data/agreements.md)의 역할 5 추가 대응을 묶는다.
-공개 API 0.13.1·내부 API 0.8.3·Kafka 0.5.1-draft·payload schemaVersion 1을 유지한다.
+기준 main은 `08cbc44`(#109 관제 개선·#110 압축/캐시·#111 실제 배경지도 반영)이며 브랜치는 `hyunmoo`다.
+hyunmoo의 미병합 후속 개발 전체를 main 대상 PR로 제출한다. 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft·payload schemaVersion 1을 따른다.
+[PR #96](https://github.com/HuitaePark/skala_seoul_bike/pull/96)으로 내부 API가 0.8.4가 됐다(`bikes`·`observedAt` 설명).
+optimizer가 받는 계약 필드는 바뀌지 않으며, 현장 보고로 필요가 없어진 정류장이 REPLAN `stations`·`fixedStationIds`에서 빠진다.
+#97은 가짜 에이전트·시드 기사를 N02(TR-03·TR-04)로 옮겨 역할 5 시연 트럭과 맞췄다. #99·#100은 시뮬레이터·관제 화면이며 역할 5 코드와 겹치지 않는다.
 
-## 제출 범위
+## 병합된 역할 5 PR
 
-- #89 생산자 입력의 PLAN·비정시 EVE REPLAN·21:00 종료·차단/고정 ID·priority 보존·빈 계산 결과를 양 정책으로 검증한다.
-  #92의 트럭 상태 조회와 현재 위치/적재 계산도 같은 계약이다. 후보의 빈 트럭/과거 seq/startLoad 병합은 backend가 담당한다.
-- 새 SolveResult occurredAt/eta는 합의 4의 +09:00으로 보낸다. 다른 입력 오프셋도 수용하며 저장된 결과·UTC 로그는 유지한다.
-- 지도 공개 시연은 실제 N02 ST-ID·이름·좌표·거치대·고도·역할과 TR-03~TR-05를 사용한다.
-  재고/예측/위험/계획은 가상으로 구분한다. 화면은 실제 현황이 없는 미처리 거점의 위치를 만들지 않는다.
-- 정시 로컬 시간별 목표 검사를 `inventory_policy="hourly"`/`--inventory-policy hourly`로 제공한다.
-  기본 endpoint와 운영 backend StationRisk의 neededBikes/priority 계산을 유지한다.
-- 선택형 OSRM Compose overlay는 읽기 전용 도로 파일의 data-version을 worker/행렬 캐시에 연결하고 기존 상태 볼륨을 보존한다.
-  기본 배포는 하버사인 그대로이며 새 CI 잡 없이 기존 Compose 검사에 overlay 검증만 추가한다.
-- [마무리 인계](final-handoff.md)에 실제 입력/담당자/입수처·다음 실행 순서·완료 기준을 정리한다.
+| PR | 범위 |
+| --- | --- |
+| [#29](https://github.com/HuitaePark/skala_seoul_bike/pull/29) | 최적화 코어·Kafka 실행기·검증 인프라·지도 계획 검토 |
+| [#90](https://github.com/HuitaePark/skala_seoul_bike/pull/90) | 예측·운행 합의, 지도, 17구역 규모 검증 |
+| [#94](https://github.com/HuitaePark/skala_seoul_bike/pull/94) | #89 solve 입력 호환, 결과 시각 +09:00, N02 실제 기준정보 시연, 로컬 시간별 검사, OSRM 선택 overlay, [마무리 인계](final-handoff.md) |
+| [#98](https://github.com/HuitaePark/skala_seoul_bike/pull/98) | #94 리뷰 후속(OSRM 배포·env 주의, 시연 ST-2308, 시드 검사 완화), 도로 자료 포함 범위 검사 `rebalancing.roadcheck`, Python 3.11 CLI 상호 배타 인자 |
 
-## 확인 결과
+#98 기준 검증: 최적화 399 passed·24 subtests(실제 broker 3개 skipped), 프론트 단위 37·Chromium 28 passed. 상세는 [검증 기록](validation.md).
 
-- 최적화 392 passed·24 subtest. 처음 제외된 실제 Kafka 검사는 임시 독립 브로커에서 별도로 3 passed이며 환경을 정리했다.
-- 데이터/시뮬레이터/분석 44 passed, 실자료가 필요한 1개 제외.
-- 프론트 단위 37 passed·Chromium 28 passed·빌드 통과.
-- 기존 세 Compose와 새 overlay 구성 검증, 상태/캐시 볼륨·도로 경로·기동 순서·내부 포트 결합 확인.
-- 실제 OSRM PBF 전처리/컨테이너·업무 서버 전체 통합·전체 10초와 backend Java 25 로컬 실행은 미검증이다.
-  이번 PR CI 결과는 제출 뒤 별도 확인한다. 과거 #90 CI를 이번 head의 결과로 사용하지 않는다.
+## hyunmoo 후속 개발 (이번 PR)
+
+- **#96 대응 완료(hyunmoo, 이번 PR):** 현장 보고로 줄어든 REPLAN 입력을 계약 검사 `test_backend96_*` 4개(두 정책)로 확인했다.
+  보고된 정류장이 빠지고 다른 트럭의 고정 작업이 남는 경우, 모든 필요가 보고로 사라진 적재 트럭의 빈 입력.
+  optimizer 코드 변경은 필요 없었다. 최적화 403 passed·24 subtests(실제 broker 3개 skipped).
+- **OSRM 영속 경로 대응(hyunmoo, 이번 PR):** 준비용 `OSRM_INPUT_DIR`·공통 `OSRM_DATA_DIR`로 저장소 밖 절대 경로를 지정한다.
+  같은 전처리 결과를 준비 컨테이너만 쓰고 OSRM/worker는 읽기 전용으로 공유한다. 기존 상태/캐시 볼륨을 유지한다.
+  기본 경로와 외부 공백·한글 경로를 실제 Compose config로 검증했다. 최적화 407 passed·24 subtests(실제 broker 3개 skipped).
+  실제 도로 준비·배포 전환은 아래 조건이 필요하다.
+- **#108 입력 대응(hyunmoo, 이번 PR):** DONE 보고의 실제 적재와 마지막 DONE 위치, 완료 작업 제외,
+  SKIPPED 차단 작업을 두 정책의 계약 검사 6개로 확인했다. backend 보고 저장/DB 왕복 검사는 아니다.
+  관제의 실제 TruckState API 연결은 #108로 main에 반영됐으며 위치는 마지막 DONE/차고지 기준이다.
+- **#107 배포 연결(hyunmoo, 이번 PR):** `OSRM_ENABLED=false`를 기본으로 유지하고 true일 때만 운영 overlay를 선택한다.
+  production의 외부 절대 경로·완료 해시·CH 파일을 컨테이너 변경 전에 검사한다. 같은 구성을 pull/build/deploy/logs에 사용하고
+  OSRM healthy 이후 backend/worker를 갱신한다. 잘못된 설정과 배포 순서를 검사한 15개가 통과했다.
+  실제 운영 전환은 아래 자료와 서버 설정이 필요하다.
+- **실제 차고지 측정 준비(hyunmoo, 이번 PR):** benchmark에 `--depot LAT,LON`을 추가해 roadcheck와 같은
+  출발·복귀 차고지로 PLAN/REPLAN·캐시 비교를 실행할 수 있다. 두 결과에 좌표와 지정 근거를 남기고,
+  두 도구가 잘못된 좌표를 OSRM 요청 전에 거부한다. 기존 기본값과 합성 작업량은 유지한다.
+
+PR 제출 검증: 최적화 기본 **455 passed·24 subtests**(환경 선택형 Kafka 3개 skipped)와 독립 실제 Kafka **3개 별도 통과**.
+프론트 **단위 47개·Chromium 40개**, 타입 검사·빌드·API 생성 타입 일치 확인을 통과했다.
+Compose 4종·배포 스크립트 구문 검사도 통과했다. 임시 Kafka 프로젝트는 검사 뒤 제거했다.
+
+[이슈 #106](https://github.com/HuitaePark/skala_seoul_bike/issues/106)은 완료 코드와 아래 운영 후속을 추적한다.
+실제 도로/운영 검증이 남아 있어 이 PR 병합만으로 닫지 않는다. #112 관제 UI 후속은 별도 PR이며 포함하지 않는다.
 
 ## 다음 작업에 필요한 것
 
 | 항목 | 준비 담당 | 역할 5의 다음 완료 확인 |
 | --- | --- | --- |
-| 실제 관측·시간별 예측·미종료 근무조/트럭/차고지 | 역할 4·6, 내부 API 입력과 DB 적재 | 실제 neededBikes→worker→후보 저장, 승인/활성화/기사 반영 |
-| 17구역·차고지/연결도로 PBF와 출처·취득일·해시 | 역할 5/서버 담당 | CH 전처리·단절/캐시 검사, N01/300곳 규모 측정 |
+| 실제 관측·시간별 예측·미종료 근무조/트럭/차고지 | 역할 6(예측 적재·`SEOUL_API_KEY`·collector 배포), 역할 4(내부 API) | 실제 neededBikes→worker→후보 저장, 승인/활성화/기사 반영 |
+| 17구역·차고지/연결도로 PBF와 출처·취득일·해시 | 역할 5/서버 담당 | CH 전처리, `roadcheck`(실제 `--depot`·300곳), N01/300곳 cold/warm 측정 |
+| OSRM 운영 설정·도로 배치 | 서버 담당·역할 5 | 이 PR의 배포 연결 병합 후 production OSRM_ENABLED/OSRM_DATA_DIR 등록, 외부 CH 자료 배치·배포 후 유지 확인. OSRM_INPUT_DIR는 전처리 시 사용 |
 | RAM·디스크·CPU/Compose와 운영 테스트 환경 | 서버 담당·역할 4 | 전체 기동·재시작/볼륨 복구·현장 보고→변경안 10초 |
-| 03a·03b/장애 시나리오와 추적 기록 | 역할 1·2·4·6 | 실제 지도 결정·변경 수락·중복/retry/DLQ 복구 |
+| 03a·03b/장애 시나리오와 추적 기록 | 역할 1·2·4·6, [이슈 #91](https://github.com/HuitaePark/skala_seoul_bike/issues/91) | 실제 지도 결정·변경 수락·중복/retry/DLQ 복구 |
 
-작업 중 [PR #88](https://github.com/HuitaePark/skala_seoul_bike/pull/88)이 main e125e6e에 병합되어
-MCP·관제 기본값·공통 구역 목록의 N02 이전을 함께 반영했다. 역할 2 평가용 가짜 데이터 이전은 담당자가 확인한다.
-실시간 collector/배포 설정 [PR #93](https://github.com/HuitaePark/skala_seoul_bike/pull/93)도 작업 중 main b31fcec에 병합됐다.
-합의 문서의 역할 4 최신 상태와 역할 5 추가 구현을 모두 보존해 병합했다. SEOUL_API_KEY의 production secret 등록·관측 갱신과 실제 예측 적재는 후속이다.
 실제 도로선은 공개 geometry 응답 계약이 필요한 별도 확장이다. 로컬 중간 시간 목표 검사를 운영 관측 정렬과 동일하게 취급하지 않는다.
-위 준비 조건이 충족돼야 다음 작업에서 운영 역할 마무리가 가능하다.
+03a 실제 LLM의 승인 단계 누락 [#102](https://github.com/HuitaePark/skala_seoul_bike/issues/102)는 역할 1에서 해결·재검증한다.
+실행 순서와 완료 기준은 [마무리 인계](final-handoff.md)를 따른다. 실제 입력/측정 증거 없이 운영 완료로 표시하지 않는다.

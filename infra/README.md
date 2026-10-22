@@ -26,10 +26,10 @@ flowchart LR
 
 ### optimizer (경로 계산 worker)
 
-`or-tools/`의 `rebalancing.worker`를 `or-tools/Dockerfile`(루트 context)로 빌드해 띄운다. `solve.requests`·`solve.requests.retry`를 소비해 `solve.results`를 발행하고, 처리할 수 없는 요청은 `solve.requests.dlq`로 보낸다 (규칙: [KAFKA.md](optimizer/KAFKA.md)). 공개 포트와 `.env` 변수는 없다.
+`or-tools/`의 `rebalancing.worker`를 `or-tools/Dockerfile`(루트 context)로 빌드해 띄운다. `solve.requests`·`solve.requests.retry`를 소비해 `solve.results`를 발행하고, 처리할 수 없는 요청은 `solve.requests.dlq`로 보낸다 (규칙: [KAFKA.md](optimizer/KAFKA.md)). 공개 포트는 없다. 배포 이동 방식은 아래 OSRM 설정으로 선택한다.
 
 - **토픽:** 네 토픽(파티션 6개)은 backend가 시작할 때 만든다. worker는 자동 생성하지 않으므로 backend가 healthy가 된 뒤 뜬다.
-- **이동 시간:** 지금은 `--travel-source haversine`(직선거리 추정)이다. OSRM은 서울 도로 데이터 전처리와 서버 메모리(8GB 중 여유)를 정한 뒤 `--travel-source osrm`과 OSRM 서비스를 함께 넣는다.
+- **이동 시간:** 기본은 `--travel-source haversine`(직선거리 추정)이다. 서울 도로 데이터 전처리와 서버 메모리(8GB 중 여유)를 확인한 뒤 production `OSRM_ENABLED=true`·`OSRM_DATA_DIR`로 OSRM 구성을 선택한다 ([설정 안내](optimizer/README.md#운영-compose에-선택적으로-연결)).
 - **상태:** `optimizer-state` 볼륨(`/state`)에 requestId별 결과와 발행 여부를 남겨 재시작해도 같은 요청을 다시 계산·발행하지 않는다. 한 worker·한 볼륨이 전제라 늘려 띄우지 않는다. 볼륨을 지우면(`down -v`) 중복 방지 기록도 사라진다. group-id(`optimizer-v1`)와 브로커 주소는 상태 identity라 바꾸지 않는다.
 - **헬스체크:** worker가 준비 신호를 따로 내지 않아, 브로커에서 소비자 그룹 `optimizer-v1`이 STABLE이고 멤버가 있는지 본다.
 - **로그:** 요청마다 JSON 한 줄(`solve.started`·`solve.completed`·`solve.routed`). `docker compose logs optimizer`로 본다. DLQ는 자동 재처리하지 않는다: `docker exec seoul-bike-redpanda-1 rpk topic consume solve.requests.dlq -o start`.
@@ -94,8 +94,11 @@ Tailscale funnel --https=443 off                                 # 공개 중단
 
 화면과 API는 배포 중에도 끊기지 않는다. 서버 포트(:3000·:8080)는 거의 바뀌지 않는 **edge**가 잡고, 그 뒤의 frontend·backend를 **순차 교체**한다: 새 컨테이너를 하나 더 띄워 healthy가 되면 5초 뒤(nginx DNS 캐시 2초) 옛 컨테이너를 내린다. 새 컨테이너가 healthy가 되지 않으면 새 것만 지우고 배포가 실패한다 (옛 버전이 계속 돈다).
 
-1. postgres·redpanda·vectordb (바뀐 게 없으면 그대로)
-2. backend 순차 교체. 옛 컨테이너는 그레이스풀 종료(진행 중 요청을 30초까지 마침, 열린 SSE는 먼저 닫아 화면이 새 컨테이너로 다시 붙게)
+컨테이너 변경 전에 최적화 이동 방식과 도로 자료를 검사한다. `OSRM_ENABLED`는 기본 false이며 true일 때만
+checkout 밖의 준비된 CH 자료를 확인하고 운영 overlay를 선택한다. 이미지 빌드부터 상태/로그 확인까지 같은 구성을 사용한다.
+
+1. postgres·redpanda·vectordb (바뀐 게 없으면 그대로). OSRM 선택 시 osrm healthy도 먼저 확인
+2. backend 순차 교체. 옛 컨테이너는 그레이스풀 종료(진행 중 요청을 75초까지 마침, 경로 계산 대기 60초 포함. 열린 SSE는 먼저 닫아 화면이 새 컨테이너로 다시 붙게)
 3. 나머지(agent·MCP·optimizer·collector)는 바뀐 것만 다시 만든다. 작업자는 잠깐 멈췄다가 Kafka에 남은 일을 이어서 한다
 4. frontend 순차 교체
 5. edge는 설정(`infra/edge/`)이 바뀔 때만 다시 만든다. **이때만 1~2초 끊긴다**
@@ -127,6 +130,10 @@ Tailscale funnel --https=443 off                                 # 공개 중단
 | secret (필수) | `POSTGRES_PASSWORD`, `VECTOR_PASSWORD`, `JWT_SECRET` | 없으면 배포가 멈춘다. DB 비밀번호는 기존 볼륨과 같아야 한다 |
 | secret | `SEED_USER_PASSWORD`, `INTERNAL_TOKEN`, `OPENAI_API_KEY`, `OLLAMA_API_KEY`, `SEOUL_API_KEY` | 비우면 시연 계정 없음 · `/internal` 토큰 없음 · 그 공급사 LLM 없음 · 실시간 재고 수집 안 함(collector). 서버 agent 모델은 variable `AGENT_LLM`(예 `openai:gpt-4.1-mini`) |
 | variable | `POSTGRES_DB`, `POSTGRES_USER`, `VECTOR_DB`, `VECTOR_USER`, `FAKE_AGENT_ENABLED`, `MCP_INTERNAL_MODE`, `AGENT_LLM`, `MCP_FAKE`, `OLLAMA_HOST`, `COLLECTOR_RETENTION_DAYS` | 비우면 compose 기본값 (`COLLECTOR_RETENTION_DAYS` 기본 14일) |
+
+OSRM 선택용 variable은 `OSRM_ENABLED`(기본 false), `OSRM_DATA_DIR`(true이면 필수), `OSRM_INPUT_DIR`(전처리용 선택)다.
+도로 폴더는 checkout 밖 기존 절대 경로여야 하며 true일 때 완료 해시·CH 파일을 먼저 확인한다.
+값과 준비 순서는 [OSRM 배포 안내](optimizer/README.md#운영-compose에-선택적으로-연결)를 따른다.
 
 - 넣기·바꾸기 (저장소 관리자만): `gh secret set 이름 --env production` (값을 물어볼 때 붙여 넣는다. 채팅·PR에 값을 남기지 않는다), `gh variable set 이름 --env production --body 값`
 - 바꾼 값은 **다음 배포부터** 들어간다. 바로 넣으려면 Actions → deploy → Run workflow.

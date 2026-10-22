@@ -1,3 +1,88 @@
+# PR 제출 전 통합 검증 (2026-10-22, hyunmoo)
+
+기준 main `08cbc44`(#109~#111 병합)를 통합했다. 공개 0.15.0·내부 0.8.5·Kafka 0.5.1-draft, payload schemaVersion 1은 동일하다.
+
+| 검사 | 결과 / 범위 |
+| --- | --- |
+| 최적화 기본 전체 | Python 3.12.13·OR-Tools 9.14.6206, **455 passed·24 subtests**, 선택형 실제 Kafka 3개 skipped |
+| 실제 Kafka 별도 | **3 passed**. 이 PR 전용 Redpanda·포트 29093에서 결과 왕복, 중복 제거·재시작, 독성 요청/retry/DLQ, Java와 같은 파티션·키 순서 검증. 검사 후 전용 컨테이너·네트워크·볼륨 정리 |
+| 프론트 | 단위 **47 passed**, Chromium **40 passed**, 타입 검사·배포 빌드 통과 |
+| 공통 API 타입 | 현재 OpenAPI로 재생성한 schema.d.ts가 기존 추적 파일과 동일 |
+| Compose/스크립트 | 기본 운영·독립 OSRM·독립 Kafka·운영 OSRM overlay의 config, /bin/bash 3.2 배포/설정 및 전처리 구문 검사 통과 |
+
+이번 PR의 도로 자료 준비·배포 선택·차고지 측정은 코드/구성 수준에서 확인했다. 실제 PBF 전처리·운영 OSRM 전환·
+실제 데이터의 backend/LLM 승인 흐름·현장 보고부터 변경안까지 10초 측정은 미실행이다.
+이 항목은 이슈 #106에 남기고 PR이 자동으로 닫지 않도록 연결한다. 아래는 이전 브랜치 개발 검증 이력이다.
+
+---
+
+# 실제 차고지 측정 준비 검증 (2026-10-21, hyunmoo)
+
+main `3fd88ff`를 병합했다. 공통 계약은 공개 0.15.0·내부 0.8.5·Kafka 0.5.1-draft, payload schemaVersion 1로 동일하다.
+
+- 최적화 전체: Python 3.12.13·OR-Tools 9.14.6206, **455 passed·24 subtests**, 실제 Kafka가 필요한 3개 skipped.
+- 신규 27개: 두 도구의 NaN/무한대/범위/형식 오류와 무요청 실패, 0/경계 좌표 보존,
+  합성·참조 구역의 PLAN/REPLAN 초기 경로 및 복귀 차고지, 완료 위치/적재/남은 근무시간,
+  차고지별 입력 해시와 캐시 조건 간 동일 계획, 도로 검사 결과의 명시적 차고지 기록.
+- 잘못된 roadcheck 구역·대여소 수·OSRM 설정도 traceback 없이 사용법 오류(종료 2)로 반환한다.
+- 기본 차고지와 이동/계산 정책은 유지한다. 기존 측정 JSON은 과거 기록으로 보존한다.
+
+이번 검증은 실제 도로 OSRM을 사용하지 않았다. 실제 PBF·운영 차고지·서버 예산·운영 통합/10초 측정은 여전히 필요하다.
+화면·API 변경이 없어 직전 프론트 전체 검사(42/37)를 반복하지 않았다. 새 PR 없이 hyunmoo에 커밋·push한다.
+
+---
+
+# #107 배포 연결·#108 입력 호환 검증 (2026-10-21, hyunmoo)
+
+main `aece814`를 병합했다. 공개 API 0.15.0·내부 API 0.8.5·Kafka 0.5.1-draft, payload schemaVersion 1 기준이다.
+
+| 검사 | 결과 / 범위 |
+| --- | --- |
+| 최적화 전체 | Python 3.12.13·OR-Tools 9.14.6206, **428 passed·24 subtests**, 실제 Kafka 브로커 3개 skipped. CI와 같은 or-tools 작업 폴더에서 실행 |
+| OSRM 배포 설정 | 새 15개. 기본 false, dotenv와 셸 우선순위, 공백·한글 외부 경로, 없는/상대/checkout 내부/심볼릭 링크 경로, 잘못된 해시·CH 누락을 검사. 비밀값을 출력하지 않음 |
+| 배포 순서·사전 실패 | Compose config는 실제 CLI 사용. Docker 변경은 모의 실행하여 true에서 OSRM healthy 대기가 backend보다 앞서고 모든 up이 같은 구성을 쓰는지 확인. 잘못된 자료면 Docker 변경 전 실패 |
+| #108 REPLAN | 새 6개(OR-Tools·탐욕). 보고 후의 실제 load·마지막 DONE 좌표·남은 고정 작업을 사용하고 완료 거점을 되살리지 않음. SKIPPED 차단은 BLOCKED. 생산자 형태의 합성 입력이며 Java/DB 왕복은 아님 |
+| 프론트 | 단위 **42개**, Chromium **37개** 통과. 타입 검사·배포 빌드 통과. 최신 main의 실제 API 연결과 기존 계획 검토 화면 회귀 포함 |
+| 구성·구문 | 기본 운영·독립 OSRM·독립 Kafka·운영 overlay Compose config 통과. macOS /bin/bash 3.2 배포/설정 스크립트와 전처리 스크립트 구문 검사 통과 |
+
+기존 SWIG 경고 3개와 프론트 번들 크기 안내가 있으며 실패는 없다.
+
+production 변수 전달·overlay 선택은 이 브랜치에 구현했다. 서버 변수 등록·실제 PBF 준비/전처리·OSRM 기동·운영 데이터 왕복·
+현장 보고부터 변경안까지 10초 측정은 미실행이다. 새 PR 없이 hyunmoo에 커밋·push한다.
+이전 구성 검사·실제 Kafka 실행 기록은 아래 이력이다.
+
+---
+
+# OSRM 영속 경로 후속 검증 (2026-10-21, hyunmoo)
+
+main 9ea362f를 반영한 뒤 OSRM_INPUT_DIR/OSRM_DATA_DIR를 준비용·운영용 Compose에 연결했다.
+이번 변경과 기존 #96 대응 검사는 아직 main에 없는 브랜치 변경이다.
+
+- 최적화 전체: Python 3.12, **407 passed·24 subtests**, 실제 Kafka 브로커가 필요한 3개 skipped.
+- 새 경로 검사 4개: 기본 개발 경로와 checkout 밖 공백·한글 경로, 원본 읽기 전용·준비 결과 쓰기·운영 결과 읽기 전용,
+  같은 도로 결과 마운트, worker 상태/캐시 볼륨·기동 의존성 보존. 실제 `docker compose config`로 검사하며 컨테이너를 띄우지 않는다.
+- 진행 중인 PR #107의 Compose(8013fa0)와도 외부 경로·상태/캐시·의존성 결합 검사 통과.
+- 기존 기본 운영·독립 Kafka Compose와 전처리 스크립트 구문 확인. 새로운 CI 잡은 추가하지 않았다.
+
+실제 PBF 준비·전처리/OSRM 컨테이너·운영 데이터 왕복·전체 10초 측정은 이번에 수행하지 않았다.
+production 변수 전달·overlay 선택·서버 자료 배치는 이슈 #106의 후속이며, 이번 변경은 준비 코드와 구성 검증이다.
+새 PR 없이 hyunmoo에 커밋·push한다. 이전 CI/실제 Kafka 실행 기록은 아래 이력으로 구분한다.
+
+---
+
+# #96 현장 보고 재고 반영 대응 (2026-10-21)
+
+기준 main `1b33380`(#96·#97·#99·#100 병합)·hyunmoo. 역할 5 코드와 겹친 변경은 없었고 합의 문서 `결정 뒤 할 일` 표만 병합 충돌을 풀었다(4 백엔드 줄은 main, 5 최적화 줄은 hyunmoo).
+
+| 검사 | 결과 / 범위 |
+| --- | --- |
+| #96 REPLAN 입력 | `test_backend96_*` 4개(OR-Tools·탐욕). 보고된 정류장이 `stations`·`fixedStationIds`에서 빠져도 다른 트럭의 고정 작업과 현재 적재를 유지하고, 받지 않은 대여소를 방문·미처리로 만들지 않는다. 모든 필요가 사라진 적재 트럭의 빈 입력은 행렬 계산 없이 경로 없는 OK |
+| 최적화 전체 | 로컬 Python 3.11.15, 403 passed·24 subtests, 실제 broker가 필요한 3개 skipped |
+
+optimizer 코드는 바꾸지 않았다. 실제 backend의 현장 보고→재경로 왕복은 여전히 [인계](final-handoff.md)의 통합 실행에서 확인한다.
+
+---
+
 # PR #94 이후 후속 검증 (2026-10-21)
 
 기준 main `2b4b4e8`(#94 병합)·hyunmoo. 외부 입력 없이 할 수 있는 리뷰 후속과 도로 자료 준비 도구다.
