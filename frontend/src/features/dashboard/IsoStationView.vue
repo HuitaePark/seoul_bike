@@ -7,10 +7,13 @@
 실제처럼 떨어져 보인다. 땅 격자 한 칸이 몇 m인지는 확대 배수에 맞춰 고르고(100m~1km) 확대 버튼 아래에 적는다. 처음에는 구역 전체를 담아 멀리서 본다.
 마우스 휠로 커서 자리를 확대·축소하고, 끌어서 옮긴다. 이름표·트럭 표·경로 선은 확대해도 화면에서 같은 크기다.
 멀리서 볼 때는 기둥만 그리고, 거치대 상자는 확대했거나 가리킨·고른 대여소에만 그린다 (DETAIL_ZOOM).
+땅 윗면에는 실제 배경지도(OpenFreeMap)를 깐다: 화면 밖에서 구역을 평면 지도로 한 번 그려 그림으로 뜨고(ground-map.ts) 같은 아이소메트릭 행렬로 기울인다.
+배경지도를 못 받으면(외부망 차단) 예전처럼 빈 땅이다. 지도 그림은 2배 확대까지 또렷하고 그보다 당기면 흐려진다.
 -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import type { Schemas } from '../../shared/api/client'
+import { groundMap } from './ground-map'
 import { isoProjector, riskShades } from './iso'
 import type { RoutePreview, TruckLive } from './route-view'
 import { legOf, markText, placed, previewMarks, splitAtTruck } from './route-view'
@@ -75,6 +78,47 @@ function grid(lat: number, lon: number) {
     y: PAD + ((b.maxLat - lat) / (b.maxLat - b.minLat || 1)) * ground.value.gy,
   }
 }
+
+// ── 땅에 까는 배경지도 ──
+// 땅 격자(0..w, 0..d)의 위경도. grid()를 거꾸로 푼다. 이 범위를 평면 지도로 그려 땅 윗면에 같은 행렬로 기울여 붙인다.
+function lonLat(x: number, y: number) {
+  const b = bounds.value
+  return {
+    lon: b.minLon + ((x - PAD) / ground.value.gx) * (b.maxLon - b.minLon),
+    lat: b.maxLat - ((y - PAD) / ground.value.gy) * (b.maxLat - b.minLat),
+  }
+}
+const basemap = ref<'loading' | 'ready' | 'failed'>('loading')
+/** 배경지도 그림과 그 그림이 덮는 땅 격자 범위 */
+const tex = ref<{ url: string; x: number; y: number; w: number; h: number } | null>(null)
+let texEpoch = 0
+async function loadGroundMap() {
+  const b = bounds.value
+  const mine = ++texEpoch
+  // 대여소가 한 줄(위도나 경도가 모두 같음)이면 grid()가 늘일 폭이 없어 지도를 맞출 수 없다
+  if (!(b.maxLon > b.minLon && b.maxLat > b.minLat)) {
+    tex.value = null
+    basemap.value = 'failed'
+    return
+  }
+  const nw = lonLat(0, 0)
+  const se = lonLat(ground.value.w, ground.value.d)
+  basemap.value = 'loading'
+  try {
+    const m = await groundMap({ west: nw.lon, north: nw.lat, east: se.lon, south: se.lat })
+    if (mine !== texEpoch) return
+    const a = grid(m.north, m.west)
+    const z = grid(m.south, m.east)
+    tex.value = { url: m.url, x: a.x, y: a.y, w: z.x - a.x, h: z.y - a.y }
+    basemap.value = 'ready'
+  } catch {
+    // 외부망이 막히면 지금처럼 빈 땅 위에 그린다
+    if (mine === texEpoch) basemap.value = 'failed'
+  }
+}
+// 구역이 바뀔 때만 다시 그린다 (재고만 바뀌면 범위가 같다)
+watch(() => JSON.stringify(bounds.value), () => void loadGroundMap(), { immediate: true })
+const clipId = useId()
 
 const cols = computed(() =>
   props.stations.map((s) => {
@@ -315,6 +359,7 @@ onBeforeUnmount(() => resize?.disconnect())
       aria-label="3D 관제 뷰: 대여소 재고와 트럭 경로. 마우스 휠로 확대·축소, 끌어서 이동"
       :data-zoom="zoom.toFixed(2)"
       :data-grid-m="gridStep"
+      :data-basemap="basemap"
       @wheel="onWheel"
       @pointerdown="onDown"
       @pointermove="onMove"
@@ -326,8 +371,13 @@ onBeforeUnmount(() => resize?.disconnect())
       <polygon :points="poly([0, ground.d, 0], [ground.w, ground.d, 0], [ground.w, ground.d, -0.9], [0, ground.d, -0.9])" fill="#b89b7d" />
       <polygon :points="poly([ground.w, 0, 0], [ground.w, ground.d, 0], [ground.w, ground.d, -0.9], [ground.w, 0, -0.9])" fill="#9a7e63" />
       <polygon :points="flat(0, 0, ground.w, ground.d)" fill="#d7ebd1" />
-      <polygon :points="flat(0.25, 0.25, ground.w - 0.5, ground.d - 0.5)" fill="#eef5ec" />
-      <polyline v-for="(g, i) in gridLines" :key="'g' + i" :points="g.join(' ')" stroke="#dbe7d8" stroke-width="1" vector-effect="non-scaling-stroke" />
+      <polygon v-if="!tex" :points="flat(0.25, 0.25, ground.w - 0.5, ground.d - 0.5)" fill="#eef5ec" />
+      <!-- 배경지도: 북쪽이 위인 평면 지도를 땅 격자(x 동쪽, y 남쪽)에 놓고 아이소메트릭 행렬로 기울인다. 땅 밖으로 나간 쪽은 자른다 -->
+      <g v-if="tex" :transform="`matrix(${iso.C} ${iso.S} ${-iso.C} ${iso.S} 0 0)`" :clip-path="`url(#${clipId})`">
+        <clipPath :id="clipId"><rect :width="ground.w" :height="ground.d" /></clipPath>
+        <image :href="tex.url" :x="tex.x" :y="tex.y" :width="tex.w" :height="tex.h" preserveAspectRatio="none" />
+      </g>
+      <polyline v-for="(g, i) in gridLines" :key="'g' + i" :points="g.join(' ')" :stroke="tex ? 'rgb(255 255 255 / 0.45)' : '#dbe7d8'" stroke-width="1" vector-effect="non-scaling-stroke" />
 
       <!-- 트럭 경로 (확대해도 선 굵기는 화면에서 같다) -->
       <g v-for="l in lines" :key="l.truckId" :opacity="l.dim ? 0.08 : preview ? 0.55 : 1">
@@ -415,11 +465,15 @@ onBeforeUnmount(() => resize?.disconnect())
         <i aria-hidden="true" />한 칸<br /><b>{{ gridLabel }}</b>
       </span>
     </div>
+    <!-- 배경지도 출처 (오른쪽 아래 범례 바로 위) -->
+    <p v-if="tex" class="attrib">© <a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener noreferrer">OpenMapTiles</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a></p>
   </div>
 </template>
 
 <style scoped>
 .iso-wrap { position: relative; display: flex; min-height: 0; }
+.attrib { position: absolute; right: 14px; bottom: 50px; margin: 0; padding: 2px 6px; border-radius: 6px; background: rgb(255 255 255 / 0.8); font-size: 10px; color: var(--ink-3); }
+.attrib a { color: inherit; }
 .iso { display: block; flex: 1; width: 100%; height: 100%; min-height: 420px; font-family: inherit; user-select: none; }
 .iso.zoomed { cursor: grab; }
 .iso.dragging { cursor: grabbing; }

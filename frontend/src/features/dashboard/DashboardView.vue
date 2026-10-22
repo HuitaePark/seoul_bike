@@ -646,7 +646,8 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .scene-top { position: absolute; top: 14px; left: 14px; right: 14px; display: flex; gap: 10px; flex-wrap: wrap; z-index: 2; }
 .tabs { display: inline-flex; padding: 3px; background: #fff; border-radius: 999px; box-shadow: var(--shadow); }
 .tabs button { padding: 6px 14px; font-size: 13px; background: transparent; color: var(--ink-2); border-radius: 999px; }
-.tabs button:hover:not(:disabled) { background: #f4f7f9; }
+/* 고른 탭은 마우스를 올려도 강조색을 지킨다 (흰 글자가 옅은 바탕에 묻히지 않게) */
+.tabs button:hover:not(:disabled):not(.on) { background: #f4f7f9; }
 .tabs button.on { background: var(--brand); color: #fff; }
 .truck-chips { display: flex; gap: 4px; padding: 3px; background: #fff; border-radius: 999px; box-shadow: var(--shadow); }
 .truck-chips.small { box-shadow: none; background: #f1f5f9; }
