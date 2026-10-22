@@ -19,6 +19,12 @@ async function openDashboard(page: Page) {
   await expect(page.getByRole('navigation', { name: '대시보드 화면' })).toBeVisible({ timeout: 20_000 })
 }
 
+/** 들어오면 평면 지도가 보인다. 3D 관제 뷰를 보는 시험은 탭으로 연다 */
+async function show3d(page: Page) {
+  await page.getByRole('tab', { name: '3D 관제 뷰' }).click()
+  await expect(page.locator('svg.iso')).toBeVisible()
+}
+
 test('초기 관제 화면만 보이고 적재 현황은 3D 지도 안에만 있다', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openDashboard(page)
@@ -29,6 +35,11 @@ test('초기 관제 화면만 보이고 적재 현황은 3D 지도 안에만 있
   await expect(page.locator('.brand-mark')).toHaveCSS('box-shadow', 'none')
   await expect(nav(page).getByRole('button', { name: '트럭 적재' })).toHaveCount(0)
   await expect(page.locator('#view')).toBeVisible()
+  // 처음에는 실제 지도(평면)가 보이고, 적재 칸은 3D 뷰에만 있다
+  await expect(page.getByRole('tab', { name: '평면 지도' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('#view .flat-map .station-map')).toHaveAttribute('data-map-state', 'ready')
+  await expect(page.locator('.map-truck-load')).toHaveCount(0)
+  await show3d(page)
   for (const id of ['trend', 'agent', 'routes', 'dropped']) {
     await expect(page.locator(`#${id}`)).toBeHidden()
   }
@@ -77,6 +88,7 @@ test('초기 관제 화면만 보이고 적재 현황은 3D 지도 안에만 있
 test('권역 상태 색 버튼은 그 위험 종류의 대여소만 지도·재고 현황에 보인다 (다시 누르면 전부)', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openDashboard(page)
+  await show3d(page)
   const stock = page.locator('#view .stock')
   // 권역 상태는 재고 현황 목록 위에 있다
   const zone = (await stock.locator('.zone-status').boundingBox())!
@@ -104,6 +116,7 @@ test('권역 상태 색 버튼은 그 위험 종류의 대여소만 지도·재�
 test('지도는 실제 거리 비율로 그리고 축척을 적는다', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openDashboard(page)
+  await show3d(page)
   const map = page.locator('svg.iso')
   const grid3d = async () => Number(await map.getAttribute('data-grid-m'))
   // 3D: 멀리서는 넓은 칸, 확대하면 100m 칸까지 촘촘해지고 그 값을 확대 버튼 아래에 적는다
@@ -120,9 +133,34 @@ test('지도는 실제 거리 비율로 그리고 축척을 적는다', async ({
   await expect(page.locator('.flat-map .maplibregl-ctrl-scale')).toHaveText(/^\d+\s?(m|km)$/)
 })
 
+test('평면 지도를 끌어 대여소가 위쪽 버튼 밑으로 가도 버튼이 위에 남는다', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 850 })
+  await openDashboard(page)
+  await expect(page.locator('.flat-map .station-map')).toHaveAttribute('data-map-state', 'ready')
+  // 지도 윗변을 고정 상단바(60px) 바로 아래로
+  await page.locator('.scene').evaluate((e) => window.scrollBy(0, e.getBoundingClientRect().top - 80))
+  const tab = page.getByRole('tab', { name: '3D 관제 뷰' })
+  const t = (await tab.boundingBox())!
+  const m = (await page.locator('.flat-map .station').first().boundingBox())!
+  const [tx, ty] = [t.x + t.width / 2, t.y + t.height / 2]
+  const [mx, my] = [m.x + m.width / 2, m.y + m.height / 2]
+  // 대여소 하나를 탭 한가운데로 끌어 온다 (끄는 시작점은 지도 가운데)
+  const start = (await page.locator('.flat-map .station-map').boundingBox())!
+  const [sx, sy] = [start.x + start.width / 2, start.y + 300]
+  await page.mouse.move(sx, sy)
+  await page.mouse.down()
+  await page.mouse.move(sx + (tx - mx), sy + (ty - my), { steps: 10 })
+  await page.mouse.up()
+  const onTop = await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('[role="tab"]'), [tx, ty])
+  expect(onTop).toBe(true)
+  await tab.click()
+  await expect(page.locator('svg.iso')).toBeVisible()
+})
+
 test('3D 관제 뷰: 휠로 확대·축소, 끌어서 이동(끈 뒤 클릭은 선택이 아님), 버튼·전체 보기', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openDashboard(page)
+  await show3d(page)
   const map = page.locator('svg.iso')
   const zoom = async () => Number(await map.getAttribute('data-zoom'))
   await expect(map).toHaveAttribute('data-zoom', '1.00')
@@ -246,6 +284,7 @@ for (const width of [900, 390]) {
       await expect(nav(page).getByRole('button', { name })).toBeVisible()
     }
     if (width === 390) {
+      await show3d(page)
       await page.screenshot({ path: 'test-results/dashboard-390-mobile.png', fullPage: true })
       expect((await page.locator('.map-truck-load').boundingBox())!.width).toBeLessThanOrEqual(150)
     }

@@ -315,7 +315,8 @@ onBeforeUnmount(() => { alive = false; teardown() })
 
 <!-- 대여소·트럭 표시는 MapLibre가 만든 DOM이라 scoped(data-v 속성)가 붙지 않는다. .station-map 아래로만 건다 -->
 <style>
-.station-map { position: relative; flex: 1; min-height: 480px; }
+/* isolation: 마커의 z-index가 지도 안에서만 겨루게 한다. 없으면 대여소 마커가 지도 위에 뜬 화면 전환·트럭 버튼을 덮는다 */
+.station-map { position: relative; flex: 1; min-height: 480px; isolation: isolate; }
 .station-map .map-canvas { position: absolute; inset: 0; }
 .station-map .map-note { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 2; margin: 0; padding: 8px 12px; border-radius: 10px; background: rgb(255 255 255 / 0.95); color: var(--ink-2); font-size: 13px; box-shadow: var(--shadow); }
 .station-map .map-note button { margin-left: 6px; padding: 3px 10px; font-size: 12px; }
