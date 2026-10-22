@@ -14,7 +14,7 @@ valid_to: '2025-09-28T09:00:00+09:00'
 sources:
 - role: primary
   type: github
-  repo: HuitaePark/skala_seoul_bike
+  repo: skala-ai-mini-project-1/skala_seoul_bike
   commit: '9380965'
   paths:
   - docs/PRD.md

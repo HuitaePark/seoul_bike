@@ -4,11 +4,11 @@
 # 사용: bash infra/runner/install-macos.sh <등록 토큰>
 #   등록 토큰(1시간 유효)은 둘 중 하나로 받는다.
 #   - GitHub 저장소 Settings → Actions → Runners → New self-hosted runner 화면의 --token 값
-#   - gh api -X POST repos/HuitaePark/skala_seoul_bike/actions/runners/registration-token -q .token
+#   - gh api -X POST repos/skala-ai-mini-project-1/skala_seoul_bike/actions/runners/registration-token -q .token
 set -euo pipefail
 
 TOKEN="${1:?등록 토큰을 첫 번째 인자로 넘긴다}"
-REPO_URL="https://github.com/HuitaePark/skala_seoul_bike"
+REPO_URL="https://github.com/skala-ai-mini-project-1/skala_seoul_bike"
 VERSION="${RUNNER_VERSION:-2.338.0}"
 DIR="${RUNNER_DIR:-$HOME/actions-runner-seoul-bike}"
 NAME="${RUNNER_NAME:-$(scutil --get LocalHostName)}"

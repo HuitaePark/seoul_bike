@@ -59,7 +59,7 @@ flowchart LR
    ```
 3. 러너 설치: 등록 토큰을 받아 실행한다 (토큰 받는 법은 스크립트 상단 주석)
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/HuitaePark/skala_seoul_bike/main/infra/runner/install-macos.sh | bash -s -- <등록 토큰>
+   curl -fsSL https://raw.githubusercontent.com/skala-ai-mini-project-1/skala_seoul_bike/main/infra/runner/install-macos.sh | bash -s -- <등록 토큰>
    ```
 4. 비밀값: 서버 `~/seoul-bike/.env`는 배포가 만든다 (아래 "비밀값"). 처음 설치할 때는 GitHub `production` 환경에 secret을 먼저 넣는다. 비밀번호는 `openssl rand -hex 24`로 만든다.
 5. 잠자기 방지: `pmset`에 `disablesleep 1`과 전원 연결 시 `sleep 0`이 설정돼 있어 **덮개를 닫아도 잠들지 않는다.** 보조로 `~/Library/LaunchAgents/com.seoulbike.caffeinate.plist`가 `caffeinate -s`를 상시 실행한다. 덮개를 닫은 채 부하가 크면 발열이 커지므로 통풍되는 곳에 둔다.

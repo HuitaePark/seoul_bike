@@ -38,7 +38,7 @@ OSRM_INPUT_DIR/OSRM_DATA_DIR로 준비용·운영용 구성 모두 checkout 밖 
 
 ## 현재 상태 (main a5fac87, #98 병합 후)
 
-[PR #94](https://github.com/HuitaePark/skala_seoul_bike/pull/94)(08:17)와 [PR #98](https://github.com/HuitaePark/skala_seoul_bike/pull/98)(09:22)이 main에 병합됐다.
+[PR #94](https://github.com/skala-ai-mini-project-1/skala_seoul_bike/pull/94)(08:17)와 [PR #98](https://github.com/skala-ai-mini-project-1/skala_seoul_bike/pull/98)(09:22)이 main에 병합됐다.
 `hyunmoo`는 main과 같고 열린 역할 5 PR은 없다. #98은 #94 리뷰 후속(OSRM 배포·env 주의, 시연 거점, 시드 검사 완화)과
 도로 자료 포함 범위 검사 `rebalancing.roadcheck`, Python 3.11 CLI 상호 배타 인자 정리를 담았다.
 이어 main 1b33380(#96 현장 보고 재고 반영·#97 N02 시드 기사)을 반영하고, 줄어든 REPLAN 입력을 계약 검사로 확인했다.
