@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
+from .trace import TraceEvent
+
 EventType = Literal["TOKEN", "TOOL_START", "TOOL_END", "APPROVAL_REQUIRED", "DONE", "FAILED"]
 SCHEMA_VERSION = 1
 
@@ -57,11 +59,17 @@ class EventSink(Protocol):
 
 
 class ListSink:
+    """Progress events and the decision trace (harness/trace.py) in lists, for tests and evaluation."""
+
     def __init__(self) -> None:
         self.events: list[ProgressEvent] = []
+        self.traces: list[TraceEvent] = []
 
     def emit(self, event: ProgressEvent) -> None:
         self.events.append(event)
+
+    def trace(self, event: TraceEvent) -> None:
+        self.traces.append(event)
 
     def of(self, type_: EventType) -> list[ProgressEvent]:
         return [e for e in self.events if e.type == type_]

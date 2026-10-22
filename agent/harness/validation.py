@@ -154,6 +154,9 @@ class ArgumentValidationMiddleware(AgentMiddleware):
         problems = self.problems(ai, request.messages, ctx)
         if not problems:
             return response
+        ctx.trace("GUARD", f"인자 검증 거부 {len(problems)}건: 실행·승인 요청 전에 사유를 붙여 모델에 한 번 되돌린다",
+                  {"rule": "ARGUMENT_VALIDATION", "action": "RETRY", "reasons": list(problems.values())},
+                  turn=ctx.stats.turns)
         feedback = [
             ToolMessage(
                 content=problems.get(tc["id"], "실행되지 않음: 같은 응답의 다른 도구 호출이 검증에 실패했다."),
@@ -165,6 +168,9 @@ class ArgumentValidationMiddleware(AgentMiddleware):
         ]
         retry = await handler(request.override(messages=[*request.messages, ai, *feedback]))
         if still := self.problems(_last_ai(retry), request.messages, ctx):
+            ctx.trace("GUARD", f"다시 받은 호출도 검증을 통과하지 못해 작업을 끝낸다 ({len(still)}건)",
+                      {"rule": "ARGUMENT_VALIDATION", "action": "FAIL", "reasons": list(still.values())},
+                      turn=ctx.stats.turns)
             raise HarnessFailure(FailureCode.OUTPUT_INVALID, "; ".join(still.values()))
         return retry
 

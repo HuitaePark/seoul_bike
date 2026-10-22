@@ -9,7 +9,7 @@ Purpose: 1 에이전트 그래프(근무조 그래프) 명세. 무엇을 어떻�
 | 항목 | 내용 |
 | --- | --- |
 | 담당 | 1 에이전트 그래프 |
-| 문서 상태 | 초안 v0.8 (2026-10-21, PR #11 리뷰 반영. 기준은 v0.7과 같다: 팀 main `1ecdb7a`와 3의 `유은/mcp` `4dd5305`, specs openapi 0.4 · asyncapi 0.3 · internal-api 0.2, Harness 명세 v0.5) |
+| 문서 상태 | 초안 v0.9 (2026-10-22, 추론 기록·관리자 로그 추가: specs openapi 0.16 · asyncapi 0.6. 그 밖의 기준은 v0.8과 같다) |
 | 코드 | [`agent/graph/`](../agent/graph/), 화면 [`frontend/src/features/approval/`](../frontend/src/features/approval/), [`frontend/src/features/task-console/`](../frontend/src/features/task-console/) |
 | 함께 읽을 문서 | [specs](specs/README.md) (기준), [HARNESS](HARNESS.md) 1.4·1.5·7.3, [ISSUES](ISSUES.md), [ROLES](ROLES.md), [PRD](PRD.md) 6장. 팀 결정은 [ARCHITECTURE](ARCHITECTURE.md) 13절 D 번호로 적는다 |
 
@@ -35,6 +35,7 @@ Purpose: 1 에이전트 그래프(근무조 그래프) 명세. 무엇을 어떻�
 | 계획 카드 보강: 트럭별 경로(`routes`, 확장 G9)와 포기·제외 사유 | 화면 '일부 제외' (UR-04) |
 | LLM 없이 도는 대체 경로 (계획 초안, 메모 없는 현장 보고) — 카드·결정은 Harness와 같은 함수 | HARNESS 1.5 "LLM 없는 대체 경로(NFR-03)" |
 | 상태 저장·재개 (PostgreSQL checkpointer) | ROLES 1 "checkpointer 저장, 같은 `thread_id`로 재개" |
+| 추론 기록(`ai.traces`) 발행: 경로 판단(ROUTE), LLM 없는 경로의 규칙 판단, Harness가 남긴 모델 판단을 관리자 로그로 (10절) | 관리자가 "모델이 어떤 도구를 왜 골랐는지" 본다. 작업 진행 이벤트와 따로 간다 |
 | 화면: 관제 작업 화면, 승인 카드 컴포넌트 | ROLES 1 체크리스트, ROLES 4절 폴더 규칙 |
 
 **하지 않는 일:** 모델 호출·도구 선택·한도·카드 만들기·승인 순서·인자 검증·마스킹(구조)·모델 재시도(Harness, 2), 변경 등급 판정과 `FAILED` 뒤 작업 재시도 결정(backend, 4), 도구 구현(MCP, 3).
@@ -191,6 +192,7 @@ Harness(`harness.contract.sources`)가 작업 대화의 도구 결과에서 만�
 | 재시도 | 처리 중 예외(브로커·DB 장애)는 `ai.tasks.retry`로 다시 넣고 3회 넘으면 `ai.tasks.dlq`와 `FAILED`(`INTERNAL_ERROR`). 작업 실패는 `FAILED` 이벤트로 끝내고 backend가 재시도 여부를 정한다 | asyncapi "`<토픽>.retry` → `.dlq`", HARNESS 3.7 |
 | 이벤트 발행 | 발행이 실패하면 그 이벤트를 될 때까지 다시 보낸다 (0.5초에서 시작해 최대 10초 간격). 다 보낸 뒤에만 오프셋을 커밋한다 | 버리면 마지막 이벤트(DONE·FAILED)가 사라져 작업이 멈춘다. 뒤 이벤트를 먼저 보내면 화면 순서가 바뀐다 |
 | 준비 확인 | MCP 도구를 읽고 Kafka에 붙은 뒤 `/tmp/agent-ready`(`AGENT_READY_FILE`)를 10초마다 갱신한다. compose healthcheck가 30초 안에 바뀌었는지 본다 | 크래시 루프를 `docker compose up --wait`가 잡게 (PR #11 리뷰) |
+| 추론 기록 | `ai.traces`(키 `shiftId`)로 보낸다. 따로 연 producer(`acks=1`)와 한도 있는 대기열(2,000건)을 쓰고, 대기열이 차거나 5초 안에 못 보내면 버린다. 커밋 전에 기다리지 않는다. `AGENT_TRACE=0`이면 끈다 | 관리자 로그는 최선 노력이다. 이 통로가 막혀도 작업·`ai.events` 순서·오프셋 커밋이 그대로여야 한다 (10.4) |
 
 ---
 
@@ -253,6 +255,7 @@ cd ../frontend && npm ci && npm run build             # 화면 타입 검사(vue
 | 파일 | 확인하는 것 |
 | --- | --- |
 | `tests/test_graph.py` | 03a(승인 전 실행 없음, 승인 뒤 `approval_id`와 함께 활성화, 일부 제외 → 새 카드, 늦은 결정 무시, 작업 사이 대체, 승인 주체 확인, 의견 마스킹·감싸기, 제외 ID 검사), 03b(메모 없는 MINOR → 기사 한 장, MAJOR → 관리자 → 기사, 앞 카드 거절 → 뒤 카드 없음, NONE → 그대로, 기사 범위, **재시작 뒤 기사 카드로 재개(ISS-19)**, **backend가 거부한 변경을 실행했다고 답하지 않음(ISS-21)**), 승인 대기 중 보고 처리(PRD 6.1-4), 모델 장애 → 대체 경로(FAILED 안 나감), 모델 없는 운영, 모든 이벤트가 asyncapi `TaskEventMessage` 스키마에 맞음, 하이픈, 명령 검사, 기사 이름 마스킹, brief, 일꾼(중복, DLQ → FAILED, 재시도, FAILED 미기록, 계약 위반 → FAILED, **처리 도중 끊긴 작업의 재시도는 다시 실행**, **승인 처리 도중 끊긴 재개는 두 번 실행하지 않고 FAILED**, 발행 실패는 될 때까지 다시), 대기 카드가 아닌 결정 → FAILED |
+| `tests/test_trace.py` | 추론 기록: 모델이 적은 `rationale`이 MCP·카드·체크포인트에 가지 않음, 같은 호출 한도가 이유가 달라도 그대로, 구간별 기록 순서(시작 → 판단 → 도구 → 승인 대기 → 끝), 재시도·대체 모델, 고를 수 있는 도구와 빠진 도구(이유), 기사 개인정보 미노출, 기록 통로가 망가져도 작업·이벤트가 같음, 경로 판단·규칙 판단, 모든 기록이 asyncapi `AgentTraceMessage` 스키마에 맞음, `TracePump`는 다시 보내지 않고 버림, CLI 출력 |
 | `tests/test_graph_postgres.py` | 1번 프로세스에서 승인 대기 → 2번 프로세스에서 승인 → 같은 도구 호출이 실행되고 같은 작업으로 이벤트가 이어진다. UTF8 DB 필요 (SQL_ASCII면 체크포인터가 열 때 멈춘다) |
 
 ### 8.2 통합 확인 (실제 backend · Kafka · 화면)
@@ -327,7 +330,79 @@ cd agent && MCP_FAKE=1 AGENT_LLM=none KAFKA_BOOTSTRAP=localhost:19092 PGPASSWORD
 
 ---
 
-## 10. 변경 이력
+## 10. 추론 기록과 관리자 로그
+
+### 10.1 왜 만들었나
+
+화면으로 가는 진행 이벤트(`TaskEvent`)에는 도구 이름·라벨·성공 여부만 있다. 모델이 **어떤 도구를 왜 골랐는지**, 실제로 넘긴 인자와 결과, 안전장치가 무엇을 막았는지는 어디에도 남지 않았다 (LangSmith는 키가 있어야 하고 실제 계정으로 확인한 적이 없다, ISS-10). 실제 모델 평가(`gemma4:31b`)에서 기사 보고 3건이 "다시 계산하고 경로 제안 없이 끝남"으로 실패했는데, 왜 멈췄는지 볼 방법이 없었다.
+
+### 10.2 통로
+
+```text
+Harness 미들웨어 · 근무조 그래프 · LLM 없는 경로
+  → ShiftEventSink.trace (Harness TraceSink)                   가려서 낸다 (Masker)
+  → TracePump (따로 연 producer, 대기열 2,000건, 실패하면 버림)
+  → Kafka ai.traces (키 shiftId, 보관 1일)                       asyncapi v0.6 AgentTraceMessage
+  → backend AgentTraceConsumer (그룹 backend-traces) → agent_trace_events (V15, 보관 7일)
+  → GET /api/admin/agent-traces (목록) · /stream (SSE)         openapi v0.16, MANAGER만
+  → 화면 /admin/agent-log (관리자 메뉴 '에이전트 로그') · CLI python -m graph.agentlog
+```
+
+| 부분 | 파일 |
+| --- | --- |
+| 기록 형식·모델 판단 기록·`rationale` 처리 | `agent/harness/trace.py` (`TraceEvent`, `DecisionTraceMiddleware`, `with_rationale`, `split_rationale`) |
+| 기록 지점 | Harness: `agent.py`(시작·승인 대기·끝), `tools.py`(도구 호출·결과), `loop.py`·`validation.py`(안전장치), `recovery.py`(재시도·대체 모델). 그래프: `shift.py`(경로 판단), `codepath.py`(규칙 판단·도구), `events.py`(`GraphTracer`, 출구) |
+| 발행 | `agent/graph/worker.py` `TracePump`, `run_kafka(trace=...)`, `AGENT_TRACE=0`이면 끈다 |
+| 저장·API·SSE | `backend/.../agentlog/` (`AgentTraceConsumer`, `AgentTraceStore`, `AgentTraceHub`, `AgentTraceController`), `V15__agent_trace_events.sql` |
+| 화면 | `frontend/src/features/agent-log/` (`AgentLogView.vue`, `useAgentLog.ts`, `agentLog.ts`) |
+| CLI | `agent/graph/agentlog.py` (backend 관리자 API를 따라가거나, 평가가 남긴 JSONL을 보인다) |
+
+### 10.3 무엇을 남기나
+
+한 실행 구간(새 작업 또는 승인 뒤 재개)은 `RUN_START` → (`DECISION` → `GUARD`? → `TOOL_CALL` → `TOOL_RESULT`)* → `APPROVAL_WAIT`? → `RUN_END`다. 그래프는 그 앞에 `ROUTE`(모델 경로·규칙 경로·무시·대체와 그 이유)를 남긴다.
+
+| 종류 | 내용 |
+| --- | --- |
+| `RUN_START` | 작업 종류, 모델·프롬프트 버전, **고를 수 있는 도구와 빠진 도구(이유)**, 한도, 입력(가림) |
+| `DECISION` | 모델(또는 규칙)이 고른 도구·인자와 **도구마다 적은 선택 이유 `rationale`**, 함께 쓴 글·추론, 응답 시간·토큰. 도구를 더 부르지 않으면 답변 |
+| `GUARD` | 인자 검증 거부(다시 요청·실패), 같은 호출 반복, 턴·시간 한도 |
+| `TOOL_CALL` · `TOOL_RESULT` | 실제 실행 인자(Harness가 채운 `approval_id`·`task_id` 표시), 성공·오류, 시간, 결과 미리보기(가림, 1,200자) |
+| `RECOVERY` | 429·503 재시도, 대체 모델 전환 |
+| `APPROVAL_WAIT` | 변경 도구 앞에서 멈춘 승인 카드 (승인자, 몇 번째 카드) |
+
+**선택 이유(`rationale`)를 받는 법.** Harness가 모델에게 보이는 모든 도구 스키마에 `rationale`(첫 번째, 필수)을 더한다. 모델은 인자보다 이유를 먼저 쓴다. 모델 응답 직후 `DecisionTraceMiddleware`가 이유를 떼어 기록에만 남긴다. 그래서 인자 검증, 같은 호출 한도, 승인 카드, 체크포인트, MCP 서버, backend `/internal/**`는 이전과 똑같은 인자를 받는다.
+
+### 10.4 다른 기능을 막지 않는 이유
+
+| 걱정 | 막는 방법 | 확인 |
+| --- | --- | --- |
+| 작업 콘솔·승인 카드·기사 화면이 바뀐다 | `ai.events`·`TaskEvent`·작업 SSE는 그대로다. 새 토픽·표·API·화면으로만 간다. `ai.events`에 실으면 backend가 모르는 type도 저장하고 **그 작업을 보는 기사에게도 SSE로 보내므로** 싣지 않았다 | backend `AgentTraceFlowTest.tracesNeverBecomeTaskEventsOrChangeATask`, 통합 확인(10.6) |
+| 모델의 이유가 실행 인자에 섞인다 | 모델 응답 직후 떼어 낸다 | `test_rationale_is_asked_for_and_never_reaches_tools_cards_or_history`, `test_same_call_limit_ignores_a_changing_rationale`, `test_arguments_are_still_validated_after_the_rationale_is_removed` |
+| 기록 통로가 막혀 작업이 멈춘다 | 기록 함수는 예외를 삼킨다. `TracePump`는 따로 연 producer로 보내고 실패·대기열 초과면 버린다(다시 보내지 않음). 오프셋 커밋은 기록을 기다리지 않는다. backend는 다른 컨슈머 그룹에서 받고 깨진 메시지는 건너뛴다(재시도·DLQ 없음) | `test_a_broken_trace_channel_changes_nothing`, `test_a_failing_trace_publisher_never_blocks_progress_events`, `test_trace_pump_drops_instead_of_retrying_or_blocking`, backend `brokenOrRepeatedTracesAreSkippedAndTheLogKeepsGoing` |
+| 기사 개인정보가 새어 나간다 | 모든 기록을 Harness `Masker`로 가린 뒤 낸다. 결과 미리보기는 가린 뒤에 자른다(잘린 JSON은 키로 가릴 수 없다). 관리자(MANAGER)만 본다 | `test_traces_never_carry_driver_identity`, `test_rule_path_previews_are_masked_before_they_are_cut`, backend `managerReadsTheReasoningLogInOrderAndNobodyElseCan` |
+| 저장 공간이 늘어난다 | 미리보기 1,200자(`observability.trace_preview_chars`), 토픽 1일, DB 7일(`app.agent-trace.retention`, 매시 삭제) | backend `purgeDropsOnlyTracesPastRetention` |
+| 배포 중 backend 둘이 순서를 섞는다 | 저장을 트랜잭션 잠금 하나로 줄 세워 id 순서 = 커밋 순서. 스트림은 DB를 읽는다 | backend `streamFollowsFromLastEventIdAndOnlyTheChosenTask` |
+
+새 기록은 최선 노력이라 업무 판단·감사의 근거로 쓰지 않는다. 감사 기록의 원본은 backend `audit_events`다.
+
+### 10.5 화면과 CLI
+
+- **화면** `/admin/agent-log` (관리자 상단 메뉴 '에이전트 로그'): 왼쪽은 로그에 나온 작업(상태·판단 수), 오른쪽은 터미널 모양 로그다. 한 줄은 시각·작업·출처(모델·규칙·그래프)·턴·종류·제목이고, 판단 줄 아래에 도구마다 `└ 도구: 이유`가 붙는다. 오류 결과·실패는 붉게 보인다. 종류 칩·찾기·펼치기와 아래 명령 줄(`help`, `task <ID>`, `kind decision,tool`, `grep <글자>`, `pause`, `follow`, `more`, `verbose on`, `clear`)로 거른다. 지난 기록은 목록 API로, 새 기록은 SSE로 받고 끊기면 `Last-Event-ID`로 이어 받는다.
+- **CLI**: `python -m graph.agentlog --url <서비스 주소> --login manager [--task <ID 또는 앞부분>] [-v]`는 같은 API를 터미널에서 따라간다 (비밀번호는 `AGENT_LOG_PASSWORD` 또는 입력). `python -m evaluation --trace FILE`이 남긴 기록은 `--file FILE --only SC-02`로 본다.
+
+### 10.6 기록으로 찾은 것과 고친 것
+
+| 기록에서 본 것 | 원인 | 고친 것 |
+| --- | --- | --- |
+| 기사 보고: 재계산 뒤 `propose_route_change` 없이 답변 | 프롬프트가 순서만 적고 "끝나는 조건"이 없었다 | 프롬프트를 목표·판단 기준·끝나는 조건으로 (`field_report@5`) |
+| `shift_id=N02:2026-10-21:AM` (프롬프트 예시 값)을 그대로 씀 | Harness가 모델에게 근무조 ID를 알려 주지 않았다 (그래프 brief에만 있었다) | 첫 메시지에 `근무조: {shiftId} (구역 …)`를 코드가 적는다, 예시 ID를 프롬프트에서 뺐다 |
+| 제약 `valid_from`을 지어냄 | 보고 시각을 모델이 받지 못했다 | `보고 데이터`에 보고 시각을 넣는다 (`FieldReport.reported_at`) |
+| 제약이 승인·실행된 뒤 "승인해 주시면 다시 계산하겠다" | 도구 결과만으로는 승인·실행됐다는 것을 모델이 모른다 | 승인된 변경이 실행된 직후 그 호출에만 시스템 프롬프트에 알린다 (`ApprovedChangeNoteMiddleware`) |
+| "왜" 질문에 위험 대여소 순위만 보고 답함 | FR-08(계획 데이터 + 감사 기록) 기준이 약했다 | `qa@6`: 계획과 감사 기록을 둘 다 본다 |
+
+통합 확인(2026-10-22, 작업 트리, 로컬 backend·Redpanda·PostgreSQL, 호스트 agent `MCP_FAKE=1`): 계획 초안 → 승인 카드 → 승인 → 실행 → 완료까지 기록 14줄이 `ai.traces` → backend → `/api/admin/agent-traces`로 순서대로 왔고, CLI로도 같은 줄을 봤다. 기사 토큰은 목록·스트림 모두 403. 같은 작업의 작업 SSE·`ai_task_events`에는 계약 이벤트(TOOL_START·TOOL_END·APPROVAL_REQUIRED·DONE)만 있었다.
+
+## 11. 변경 이력
 
 | 날짜 | 변경 | 이유 |
 | --- | --- | --- |
@@ -339,3 +414,4 @@ cd agent && MCP_FAKE=1 AGENT_LLM=none KAFKA_BOOTSTRAP=localhost:19092 PGPASSWORD
 | 2026-10-20 | v0.6 팀 main(`1ecdb7a`, PR #9) 반영 | `threadId`는 작업 단위 `{shiftId}:{taskId}`로 검사(D1·ISS-03), `requestedBy.truckId` 필수(G1·ISS-04), FAILED `code`를 계약 필드로(ISS-05), 근무조 기록을 내부 기록으로 정리(G17) | asyncapi 0.3, openapi 0.4 |
 | 2026-10-20 | v0.7 실제 MCP 서버(3 브랜치) 연결 | 감싼 보고 목록 읽기, rag chunk를 DOC 근거로 채우기(ISS-23), 실제 MCP·backend로 03a·03b 확인 | 팀원 최종본 통합 |
 | 2026-10-21 | v0.8 PR #11 리뷰 반영 | 받은 작업은 어느 길로 가든 종료 이벤트로 끝낸다: 끊긴 작업(RUNNING) 재시도는 다시 실행, 실행하지 않을 결정·끊긴 재개·DLQ는 `FAILED`(`INTERNAL_ERROR`), 발행 실패는 버리지 않고 다시 보낸다. 화면의 결정 권한 판단 삭제, 작업 화면에서 FIELD_REPORT 삭제(G13). compose: `OPENAI_API_KEY`, `MCP_FAKE` 기본 0, healthcheck | 4 리뷰 (병합 전 항목) |
+| 2026-10-22 | v0.9 추론 기록·관리자 로그 (10절) | 모델이 어떤 도구를 왜 골랐는지 관리자가 볼 곳이 없었다. 실제 모델 평가에서 기사 보고 3건이 "재계산 뒤 경로 제안 없이 끝남"으로 실패했는데 원인을 볼 수 없었다 |

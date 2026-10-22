@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: 따릉이 재배치 에이전트 · 공개 API
-  version: 0.15.0-draft
+  version: 0.16.0-draft
   summary: 화면(Vue)이 호출하는 backend(Spring Boot) API
   description: |
     **초안 v0.13.** 에이전트·MCP·프론트 담당 확인 전이다. 바뀌면 `info.version`을 올리고 변경 이력을 PR에 남긴다.
 
+    - v0.16: 에이전트 추론 기록 관리자 로그 `GET /api/admin/agent-traces`·`/stream` (관리자만). 모델이 어떤 도구를 왜 골랐는지, 인자·결과·안전장치 판단을 보여 준다. 작업 진행 이벤트(`TaskEvent`)와 작업 SSE는 그대로다 (asyncapi v0.6 `ai.traces`).
     - v0.15: 화면이 더미 없이 실제 자료로 그리도록 (ISS-25). 기사 경로는 `DriverRoute`(경로 + `shiftId`, 현장 보고·구역 대여소 조회에 쓴다). 화면용 계획·기사 경로의 정류장·빠진 대여소에 대여소 이름(`stationName`)을 기준 정보에서 붙인다. 현장 보고가 활성 계획의 그 트럭 정류장 진행(`Stop.status` DONE·SKIPPED)을 남긴다. 무승인 변경 수 `GET /api/shifts/{shiftId}/safety` 추가.
     - v0.14: 관제 지도의 트럭 상태 `GET /api/shifts/{shiftId}/trucks` (관리자·책임자). 에이전트의 트럭 상태 도구와 같은 계산이다. 위치는 GPS가 아니라 마지막으로 끝낸 정류장(`atStationId`), 없으면 차고지(`atStationId` null)다. `TruckState`를 이 문서로 옮겼다 (internal-api가 참조).
     - v0.13.2: 현재 재고(`bikes`)는 실시간 수집에 3시간 안의 가장 최근 기사 현장 보고를 반영한다. 보고가 수집보다 늦으면 보고 재고(도착 재고 − 실은 대수 + 내린 대수)와 보고 시각을 쓰고, 재고 불일치(`INVENTORY_MISMATCH`) 보고는 그 뒤 수집에도 차이(도착 재고 − 보고 때 앱 재고)를 더한다.
@@ -54,6 +55,8 @@ tags:
     description: 배포·통합 확인
   - name: accounts
     description: 계정 관리 (관리자 = MANAGER)
+  - name: agent-log
+    description: 에이전트 추론 기록 (관리자 = MANAGER). 작업 콘솔과 별개인 관리자 로그
 
 paths:
   /api/auth/login:
@@ -434,6 +437,80 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/admin/agent-traces:
+    get:
+      operationId: listAgentTraces
+      tags: [agent-log]
+      summary: 에이전트 추론 기록 (관리자)
+      description: |
+        agent가 `ai.traces`로 보낸 추론 기록을 받은 순서(`id`)대로 준다. 모델이 고를 수 있던 도구와 빠진 도구, 턴마다 고른 도구와
+        그 이유(`rationale`), 실행 인자와 결과 미리보기, 안전장치(인자 검증·반복 호출·한도)와 승인 대기를 한 줄씩 볼 수 있다.
+        값은 agent가 마스킹한 것이다. **관리자만** 본다 (기사 화면·작업 SSE로는 가지 않는다).
+
+        - 아무 조건이 없으면 가장 최근 `limit`건을 오래된 것부터 준다. `hasMore`는 그보다 앞선 기록이 있는가이다.
+        - `before`: 그 `id`보다 앞선 `limit`건 (더 보기). `after`: 그 `id`보다 뒤의 기록을 `limit`건까지 (`hasMore`는 더 뒤가 있는가).
+        - `before`와 `after`는 함께 쓰지 않는다 (400).
+        - 최선 노력 기록이라 빠진 줄이 있을 수 있다. 업무·감사 판단은 감사 기록과 작업 이벤트로 한다. 보관은 기본 7일이다.
+      parameters:
+        - name: taskId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: shiftId
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: before
+          in: query
+          schema: { type: integer, format: int64, minimum: 1 }
+        - name: after
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 200 }
+      responses:
+        '200':
+          description: 오래된 것부터
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentTracePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/agent-traces/stream:
+    get:
+      operationId: streamAgentTraces
+      tags: [agent-log]
+      summary: 에이전트 추론 기록 실시간 (SSE, 관리자)
+      description: |
+        `text/event-stream`. 새 추론 기록을 1초 안에 보낸다. 각 이벤트는 `id`(기록 `id`), `event`(`AgentTraceKind`),
+        `data`(JSON, `AgentTrace`)다. 15초마다 주석 줄(`: ping`)을 보낸다. 작업이 끝나도 닫지 않는다 (화면이 닫는다).
+
+        - `Last-Event-ID`를 보내면 그 다음 기록부터 보낸다. 없으면 연결한 뒤에 들어온 기록만 보낸다 (지난 기록은 목록 API로 읽는다).
+        - `taskId`·`shiftId`를 주면 그 작업·근무조의 기록만 보낸다.
+      parameters:
+        - name: taskId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: shiftId
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: 추론 기록 스트림
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                examples:
+                  - "id: 42\nevent: DECISION\ndata: {\"id\":42,\"kind\":\"DECISION\",\"title\":\"선택: business_get_station_detail(station_id=ST-2005) — ...\",...}\n\n"
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /api/regions/{regionId}/stations:
     get:
@@ -919,6 +996,101 @@ components:
         code:
           type: [string, 'null']
           description: FAILED만. 실패 종류 (예 LOOP_TIMEOUT, OUTPUT_INVALID). 화면 분기용이고 값 목록은 agent가 정한다
+
+    AgentTraceKind:
+      type: string
+      description: |
+        RUN_START 실행 구간 시작 / ROUTE 근무조 그래프의 경로 선택 / DECISION 모델(또는 규칙)의 다음 행동 선택 /
+        GUARD 안전장치 / TOOL_CALL·TOOL_RESULT 도구 실행 / RECOVERY 모델 재시도·대체 / APPROVAL_WAIT 승인 대기 / RUN_END 실행 구간 끝
+      enum: [RUN_START, ROUTE, DECISION, GUARD, TOOL_CALL, TOOL_RESULT, RECOVERY, APPROVAL_WAIT, RUN_END]
+
+    AgentTrace:
+      type: object
+      description: 추론 기록 한 줄 (asyncapi `AgentTraceMessage` + backend가 매긴 `id`·받은 시각)
+      required: [id, eventId, taskId, shiftId, source, kind, title, detail, occurredAt, receivedAt]
+      properties:
+        id: { type: integer, format: int64, description: 받은 순서. SSE id와 같다 }
+        eventId: { type: string, format: uuid }
+        taskId: { type: string, format: uuid }
+        shiftId: { type: string }
+        traceId: { type: [string, 'null'], description: 작업의 traceId (LangSmith trace와 같은 값) }
+        runId: { type: [string, 'null'], description: Harness 실행 구간 ID. 규칙 경로·그래프 기록은 null }
+        source:
+          type: string
+          enum: [GRAPH, HARNESS, CODE]
+          description: GRAPH 근무조 그래프 / HARNESS 모델 경로 / CODE 모델 없는 규칙 경로
+        kind: { $ref: '#/components/schemas/AgentTraceKind' }
+        turn: { type: [integer, 'null'], description: 실행 구간 안의 모델 호출 순번 }
+        title: { type: string, description: 한 줄 요약 (화면 로그 줄) }
+        detail:
+          $ref: '#/components/schemas/AgentTraceDetail'
+        occurredAt: { type: string, format: date-time }
+        receivedAt: { type: string, format: date-time }
+
+    AgentTraceDetail:
+      type: object
+      description: |
+        종류별 내용 (asyncapi `AgentTraceMessage` 표). 아래는 화면이 읽는 필드이고, 이 밖의 필드도 올 수 있다.
+      additionalProperties: true
+      properties:
+        segment: { type: string, enum: [start, resume], description: RUN_START }
+        taskType: { type: string, description: RUN_START. plan_draft·field_report·manager_request·qa }
+        model: { type: [string, 'null'], description: RUN_START·DECISION }
+        promptVersion: { type: string, description: RUN_START }
+        tools:
+          type: array
+          items: { type: string }
+          description: RUN_START. 모델이 고를 수 있는 도구
+        withheld:
+          type: array
+          description: RUN_START. 빠진 도구와 이유 (읽기 전용 작업, 기사 작업)
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              why: { type: string }
+        calls:
+          type: array
+          description: DECISION. 고른 도구 호출
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              args: { type: object, additionalProperties: true }
+              rationale: { type: [string, 'null'], description: 모델이 적은 선택 이유 }
+        thought: { type: string, description: DECISION. 모델이 호출과 함께 쓴 글·추론 }
+        answer: { type: [string, 'null'], description: DECISION(도구를 더 부르지 않을 때)·RUN_END }
+        latencyMs: { type: integer, description: DECISION. 모델 응답 시간 }
+        inputTokens: { type: [integer, 'null'] }
+        outputTokens: { type: [integer, 'null'] }
+        name: { type: string, description: TOOL_CALL·TOOL_RESULT 도구 이름 }
+        args: { type: object, additionalProperties: true, description: TOOL_CALL 실행 인자 }
+        rationale: { type: [string, 'null'], description: TOOL_CALL }
+        ok: { type: boolean, description: TOOL_RESULT }
+        ms: { type: integer, description: TOOL_RESULT 실행 시간 }
+        preview: { type: string, description: TOOL_RESULT 결과 앞부분 (마스킹) }
+        rule: { type: string, description: GUARD. ARGUMENT_VALIDATION·SAME_TOOL·MAX_TURNS·TIMEOUT }
+        action: { type: string, description: GUARD(RETRY·BLOCK·FAIL)·RECOVERY(RETRY·FALLBACK·GIVE_UP) }
+        reasons:
+          type: array
+          items: { type: string }
+          description: GUARD
+        path: { type: string, description: ROUTE. harness·code·settle·skip }
+        why: { type: string, description: ROUTE·APPROVAL_WAIT }
+        status: { type: string, description: RUN_END. DONE·APPROVAL_REQUIRED·FAILED }
+        code: { type: [string, 'null'], description: RUN_END 실패 코드 }
+        summary: { type: string, description: APPROVAL_WAIT 카드 요약 }
+        approver: { type: string, description: APPROVAL_WAIT }
+
+    AgentTracePage:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AgentTrace' }
+        hasMore: { type: boolean }
 
     ApprovalRequest:
       type: object

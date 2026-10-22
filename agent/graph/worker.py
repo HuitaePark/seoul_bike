@@ -17,6 +17,10 @@
 4. 처리 중 예외(DB·브로커 장애 등)는 `ai.tasks.retry`로 다시 넣고, 3번째도 실패하면 DLQ와 `FAILED`.
    작업 실패(FAILED 이벤트)는 이 일꾼이 재시도하지 않는다. 재시도 여부는 backend가 정한다 (HARNESS 1.5).
    그래서 FAILED로 끝난 명령은 처리 기록을 남기지 않는다: backend가 같은 eventId로 다시 넣어도 처리된다.
+
+추론 기록 `ai.traces` (관리자 로그, harness/trace.py)는 진행 이벤트와 일부러 다르게 다룬다 (`TracePump`).
+따로 연 producer로 보내고, 대기열이 차거나 발행이 실패하면 버린다. 커밋 전에 기다리지 않는다.
+그래서 이 통로가 막혀도 작업 처리·`ai.events` 순서·오프셋 커밋은 그대로다.
 """
 from __future__ import annotations
 
@@ -36,7 +40,7 @@ from .shift import ShiftAgent
 
 log = logging.getLogger(__name__)
 
-TASKS, RETRY, DLQ, EVENTS = "ai.tasks", "ai.tasks.retry", "ai.tasks.dlq", "ai.events"
+TASKS, RETRY, DLQ, EVENTS, TRACES = "ai.tasks", "ai.tasks.retry", "ai.tasks.dlq", "ai.events", "ai.traces"
 READY_EVERY = 10  # 초. 준비 파일(compose healthcheck가 본다)을 이 간격으로 갱신한다
 
 Send = Callable[[str, str | None, bytes, dict[str, str]], Awaitable[None]]
@@ -159,6 +163,56 @@ class EventPump:
             self._task.cancel()
 
 
+class TracePump:
+    """추론 기록 → `ai.traces`. 최선 노력이다: 진행 이벤트(EventPump)와 달리 다시 보내지 않고 버린다.
+
+    `publish`는 막지 않는다 (대기열이 차면 버린다). 발행은 `timeout`초 안에 끝나지 않으면 버린다.
+    버린 수는 `dropped`에 세고, 로그는 처음 한 번과 그 뒤 100건마다 남긴다 (브로커 장애 때 로그가 넘치지 않게).
+    """
+
+    def __init__(self, send: Send, *, max_queue: int = 2000, timeout: float = 5.0) -> None:
+        self.send = send
+        self.timeout = timeout
+        self.queue: asyncio.Queue[dict] = asyncio.Queue(max_queue)
+        self.dropped = 0
+        self._task: asyncio.Task | None = None
+
+    def publish(self, event: dict) -> None:
+        try:
+            self.queue.put_nowait(event)
+        except asyncio.QueueFull:
+            self._drop("대기열이 찼다")
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        while True:
+            event = await self.queue.get()
+            try:
+                value = json.dumps(event, ensure_ascii=False).encode()
+                headers = {"kind": str(event.get("kind")), "taskId": str(event.get("taskId"))}
+                await asyncio.wait_for(self.send(TRACES, event.get("shiftId"), value, headers), self.timeout)
+            except Exception as exc:  # noqa: BLE001 - 관리자 로그가 작업을 막지 않게 버린다
+                self._drop(f"{type(exc).__name__}: {exc}")
+            finally:
+                self.queue.task_done()
+
+    def _drop(self, why: str) -> None:
+        self.dropped += 1
+        if self.dropped == 1 or self.dropped % 100 == 0:
+            log.warning("ai.traces 추론 기록을 버렸다 (누적 %d건): %s", self.dropped, why)
+
+    async def stop(self, timeout: float = 3.0) -> None:
+        """남은 기록을 잠깐 보내 보고 멈춘다. 종료를 오래 붙잡지 않는다."""
+        try:
+            await asyncio.wait_for(self.queue.join(), timeout)
+        except TimeoutError:
+            log.warning("ai.traces 추론 기록 %d건을 보내지 못하고 멈춘다", self.queue.qsize())
+        if self._task:
+            self._task.cancel()
+
+
 class TaskWorker:
     def __init__(self, shift: ShiftAgent, send: Send, processed: Processed, pump: EventPump, *,
                  max_attempts: int = 3) -> None:
@@ -218,28 +272,39 @@ async def _keep_ready(path: Path) -> None:
         await asyncio.sleep(READY_EVERY)
 
 
-async def run_kafka(make_shift: Callable[[Callable[[dict], None]], ShiftAgent], processed: Processed,
-                    bootstrap: str, *, group_id: str = "agent", stop: asyncio.Event | None = None,
-                    ready_file: str | None = None) -> None:
+async def run_kafka(make_shift: Callable[[Callable[[dict], None], Callable[[dict], None] | None], ShiftAgent],
+                    processed: Processed, bootstrap: str, *, group_id: str = "agent", stop: asyncio.Event | None = None,
+                    ready_file: str | None = None, trace: bool = True) -> None:
     """Kafka에 붙어 명령을 계속 처리한다. 한 건을 끝까지 처리한 뒤에만 오프셋을 커밋한다.
 
-    make_shift(publish) → ShiftAgent. ready_file은 브로커에 붙은 뒤에 만들고 끝날 때 지운다 (healthcheck용).
+    make_shift(publish, trace_publish) → ShiftAgent. trace_publish는 `ai.traces` 발행기(trace=False면 None)다.
+    ready_file은 브로커에 붙은 뒤에 만들고 끝날 때 지운다 (healthcheck용).
     """
     from aiokafka import AIOKafkaConsumer, AIOKafkaProducer  # 운영에서만 필요한 의존성
 
     consumer = AIOKafkaConsumer(TASKS, RETRY, bootstrap_servers=bootstrap, group_id=group_id,
                                 enable_auto_commit=False, auto_offset_reset="earliest")
     producer = AIOKafkaProducer(bootstrap_servers=bootstrap, enable_idempotence=True)
+    # 추론 기록은 따로 연 producer로 보낸다. 기록이 몰려도 ai.events 발행이 같은 버퍼에서 기다리지 않는다
+    trace_producer = AIOKafkaProducer(bootstrap_servers=bootstrap, acks=1, linger_ms=50) if trace else None
     await consumer.start()
     await producer.start()
+    if trace_producer:
+        await trace_producer.start()
 
-    async def send(topic: str, key: str | None, value: bytes, headers: dict[str, str]) -> None:
-        await producer.send_and_wait(topic, value, key=key.encode() if key else None,
-                                     headers=[(k, str(v).encode()) for k, v in headers.items()])
+    def sender(target):
+        async def send(topic: str, key: str | None, value: bytes, headers: dict[str, str]) -> None:
+            await target.send_and_wait(topic, value, key=key.encode() if key else None,
+                                       headers=[(k, str(v).encode()) for k, v in headers.items()])
+        return send
 
+    send = sender(producer)
     pump = EventPump(send)
     pump.start()
-    worker = TaskWorker(make_shift(pump.publish), send, processed, pump)
+    traces = TracePump(sender(trace_producer)) if trace_producer else None
+    if traces:
+        traces.start()
+    worker = TaskWorker(make_shift(pump.publish, traces.publish if traces else None), send, processed, pump)
     ready = asyncio.create_task(_keep_ready(Path(ready_file))) if ready_file else None
     try:
         async for record in consumer:
@@ -255,5 +320,9 @@ async def run_kafka(make_shift: Callable[[Callable[[dict], None]], ShiftAgent], 
             ready.cancel()
             Path(ready_file).unlink(missing_ok=True)
         await pump.stop()
+        if traces:
+            await traces.stop()
         await consumer.stop()
         await producer.stop()
+        if trace_producer:
+            await trace_producer.stop()

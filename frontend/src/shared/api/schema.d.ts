@@ -262,6 +262,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/agent-traces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 에이전트 추론 기록 (관리자)
+         * @description agent가 `ai.traces`로 보낸 추론 기록을 받은 순서(`id`)대로 준다. 모델이 고를 수 있던 도구와 빠진 도구, 턴마다 고른 도구와
+         *     그 이유(`rationale`), 실행 인자와 결과 미리보기, 안전장치(인자 검증·반복 호출·한도)와 승인 대기를 한 줄씩 볼 수 있다.
+         *     값은 agent가 마스킹한 것이다. **관리자만** 본다 (기사 화면·작업 SSE로는 가지 않는다).
+         *
+         *     - 아무 조건이 없으면 가장 최근 `limit`건을 오래된 것부터 준다. `hasMore`는 그보다 앞선 기록이 있는가이다.
+         *     - `before`: 그 `id`보다 앞선 `limit`건 (더 보기). `after`: 그 `id`보다 뒤의 기록을 `limit`건까지 (`hasMore`는 더 뒤가 있는가).
+         *     - `before`와 `after`는 함께 쓰지 않는다 (400).
+         *     - 최선 노력 기록이라 빠진 줄이 있을 수 있다. 업무·감사 판단은 감사 기록과 작업 이벤트로 한다. 보관은 기본 7일이다.
+         */
+        get: operations["listAgentTraces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/agent-traces/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 에이전트 추론 기록 실시간 (SSE, 관리자)
+         * @description `text/event-stream`. 새 추론 기록을 1초 안에 보낸다. 각 이벤트는 `id`(기록 `id`), `event`(`AgentTraceKind`),
+         *     `data`(JSON, `AgentTrace`)다. 15초마다 주석 줄(`: ping`)을 보낸다. 작업이 끝나도 닫지 않는다 (화면이 닫는다).
+         *
+         *     - `Last-Event-ID`를 보내면 그 다음 기록부터 보낸다. 없으면 연결한 뒤에 들어온 기록만 보낸다 (지난 기록은 목록 API로 읽는다).
+         *     - `taskId`·`shiftId`를 주면 그 작업·근무조의 기록만 보낸다.
+         */
+        get: operations["streamAgentTraces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/regions/{regionId}/stations": {
         parameters: {
             query?: never;
@@ -600,6 +651,121 @@ export interface components {
             error?: string;
             /** @description FAILED만. 실패 종류 (예 LOOP_TIMEOUT, OUTPUT_INVALID). 화면 분기용이고 값 목록은 agent가 정한다 */
             code?: string | null;
+        };
+        /**
+         * @description RUN_START 실행 구간 시작 / ROUTE 근무조 그래프의 경로 선택 / DECISION 모델(또는 규칙)의 다음 행동 선택 /
+         *     GUARD 안전장치 / TOOL_CALL·TOOL_RESULT 도구 실행 / RECOVERY 모델 재시도·대체 / APPROVAL_WAIT 승인 대기 / RUN_END 실행 구간 끝
+         * @enum {string}
+         */
+        AgentTraceKind: "RUN_START" | "ROUTE" | "DECISION" | "GUARD" | "TOOL_CALL" | "TOOL_RESULT" | "RECOVERY" | "APPROVAL_WAIT" | "RUN_END";
+        /** @description 추론 기록 한 줄 (asyncapi `AgentTraceMessage` + backend가 매긴 `id`·받은 시각) */
+        AgentTrace: {
+            /**
+             * Format: int64
+             * @description 받은 순서. SSE id와 같다
+             */
+            id: number;
+            /** Format: uuid */
+            eventId: string;
+            /** Format: uuid */
+            taskId: string;
+            shiftId: string;
+            /** @description 작업의 traceId (LangSmith trace와 같은 값) */
+            traceId?: string | null;
+            /** @description Harness 실행 구간 ID. 규칙 경로·그래프 기록은 null */
+            runId?: string | null;
+            /**
+             * @description GRAPH 근무조 그래프 / HARNESS 모델 경로 / CODE 모델 없는 규칙 경로
+             * @enum {string}
+             */
+            source: "GRAPH" | "HARNESS" | "CODE";
+            kind: components["schemas"]["AgentTraceKind"];
+            /** @description 실행 구간 안의 모델 호출 순번 */
+            turn?: number | null;
+            /** @description 한 줄 요약 (화면 로그 줄) */
+            title: string;
+            detail: components["schemas"]["AgentTraceDetail"];
+            /** Format: date-time */
+            occurredAt: string;
+            /** Format: date-time */
+            receivedAt: string;
+        };
+        /** @description 종류별 내용 (asyncapi `AgentTraceMessage` 표). 아래는 화면이 읽는 필드이고, 이 밖의 필드도 올 수 있다. */
+        AgentTraceDetail: {
+            /**
+             * @description RUN_START
+             * @enum {string}
+             */
+            segment?: "start" | "resume";
+            /** @description RUN_START. plan_draft·field_report·manager_request·qa */
+            taskType?: string;
+            /** @description RUN_START·DECISION */
+            model?: string | null;
+            /** @description RUN_START */
+            promptVersion?: string;
+            /** @description RUN_START. 모델이 고를 수 있는 도구 */
+            tools?: string[];
+            /** @description RUN_START. 빠진 도구와 이유 (읽기 전용 작업, 기사 작업) */
+            withheld?: {
+                name?: string;
+                why?: string;
+            }[];
+            /** @description DECISION. 고른 도구 호출 */
+            calls?: {
+                id?: string;
+                name?: string;
+                args?: {
+                    [key: string]: unknown;
+                };
+                /** @description 모델이 적은 선택 이유 */
+                rationale?: string | null;
+            }[];
+            /** @description DECISION. 모델이 호출과 함께 쓴 글·추론 */
+            thought?: string;
+            /** @description DECISION(도구를 더 부르지 않을 때)·RUN_END */
+            answer?: string | null;
+            /** @description DECISION. 모델 응답 시간 */
+            latencyMs?: number;
+            inputTokens?: number | null;
+            outputTokens?: number | null;
+            /** @description TOOL_CALL·TOOL_RESULT 도구 이름 */
+            name?: string;
+            /** @description TOOL_CALL 실행 인자 */
+            args?: {
+                [key: string]: unknown;
+            };
+            /** @description TOOL_CALL */
+            rationale?: string | null;
+            /** @description TOOL_RESULT */
+            ok?: boolean;
+            /** @description TOOL_RESULT 실행 시간 */
+            ms?: number;
+            /** @description TOOL_RESULT 결과 앞부분 (마스킹) */
+            preview?: string;
+            /** @description GUARD. ARGUMENT_VALIDATION·SAME_TOOL·MAX_TURNS·TIMEOUT */
+            rule?: string;
+            /** @description GUARD(RETRY·BLOCK·FAIL)·RECOVERY(RETRY·FALLBACK·GIVE_UP) */
+            action?: string;
+            /** @description GUARD */
+            reasons?: string[];
+            /** @description ROUTE. harness·code·settle·skip */
+            path?: string;
+            /** @description ROUTE·APPROVAL_WAIT */
+            why?: string;
+            /** @description RUN_END. DONE·APPROVAL_REQUIRED·FAILED */
+            status?: string;
+            /** @description RUN_END 실패 코드 */
+            code?: string | null;
+            /** @description APPROVAL_WAIT 카드 요약 */
+            summary?: string;
+            /** @description APPROVAL_WAIT */
+            approver?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        AgentTracePage: {
+            items: components["schemas"]["AgentTrace"][];
+            hasMore: boolean;
         };
         /**
          * @description 변경 도구 앞에서 에이전트가 멈췄을 때의 승인 카드. 승인하면 그 변경을 받아들인 것이다.
@@ -1363,6 +1529,62 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    listAgentTraces: {
+        parameters: {
+            query?: {
+                taskId?: string;
+                shiftId?: string;
+                before?: number;
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 오래된 것부터 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTracePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    streamAgentTraces: {
+        parameters: {
+            query?: {
+                taskId?: string;
+                shiftId?: string;
+            };
+            header?: {
+                "Last-Event-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 추론 기록 스트림 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listRegionStations: {

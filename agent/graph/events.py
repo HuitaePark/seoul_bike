@@ -9,13 +9,18 @@
 - `FAILED`: 모델 장애면 LLM 없는 경로로 다시 하므로, 실패가 먼저 나가면 안 된다 (`release` 또는 `drop`)
 - `APPROVAL_REQUIRED`: 계획 카드에 트럭별 경로(확장 G9)를 붙여 내보낸다 (`release_with`)
 - `DONE`: 빠진 문서 근거를 채워 내보낸다 (`release_with`, ISS-23)
+
+추론 기록(`ai.traces`, harness/trace.py)은 다른 통로다. 잡아 두지 않고 바로 내보내며, 발행이 실패해도 작업에는 영향이 없다.
 """
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import Any
 
-from harness import ProgressEvent
+from harness import ProgressEvent, TraceEvent
+from harness.guardrails import Masker
+from harness.trace import TraceKind, TraceSource
 
 from .contract import plain_hyphens
 
@@ -37,11 +42,23 @@ def message(event: ProgressEvent) -> dict:
 
 
 class ShiftEventSink:
-    """근무조 그래프가 쓰는 이벤트 출구. `publish`는 Kafka 발행기(운영)나 목록(테스트)."""
+    """근무조 그래프가 쓰는 이벤트 출구. `publish`는 Kafka 발행기(운영)나 목록(테스트).
 
-    def __init__(self, publish: Publish) -> None:
+    `trace`가 있으면 추론 기록도 내보낸다 (Harness `TraceSink`). 없으면 추론 기록은 버린다."""
+
+    def __init__(self, publish: Publish, trace: Publish | None = None) -> None:
         self.publish = publish
+        self._trace = trace
         self._held: dict[str, list[ProgressEvent]] = {}
+
+    def trace(self, event: TraceEvent) -> None:
+        """Harness·그래프·LLM 없는 경로가 부른다. 관리자 로그일 뿐이라 실패해도 삼킨다 (작업을 막지 않는다)."""
+        if self._trace is None:
+            return
+        try:
+            self._trace(plain_hyphens(event.to_json()))
+        except Exception:  # noqa: BLE001
+            log.debug("추론 기록을 내보내지 못했다: %s", event.kind, exc_info=True)
 
     def emit(self, event: ProgressEvent) -> None:
         """Harness가 부른다 (`EventSink` 프로토콜)."""
@@ -79,3 +96,21 @@ class ShiftEventSink:
         dropped = self._held.pop(task_id, [])
         if dropped:
             log.info("작업 %s: 대체 경로로 넘어가며 이벤트 %d건을 내보내지 않음", task_id, len(dropped))
+
+
+class GraphTracer:
+    """그래프와 LLM 없는 경로가 남기는 추론 기록 한 줄. 작업 기록(`ShiftState.tasks` 한 칸)을 받아 가린 뒤 내보낸다."""
+
+    def __init__(self, sink: ShiftEventSink, masker: Masker) -> None:
+        self.sink = sink
+        self.masker = masker
+
+    def __call__(self, record: dict, kind: TraceKind, title: str, detail: dict[str, Any] | None = None, *,
+                 source: TraceSource = "GRAPH", turn: int | None = None) -> None:
+        try:
+            event = TraceEvent(kind, source, record["taskId"], record["traceId"], record["shiftId"],
+                               self.masker.text(title), self.masker.value(detail or {}), turn=turn)
+        except Exception:  # noqa: BLE001 - 기록을 못 만들어도 작업은 그대로 간다
+            log.debug("추론 기록을 만들지 못했다: %s", kind, exc_info=True)
+            return
+        self.sink.trace(event)

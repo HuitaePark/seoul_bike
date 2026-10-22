@@ -54,13 +54,14 @@ from .approvals import (
 from .brief import make_brief
 from .codepath import CodePath, ToolFailed, ToolMissing, failed
 from .contract import CommandError, TaskCommand
-from .events import Publish, ShiftEventSink
+from .events import GraphTracer, Publish, ShiftEventSink
 
 log = logging.getLogger(__name__)
 
 MODEL_FAILURES = {"MODEL_UNAVAILABLE", "MODEL_ERROR"}  # 이 실패면 LLM 없는 경로로 다시 해 본다
 DEFAULT_INPUT = {"PLAN_DRAFT": "이번 근무조의 재배치 계획 초안을 만들어 주세요."}
 RECEIVED = {"DONE", "WAITING_APPROVAL"}  # 같은 작업이 다시 오면 버리는 상태. RUNNING은 앞선 처리가 끊긴 것이라 다시 한다
+ROUTE_LABEL = {"harness": "모델 경로", "code": "규칙 경로", "settle": "실행하지 않고 닫음", "skip": "무시"}
 
 
 def merge(left: dict | None, right: dict | None) -> dict:
@@ -75,6 +76,7 @@ class ShiftState(TypedDict, total=False):
     command: dict  # 이번 실행의 TaskCommand 원문
     current: str  # 이번 실행이 다루는 taskId
     route: str  # 다음 노드 선택
+    why: str  # 그 선택의 이유 (추론 기록 ROUTE)
     outcome: dict  # 이번 실행 결과
     tasks: Annotated[dict[str, dict], merge]  # taskId → 작업 기록
     approvals: Annotated[dict[str, dict], merge]  # approvalId → 카드와 상태 (PENDING·DECIDED·SUPERSEDED)
@@ -114,6 +116,7 @@ class ShiftAgent:
 
     harness: EventSink를 받아 HarnessAgent를 만드는 함수. None이면 모든 작업을 LLM 없는 경로로 처리한다.
     driver_names: 자유 글(의견·메모)에서 가릴 기사 이름. 계약에 이름 목록이 없어 설정으로 받는다.
+    trace: 추론 기록(`ai.traces`, 관리자 로그) 발행기. None이면 남기지 않는다. 진행 이벤트(`publish`)와 따로 간다.
     """
 
     def __init__(
@@ -125,14 +128,16 @@ class ShiftAgent:
         harness: Callable[[EventSink], HarnessAgent] | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         driver_names: Iterable[str] = (),
+        trace: Publish | None = None,
     ) -> None:
         self.config = config or load_config()
-        self.sink = ShiftEventSink(publish)
-        self.code = CodePath(tools, self.config)
-        self.agent = harness(self.sink) if harness else None
-        self.checkpointer = checkpointer or InMemorySaver()
         self.driver_names = tuple(driver_names)
         self.masker = Masker(self.config.guardrails.mask_keys, self.driver_names)
+        self.sink = ShiftEventSink(publish, trace)  # Harness는 이 출구로 추론 기록도 낸다 (TraceSink)
+        self.tracer = GraphTracer(self.sink, self.masker)
+        self.code = CodePath(tools, self.config, tracer=self.tracer, masker=self.masker)
+        self.agent = harness(self.sink) if harness else None
+        self.checkpointer = checkpointer or InMemorySaver()
         self.graph = self._build()
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -172,7 +177,21 @@ class ShiftAgent:
         return g.compile(checkpointer=self.checkpointer, name="shift")
 
     async def _receive(self, state: ShiftState) -> dict:
-        """명령 검증, 작업 등록, 경로 선택."""
+        """명령 검증, 작업 등록, 경로 선택. 고른 경로와 이유를 추론 기록(ROUTE)에 남긴다."""
+        update = await self._route(state)
+        cmd = TaskCommand.parse(state["command"])
+        record = (update.get("tasks") or {}).get(cmd.task_id) or (state.get("tasks") or {}).get(cmd.task_id) or {
+            "taskId": cmd.task_id, "traceId": cmd.trace_id, "shiftId": cmd.shift_id}
+        route = update.get("route", "")
+        detail: dict[str, Any] = {"command": cmd.type, "path": route, "why": update.get("why", "")}
+        if cmd.type == "RESUME":
+            detail["decision"] = cmd.resume.decision
+        elif record.get("attempt"):
+            detail["attempt"] = record["attempt"]
+        self.tracer(record, "ROUTE", f"{cmd.type} → {ROUTE_LABEL.get(route, route)}: {update.get('why', '')}", detail)
+        return update
+
+    async def _route(self, state: ShiftState) -> dict:
         cmd = TaskCommand.parse(state["command"])
         tasks, approvals = state.get("tasks") or {}, state.get("approvals") or {}
 
@@ -185,8 +204,8 @@ class ShiftAgent:
                 log.info("대기 중이 아닌 승인 %s (%s)", r.approval_id, pending and pending["status"])
                 if pending and record and record["status"] != "RUNNING":
                     # 이미 처리한 결정이 다시 왔거나 대체된 카드다. 작업의 지금 상태(다음 카드·완료·실패)는 backend가 이미 받았다
-                    return {"route": "skip", "outcome": {"status": "IGNORED", "taskId": cmd.task_id,
-                                                         "reason": "대기 중인 승인이 아니다"}}
+                    return {"route": "skip", "why": "이미 처리했거나 대체된 승인 카드에 대한 결정이다",
+                            "outcome": {"status": "IGNORED", "taskId": cmd.task_id, "reason": "대기 중인 승인이 아니다"}}
                 if record and record["status"] == "RUNNING":
                     # 승인 처리 도중 끊긴 작업이 다시 왔다. 승인된 변경이 이미 실행됐을 수 있어 다시 하지 않는다
                     return self._refuse(cmd, record, "승인 처리 도중 끊긴 작업이라 다시 실행하지 않았다 (변경이 이미 실행됐을 수 있다)")
@@ -208,9 +227,12 @@ class ShiftAgent:
                 resume["excludeStationIds"] = exclude
             if r.comment:
                 resume["comment"] = r.comment
+            then = "제외할 대여소를 빼고 다시 계산한다" if exclude else (
+                "승인된 호출을 실행한다" if r.decision == "APPROVE" else "실행하지 않고 사유를 반영해 마무리한다")
             return {
                 "current": record["taskId"],
                 "route": record["path"],
+                "why": f"{card['kind']} 카드에 {r.decided_by.get('role')}의 {r.decision}: 멈춘 작업을 이어 {then}",
                 "approvals": {r.approval_id: {**pending, "status": "DECIDED", "decision": r.decision}},
                 "tasks": {record["taskId"]: {**record, "status": "RUNNING", "resume": resume,
                                              "excluded": [*(record.get("excluded") or []), *exclude]}},
@@ -218,7 +240,8 @@ class ShiftAgent:
 
         old = tasks.get(cmd.task_id)
         if old and old["status"] in RECEIVED:
-            return {"route": "skip", "outcome": {"status": "IGNORED", "taskId": cmd.task_id, "reason": "이미 받은 작업"}}
+            return {"route": "skip", "why": f"이미 받은 작업이다 (지금 {old['status']})",
+                    "outcome": {"status": "IGNORED", "taskId": cmd.task_id, "reason": "이미 받은 작업"}}
         if old and old["status"] == "RUNNING":
             # 앞선 처리가 끝나지 못했다 (처리 중 예외 → ai.tasks.retry, 재시작 뒤 재전달). 그때 잡아 둔 이벤트는 버리고 다시 한다
             log.warning("끝나지 않은 작업 %s를 다시 처리한다 (시도 %d)", cmd.task_id, old.get("attempt", 1) + 1)
@@ -232,13 +255,17 @@ class ShiftAgent:
         problem = _requester_problem(cmd, report)
         if cmd.type == "FIELD_REPORT" and not report:
             problem = f"보고 {cmd.report_id}를 찾지 못했다"
-        record = _record(cmd, state["command"], report=report, attempt=(old or {}).get("attempt", 0) + 1,
-                         path=self._path(cmd, report))
-        update: dict[str, Any] = {"current": cmd.task_id, "route": record["path"], "tasks": {cmd.task_id: record}}
+        path, why = self._path(cmd, report)
+        record = _record(cmd, state["command"], report=report, attempt=(old or {}).get("attempt", 0) + 1, path=path)
+        if old:
+            again = "앞선 처리가 끝나지 못해" if old["status"] == "RUNNING" else "실패로 끝난 작업을 backend가 다시 보내"
+            why = f"{again} 처음부터 다시 한다. {why}"
+        update: dict[str, Any] = {"current": cmd.task_id, "route": path, "why": why, "tasks": {cmd.task_id: record}}
         if report:
             update["reports"] = [*(state.get("reports") or []), report][-10:]
         if problem:
             update["route"] = "settle"
+            update["why"] = f"작업을 시작할 수 없다: {problem}"
             update["outcome"] = failed("OUTPUT_INVALID", problem)
         return update
 
@@ -248,16 +275,17 @@ class ShiftAgent:
 
         backend는 결정을 받으며 작업을 RUNNING으로 바꾼다. 이벤트 없이 끝내면 작업이 그 상태에 멈춘다."""
         record = record or _record(cmd, {})
-        return {"current": cmd.task_id, "route": "settle", "tasks": {cmd.task_id: {**record, "resume": None}},
-                "outcome": failed("INTERNAL_ERROR", why), **update}
+        return {"current": cmd.task_id, "route": "settle", "why": why,
+                "tasks": {cmd.task_id: {**record, "resume": None}}, "outcome": failed("INTERNAL_ERROR", why), **update}
 
-    def _path(self, cmd: TaskCommand, report: dict | None) -> str:
-        """LLM 경로(harness)인가, LLM 없는 경로(code)인가."""
+    def _path(self, cmd: TaskCommand, report: dict | None) -> tuple[str, str]:
+        """LLM 경로(harness)인가, LLM 없는 경로(code)인가, 그리고 그 이유."""
         if self.agent is None:
-            return "code"
+            return "code", "모델 없이 운영 중이라 (AGENT_LLM=none) 규칙대로 도구를 부른다"
         if cmd.type == "FIELD_REPORT" and report is not None and not report.get("memo"):
-            return "code"  # 메모 없는 보고는 숫자뿐이다 (HARNESS 10절)
-        return "harness"
+            # 메모 없는 보고는 숫자뿐이다 (HARNESS 10절)
+            return "code", "메모 없는 현장 보고라 해석할 글이 없다. 재경로 10초(NFR-01) 안에 끝내려고 규칙대로 바로 다시 계산한다"
+        return "harness", "모델이 요청을 해석해 쓸 도구를 고른다"
 
     async def _run_harness(self, state: ShiftState) -> dict:
         """Harness `start` 또는 `resume_command`. 잡아 둔 카드는 보강해 내보내고, 결과를 상태에 적는다."""
@@ -360,6 +388,8 @@ class ShiftAgent:
                 log.warning("모델 장애 %s → LLM 없는 경로 (%s)", record["taskId"], out.get("code"))
                 self.sink.drop(record["taskId"])
                 record["path"] = "code"
+                self.tracer(record, "ROUTE", f"모델 장애({out.get('code')}) → 규칙 경로로 다시 한다 (NFR-03)",
+                            {"command": record["type"], "path": "code", "why": out.get("message"), "fallback": True})
                 return {"route": "code", "tasks": {record["taskId"]: record}}
             if out.get("via") != "harness":  # Harness는 FAILED를 이미 냈다 (잡아 둔 것을 아래에서 내보낸다)
                 self.sink.send(record, "FAILED", error=f"{out.get('code')}: {out.get('message')}", code=out.get("code"))

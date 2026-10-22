@@ -17,7 +17,7 @@ agent 서버 안에서 모델을 감싸는 Harness 8요소와 그 평가셋이�
 | `harness.yaml` | 모든 한도와 설정값 |
 | `prompts/` | 작업 종류별 프롬프트 (`version` 필수) |
 | `evaluation/` | 시나리오 평가셋, 평가 전용 가짜 MCP 서버, 스크립트 모델, 채점, 실행기 |
-| `tests/` | Harness 동작 테스트(`test_harness.py`), 근무조 그래프 테스트(`test_graph*.py`) |
+| `tests/` | Harness 동작 테스트(`test_harness.py`), 근무조 그래프 테스트(`test_graph*.py`), 추론 기록 테스트(`test_trace.py`) |
 | `e2e/` | 실제 backend·Kafka와 붙여 보는 통합 확인 (compose 덮어쓰기, 03a 스크립트) |
 
 ## 설치
@@ -33,7 +33,7 @@ uv pip install -e ".[dev]"   # dev: 계약 스키마 검사(jsonschema)
 반드시 `agent/` 폴더에서, 이 폴더의 `.venv` Python으로 실행한다. `python`이 다른 버전(예: Homebrew 3.11)이나 다른 프로젝트 가상환경을 가리키면 테스트를 못 찾거나(`Ran 0 tests`) 다른 프로젝트 테스트가 실행된다.
 
 ```bash
-.venv/bin/python -m unittest discover tests -v      # 동작 테스트 (Harness 39 + 그래프 35), 키 불필요, 약 4초
+.venv/bin/python -m unittest discover tests -v      # 동작 테스트 (Harness 40 + 그래프 36 + 추론 기록 18, PostgreSQL 1은 주소가 있을 때만), 키 불필요, 약 6초
 .venv/bin/python -m unittest tests.test_harness.RecoveryTest.test_fallback_model_after_retries   # 한 줄로 입력
 .venv/bin/python -m evaluation --out /tmp/eval.md   # 시나리오 15개, 키 불필요, 약 3초
 ```
@@ -44,6 +44,7 @@ uv pip install -e ".[dev]"   # dev: 계약 스키마 검사(jsonschema)
 | `python -m evaluation --label {변경}` | 결과를 `docs/eval/YYYY-MM-DD-{변경}.md`로 남길 때 |
 | `python -m evaluation --model ollama:gemma4:31b --label {변경}` | 실제 모델 평가. `agent/.env`의 `OLLAMA_HOST`·`OLLAMA_API_KEY`를 먼저 읽는다 (`set -a; . ./.env; set +a`). 설명 품질 LLM 채점 포함 |
 | `python -m evaluation --only SC-01,FT-05` | 일부 시나리오만 |
+| `python -m evaluation --model ollama:gemma4:31b --trace /tmp/trace.jsonl` | 추론 기록(모델이 고른 도구와 이유)도 남긴다. `python -m graph.agentlog --file /tmp/trace.jsonl --only SC-02 -v`로 본다 |
 
 LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 설정한다. 평가 trace는 `seoul-bike-eval` 프로젝트에 `harness:{task_type}` 이름으로 남는다.
 
@@ -117,6 +118,18 @@ LangSmith에 기록하려면 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`를 �
 | `AGENT_LLM` | harness.yaml 모델 | `none`이면 LLM 없는 경로만, `ollama:<모델>`·`openai:<모델>`이면 그 모델 (서버는 `openai:gpt-4.1-mini`, `OPENAI_API_KEY` 필요) |
 | `MCP_BUSINESS_URL` · `MCP_RAG_URL` | `http://business-mcp:9101/mcp` · `http://rag-mcp:9102/mcp` | MCP 서버 |
 | `MCP_FAKE` | `0` | `1`이면 평가용 가짜 MCP (예시 데이터, backend는 바뀌지 않는다. 시연에는 쓰지 않는다) |
+| `AGENT_TRACE` | `1` | `0`이면 추론 기록(`ai.traces`, 관리자 로그)을 보내지 않는다 |
+
+### 추론 기록 (관리자 로그)
+
+모델이 어떤 도구를 왜 골랐는지(`rationale`), 실행 인자와 결과, 안전장치 판단을 `ai.traces`로 보낸다. backend가 저장하고 관리자(MANAGER)만 화면 `/admin/agent-log`와 API `/api/admin/agent-traces`로 본다. 진행 이벤트(`ai.events`)와 따로 가고, 발행이 실패해도 작업은 그대로다 ([AGENT-GRAPH 10절](../docs/AGENT-GRAPH.md#10-추론-기록과-관리자-로그), [HARNESS 3.9](../docs/HARNESS.md#39-추론-기록-관리자-로그)).
+
+```bash
+python -m graph.agentlog --url https://baki-macbookpro.tail3286a4.ts.net --login manager            # 실시간으로 따라간다
+python -m graph.agentlog --url http://localhost:3000 --login manager --task <작업 ID> --no-follow -v # 한 작업의 지난 기록
+```
+
+비밀번호는 `AGENT_LOG_PASSWORD` 또는 입력으로 받는다.
 
 팀 compose에서는 `agent` 서비스로 뜬다 (`Dockerfile`, [infra/compose.yaml](../infra/compose.yaml)). `docker compose up`이 backend·redpanda·PostgreSQL과 함께 띄우고, 위 변수는 compose가 넣는다: 브로커 `redpanda:9092`, PostgreSQL은 `agent` 데이터베이스(`agent-db-init`이 만든다), `MCP_FAKE`는 기본 `0`(실제 business-mcp·rag-mcp), `AGENT_LLM`·`OPENAI_API_KEY`·`OLLAMA_*`·`MCP_*`는 `infra/.env`에서 읽는다. healthcheck는 agent가 MCP·Kafka에 붙은 뒤 갱신하는 `/tmp/agent-ready`를 본다. 이때 backend의 `FAKE_AGENT_ENABLED`는 `false`로 둔다 (켜 두면 둘 다 답한다).
 

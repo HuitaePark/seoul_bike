@@ -82,6 +82,7 @@ class ObservabilitySettings:
     eval_project: str
     trace_header: str
     tool_labels: dict[str, str] = field(default_factory=dict)
+    trace_preview_chars: int = 1200  # 추론 기록(ai.traces)에 남기는 도구 결과·답변·판단 글의 최대 길이
 
 
 @dataclass(frozen=True)
@@ -154,6 +155,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG, prompts_dir: Path | str = DEF
             eval_project=o["eval_project"],
             trace_header=o["trace_header"],
             tool_labels=dict(o.get("tool_labels") or {}),
+            trace_preview_chars=int(o.get("trace_preview_chars", 1200)),
         ),
         prompts_dir=Path(prompts_dir),
     )

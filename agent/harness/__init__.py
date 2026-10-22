@@ -8,6 +8,7 @@ from .config import HarnessConfig, load_config
 from .errors import FailureCode, HarnessFailure
 from .events import EventSink, ListSink, ProgressEvent
 from .task import FieldReport, Outcome, Requester, Task
+from .trace import NullTrace, TraceEvent, TraceSink
 
 __all__ = [
     "FailureCode",
@@ -17,10 +18,13 @@ __all__ = [
     "HarnessConfig",
     "HarnessFailure",
     "ListSink",
+    "NullTrace",
     "Outcome",
     "ProgressEvent",
     "Requester",
     "Task",
+    "TraceEvent",
+    "TraceSink",
     "connect",
     "load_config",
 ]

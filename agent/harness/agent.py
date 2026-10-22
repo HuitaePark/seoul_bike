@@ -24,31 +24,32 @@ from langsmith.run_helpers import tracing_context
 from langsmith.utils import tracing_is_enabled
 
 from .config import HarnessConfig
-from .context import StateBriefMiddleware, summarization
+from .context import ApprovedChangeNoteMiddleware, StateBriefMiddleware, summarization
 from .contract import ApprovalMismatch, approval_card, approvers, decision_from_resume, sources
 from .errors import FailureCode, HarnessFailure
 from .events import EventSink
 from .guardrails import Masker, approval_middleware, destructive_tools
 from .loop import LoopGuardMiddleware
 from .prompts import Prompt, load_prompt, task_message
-from .recovery import RecoveryMiddleware, Sleep
+from .recovery import RecoveryMiddleware, Sleep, model_name
 from .task import HarnessContext, Outcome, Task
-from .tools import ToolResultMiddleware, hide_injected_args, select_tools
+from .tools import ToolResultMiddleware, hide_injected_args, offered_tools
+from .trace import DecisionTraceMiddleware, NullTrace, TraceSink, clip, with_rationale
 from .tracing import UsageMiddleware, langsmith_client, run_config
 from .validation import ArgumentValidationMiddleware
 
 log = logging.getLogger(__name__)
 
 
-def _model_name(model: BaseChatModel) -> str:
-    return getattr(model, "model_name", None) or getattr(model, "model", None) or type(model).__name__
-
-
 class HarnessAgent:
     """Model + Harness for one agent server process.
 
-    Middleware order (outer → inner) for model calls: LoopGuard → ArgumentValidation → Usage → StateBrief → Recovery.
-    Tool calls: LoopGuard → ToolResult. Hooks: Summarization before the model, approval interrupt after it.
+    Middleware order (outer → inner) for model calls: LoopGuard → ArgumentValidation → DecisionTrace → Usage →
+    StateBrief → ApprovedChangeNote → Recovery. Tool calls: LoopGuard → ToolResult. Hooks: Summarization before the model, approval
+    interrupt after it.
+
+    `tracer` receives the decision trace (harness/trace.py). Without one, a sink that can also trace (the graph's
+    ShiftEventSink, ListSink in tests) is used, else nothing is recorded.
     """
 
     def __init__(
@@ -63,6 +64,7 @@ class HarnessAgent:
         project: str | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Sleep = asyncio.sleep,
+        tracer: TraceSink | None = None,
     ) -> None:
         self.config = config
         tools = list(tools)
@@ -70,8 +72,10 @@ class HarnessAgent:
         self.task_id_tools = {
             t.name for t in tools if isinstance(t.args_schema, dict) and "task_id" in t.args_schema.get("properties", {})
         }
-        self.tools = hide_injected_args(tools, config.guardrails.injected_args)
+        # The model sees no Harness-filled ids and must give a `rationale` for every call (stripped before running).
+        self.tools = with_rationale(hide_injected_args(tools, config.guardrails.injected_args))
         self.sink = sink
+        self.tracer = tracer or (sink if isinstance(sink, TraceSink) else NullTrace())
         kwargs = config.models.kwargs
         self.model = model or init_chat_model(config.models.primary, **kwargs)
         self.fallback_model = fallback_model or (
@@ -82,6 +86,7 @@ class HarnessAgent:
         self.clock = clock
         self.sleep = sleep
         self._built: dict[tuple[str, str], tuple[Any, Prompt]] = {}  # (task_type, requester role) -> graph
+        self._offered: dict[tuple[str, str], tuple[list[str], list[dict[str, str]]]] = {}  # same key -> tools, withheld
         self._steps: dict[str, int] = {}  # task_id -> card step in the approval order (in memory, docs/ISSUES.md ISS-19)
         # One masker per process (aliases are name hashes); also the LangSmith anonymizer (tracing.langsmith_client).
         self.masker = Masker(config.guardrails.mask_keys)
@@ -97,25 +102,29 @@ class HarnessAgent:
         key = (task.task_type, task.requester.role)
         if key not in self._built:
             cfg = self.config
-            tools = select_tools(self.tools, task.task_type, task.requester.role, cfg.tools)
+            tools, withheld = offered_tools(self.tools, task.task_type, task.requester.role, cfg.tools)
             gated = destructive_tools(tools)
             if missing := [name for name in gated if name not in cfg.guardrails.approval]:
                 # Every destructive tool must have an approval card; never run one ungated.
                 raise ValueError(f"guardrails.approval has no rule for destructive tools {missing}")
             prompt = load_prompt(cfg.prompts_dir, task.task_type)
+            preview = cfg.observability.trace_preview_chars
             middleware = [
                 LoopGuardMiddleware(cfg.loop),
                 ArgumentValidationMiddleware({t.name for t in tools}, cfg.guardrails.id_pattern, gated),
+                DecisionTraceMiddleware(preview),
                 UsageMiddleware(),
                 StateBriefMiddleware(),
+                ApprovedChangeNoteMiddleware(gated),
                 RecoveryMiddleware(cfg.recovery, self.fallback_model, self.sleep),
                 ToolResultMiddleware(
                     cfg.tools, cfg.observability.tool_labels, cfg.guardrails.approval, cfg.guardrails.injected_args,
-                    self.task_id_tools,
+                    self.task_id_tools, preview,
                 ),
                 summarization(self.model, cfg.context),
                 approval_middleware(gated, cfg.guardrails.approval),
             ]
+            self._offered[key] = ([t.name for t in tools], withheld)
             graph = create_agent(
                 self.model,
                 tools,
@@ -182,8 +191,10 @@ class HarnessAgent:
         if decision["type"] == "approve" and step + 1 < len(approvers(call, messages, rules)):
             self._steps[task.task_id] = step + 1
             following = approval_card(task, call, messages, rules, step + 1)
-            ctx = HarnessContext(task=task, sink=self.sink, masker=self._masker(task), clock=self.clock)
+            ctx = HarnessContext(task=task, sink=self.sink, masker=self._masker(task), clock=self.clock,
+                                 tracer=self.tracer)
             ctx.emit("APPROVAL_REQUIRED", {"approval": following})
+            self._trace_wait(ctx, following, "앞 카드가 승인되어 같은 변경의 다음 카드를 보낸다 (변경은 아직 실행하지 않는다)")
             return Outcome("APPROVAL_REQUIRED", task.task_id, task.trace_id, "", approval=following, stats=ctx.stats)
         self._steps.pop(task.task_id, None)
         return await self.resume(task, [decision])
@@ -192,18 +203,22 @@ class HarnessAgent:
         """Low-level resume with Harness decisions: `{"type": "approve"}`, `{"type": "reject", "message": ...}`,
         `{"type": "edit", "edited_action": {"name": ..., "args": ...}}`. Prefer `resume_command`."""
         rejected = any(d.get("type") == "reject" for d in decisions)
-        return await self._run(task, Command(resume={"decisions": list(decisions)}), self._masker(task), rejected)
+        return await self._run(task, Command(resume={"decisions": list(decisions)}), self._masker(task), rejected,
+                               decisions=decisions)
 
-    async def _run(self, task: Task, payload: Any, masker: Masker, rejected: bool) -> Outcome:
+    async def _run(self, task: Task, payload: Any, masker: Masker, rejected: bool,
+                   decisions: Sequence[dict[str, Any]] | None = None) -> Outcome:
         graph, prompt = self._agent(task)
-        ctx = HarnessContext(task=task, sink=self.sink, masker=masker, clock=self.clock)
         config = run_config(
             task,
             prompt_version=prompt.version,
-            model=_model_name(self.model),
+            model=model_name(self.model),
             recursion_limit=self.recursion_limit,
         )
         run_id = str(config["run_id"])
+        ctx = HarnessContext(task=task, sink=self.sink, masker=masker, clock=self.clock, tracer=self.tracer,
+                             run_id=run_id)
+        self._trace_start(ctx, prompt, decisions)
         try:
             with tracing_context(project_name=self.project, client=self.trace_client):
                 await self._stream(graph, payload, config, ctx)
@@ -219,6 +234,8 @@ class HarnessAgent:
         if state.interrupts:
             card = await self.pending_approval(task)
             ctx.emit("APPROVAL_REQUIRED", {"approval": card}, {"runId": run_id})
+            self._trace_wait(ctx, card, "변경 도구라 실행 전에 멈추고 승인 카드를 보낸다")
+            self._trace_end(ctx, run_id, "APPROVAL_REQUIRED", "승인 대기로 멈춤")
             return Outcome("APPROVAL_REQUIRED", task.task_id, task.trace_id, run_id, approval=card, stats=ctx.stats)
 
         messages = state.values["messages"]
@@ -226,7 +243,52 @@ class HarnessAgent:
         answer = masker.text(last.text if last else "")
         used = sources(messages, self.config.observability.tool_labels)
         ctx.emit("DONE", {"answer": answer, "sources": used}, {"rejected": rejected, **self._summary(ctx, run_id)})
+        self._trace_end(ctx, run_id, "DONE", "완료", answer=answer, rejected=rejected,
+                        sources=[s["title"] for s in used])
         return Outcome("DONE", task.task_id, task.trace_id, run_id, answer=answer, rejected=rejected, stats=ctx.stats)
+
+    def _trace_start(self, ctx: HarnessContext, prompt: Prompt, decisions: Sequence[dict[str, Any]] | None) -> None:
+        """RUN_START: what the model is given to choose from, and why some tools are not offered."""
+        task, cfg = ctx.task, self.config
+        tools, withheld = self._offered[(task.task_type, task.requester.role)]
+        detail: dict[str, Any] = {
+            "segment": "resume" if decisions is not None else "start",
+            "taskType": task.task_type,
+            "requester": {"role": task.requester.role, "truckId": task.requester.truck_id},
+            "model": model_name(self.model),
+            "fallbackModel": model_name(self.fallback_model) if self.fallback_model else None,
+            "promptVersion": prompt.version,
+            "tools": tools,
+            "withheld": withheld,
+            "limits": {"maxTurns": cfg.loop.max_turns, "maxSeconds": cfg.loop.seconds_for(task.task_type),
+                       "maxSameToolCalls": cfg.loop.max_same_tool_calls},
+        }
+        preview = cfg.observability.trace_preview_chars
+        if decisions is None:
+            detail["input"] = clip(ctx.masker.text(task.input), preview)
+            if task.report:
+                detail["report"] = task.report.render()
+            title = f"모델 경로 시작 · {task.task_type} · 도구 {len(tools)}개 중에서 모델이 고른다"
+        else:
+            detail["decisions"] = [{"type": d.get("type"), "message": clip(d.get("message"), preview) or None}
+                                   for d in decisions]
+            title = f"승인 결정({', '.join(str(d.get('type')) for d in decisions)})을 받아 멈춘 호출부터 이어 간다"
+        ctx.trace("RUN_START", title, detail)
+
+    def _trace_wait(self, ctx: HarnessContext, card: dict[str, Any], why: str) -> None:
+        order = card.get("requiredApprovers") or [card["approver"]]
+        step = order.index(card["approver"]) + 1 if card["approver"] in order else 1
+        ctx.trace("APPROVAL_WAIT", f"승인 대기 ({card['approver']} {step}/{len(order)}): {card.get('summary')}", {
+            "approvalId": card["approvalId"], "kind": card["kind"], "approver": card["approver"],
+            "summary": card.get("summary"), "step": step, "of": len(order), "why": why,
+        }, turn=ctx.stats.turns or None)
+
+    def _trace_end(self, ctx: HarnessContext, run_id: str, status: str, label: str, **detail: Any) -> None:
+        stats = self._summary(ctx, run_id)
+        title = f"{label} · {stats['turns']}턴, 도구 {stats['toolCalls']}회, {stats['elapsedS']:.2f}초"
+        if detail.get("answer") is not None:
+            detail["answer"] = clip(detail["answer"], self.config.observability.trace_preview_chars)
+        ctx.trace("RUN_END", title, {"status": status, **detail, "stats": stats})
 
     async def _stream(self, graph: Any, payload: Any, config: dict, ctx: HarnessContext) -> None:
         async for message, meta in graph.astream(payload, config, context=ctx, stream_mode="messages"):
@@ -253,6 +315,7 @@ class HarnessAgent:
     def _failed(self, ctx: HarnessContext, run_id: str, code: FailureCode, message: str) -> Outcome:
         message = ctx.masker.text(message)
         ctx.emit("FAILED", {"error": message, "code": str(code)}, self._summary(ctx, run_id))
+        self._trace_end(ctx, run_id, "FAILED", f"실패 {code}: {clip(message, 120)}", code=str(code), message=message)
         t = ctx.task
         return Outcome("FAILED", t.task_id, t.trace_id, run_id, code=str(code), message=message, stats=ctx.stats)
 

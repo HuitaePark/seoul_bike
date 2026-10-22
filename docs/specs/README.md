@@ -7,7 +7,7 @@
 | --- | --- | --- | --- |
 | [`openapi.yaml`](openapi.yaml) | 공개 API: 로그인, 작업 API 5개(202·SSE·승인), 대여소, 계획, 현장 보고, 성과 | 화면 → backend | 백엔드 |
 | [`internal-api.yaml`](internal-api.yaml) | 내부 API `/internal/**`, MCP 도구 ↔ API 대응표, 승인 확인 규칙 | business-mcp → backend | 백엔드 + MCP |
-| [`asyncapi.yaml`](asyncapi.yaml) | Kafka 토픽과 메시지: `ai.tasks`, `ai.events`, `solve.requests`, `solve.results` | backend ↔ agent, backend ↔ optimizer | 백엔드 + 에이전트 + 최적화 |
+| [`asyncapi.yaml`](asyncapi.yaml) | Kafka 토픽과 메시지: `ai.tasks`, `ai.events`, `ai.traces`, `solve.requests`, `solve.results` | backend ↔ agent, backend ↔ optimizer | 백엔드 + 에이전트 + 최적화 |
 | [`optimizer.md`](optimizer.md) | 공통 solve 대응 계산 규칙·실행 설정, OSRM·캐시와 구현 범위 | backend ↔ optimizer | 최적화 · 인프라 |
 | [`plan-review.md`](plan-review.md) | 지도·마커·방문 순서·계획 검토·실제/시연 분리·거점 제외 후 재검토 | 화면 → 공개 API | 최적화 · 인프라 |
 
@@ -34,6 +34,7 @@
 | --- | --- |
 | 로그인 · `/api/me` · JWT · 역할 3개 | 구현 |
 | 회원가입(승인 대기) · 관리자 계정 관리 (`/api/admin/users`) | 구현 (v0.2) |
+| 에이전트 추론 기록 관리자 로그 (`/api/admin/agent-traces`, `/stream`) · `ai.traces` 소비 | 구현 (openapi v0.16 · asyncapi v0.6). 최선 노력: 재시도·dlq 없음, 보관 7일 |
 | 작업 API 5개 (202 · SSE · `Last-Event-ID` 재전송 · 승인) | 구현 |
 | `ai.tasks` 발행 · `ai.events` 소비 (`seq`는 backend가 부여) | 구현. agent 자리는 **가짜 에이전트**(`FAKE_AGENT_ENABLED`)가 대신한다. `ai.events` 소비는 **재시도(`ai.events.retry`) → `ai.events.dlq`** (형식 오류는 바로 dlq) |
 | `/api/system/status` | 구현 |
@@ -55,6 +56,7 @@
 - **식별자 (2026-10-21 결정, [합의 표](../data/agreements.md)):** 대여소 ID는 실시간 API ID `ST-숫자`다 ([ADR 0001](../adr/0001-station-id-is-realtime-api-id.md)). 대여소번호(`102`)와 숫자가 맞지 않으므로 문자열로 바꾸지 않는다. 구역 ID는 `N01`~`N08`·`S01`~`S09`, 근무조 ID는 `{구역 ID}:{yyyy-MM-dd}:{AM|PM|EVE}`(AM 07–10, PM 13–16, EVE 19–21시). 시각은 `+09:00`을 붙인다.
 - 작업 API 경로와 이름은 과제 레퍼런스(표 5-8)를 그대로 따른다.
 - 진행 이벤트는 `TOKEN`, `TOOL_START`, `TOOL_END`, `APPROVAL_REQUIRED`, `DONE`, `FAILED` 여섯 가지다. SSE `data`와 Kafka `ai.events` 메시지는 같은 형식이다.
+- 모델이 어떤 도구를 왜 골랐는지는 진행 이벤트가 아니라 추론 기록(`ai.traces`, `AgentTrace`)으로 따로 간다. 작업 SSE·기사 화면에는 가지 않고 관리자만 본다.
 - **변경 API 3개(`/internal/constraints`, `/plans/{id}/activate`, `/routes/{truckId}/apply`)는 필요한 승인이 모두 `APPROVED`가 아니면 403**을 돌려준다. 에이전트 interrupt와 별개로 backend가 한 번 더 막는다.
 - **`propose_route_change`의 도구 앞 승인이 곧 기사 수락이다** (HARNESS.md 10절 (나)). 따로 수락 흐름을 두지 않아 같은 변경을 두 번 누르지 않는다. 작은 변경(MINOR)은 기사 카드 한 장, 큰 변경(MAJOR)은 관리자 → 기사 카드 두 장을 같은 작업에서 순서대로 보낸다. 누구에게 보낼지는 backend가 후보의 `requiredApprovers`로 정하고, 에이전트는 등급으로 판단하지 않는다.
 - Kafka 메시지 키는 `shiftId`, 모든 메시지에 `eventId`(중복 제거), `traceId`(관측)를 넣는다. 실패하면 `<토픽>.retry` → `<토픽>.dlq`.
