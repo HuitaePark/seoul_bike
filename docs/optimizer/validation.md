@@ -440,7 +440,7 @@ backend/·frontend/ 폴더와 CI 변경은 main에서 가져왔다. 이번 후�
   v0.8에서 임시 생성한 API 타입 일치·프론트 빌드와 최신 운영 Compose 검사를 다시 통과했다.
   v0.8은 로그인 제한 설명 변경으로 solve·Route·Stop·Unserved 구조는 유지한다.
 
-GitHub 호스팅 러너의 최신 실행 결과는 [PR #29 Checks](https://github.com/skala-ai-mini-project-1/skala_seoul_bike/pull/29/checks)에서 확인한다.
+GitHub 호스팅 러너의 최신 실행 결과는 [PR #29 Checks](https://github.com/team-onetruck/skala_seoul_bike/pull/29/checks)에서 확인한다.
 이 검증은 실제 OSRM 도로 경로나 운영 backend의 solve 연결·배포 완료를 의미하지 않는다.
 
 ## 백엔드 리뷰 반영
@@ -546,7 +546,7 @@ ACK 뒤 commit 전 장애에서는 retry/DLQ도 중복될 수 있다. 분산 exa
 - 작업 중 추가된 PR #34의 43b87ad(backend 요청 retry/DLQ 토픽 생성)와 main 8b3f65a(데이터 PR #10)도 반영했다.
   데이터 파트 소스와 forecast/는 원본 그대로 유지하며 optimizer 예측기 계약은 이번에 변경하지 않았다.
 - 요청 retry/DLQ 토픽 생성 반영 후 backend의 실제 Kafka 왕복 **7개**를 추가로 통과했다.
-- PR #34의 43b87ad는 [CI 8개를 통과](https://github.com/skala-ai-mini-project-1/skala_seoul_bike/pull/34/checks)한 뒤
+- PR #34의 43b87ad는 [CI 8개를 통과](https://github.com/team-onetruck/skala_seoul_bike/pull/34/checks)한 뒤
   관리자가 ded2abe로 main에 병합했다. 그 결과도 hyunmoo에 반영했다. 지도 초기화 수정·문서 정리는
   hyunmoo 후속 변경이며, 이 후속 커밋의 GitHub CI는 별도 실행하지 않았다.
   실제 도로·운영 backend와 worker를 잇는 전체 흐름은 후속 검증이다.

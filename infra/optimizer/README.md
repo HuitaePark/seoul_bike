@@ -117,7 +117,7 @@ OSRM 서버와 optimizer는 같은 결과 폴더를 읽기 전용으로 사용�
 호스트에서 버전을 확인할 때는 `cat "$OSRM_DATA_DIR/data-version"`을 사용한다.
 기존 `optimizer-state`·행렬 캐시 볼륨은 도로 폴더를 바꿔도 보존된다.
 
-hyunmoo는 main의 [PR #107](https://github.com/skala-ai-mini-project-1/skala_seoul_bike/pull/107) 순차 배포에 이 경로와
+hyunmoo는 main의 [PR #107](https://github.com/team-onetruck/skala_seoul_bike/pull/107) 순차 배포에 이 경로와
 OSRM 선택을 연결했다. 경로만 지정하면 기본 배포는 여전히 하버사인이다. 아래 `OSRM_ENABLED=true` 설정이 필요하다.
 실제 도로 복사·PBF 전처리·서버 자원 확인은 이 변경에서 수행하지 않았다.
 
