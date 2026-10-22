@@ -36,7 +36,7 @@ optimizer worker는 생산자의 neededBikes/priority를 덮어쓰거나 업무 
 | 03a·03b 실행 시나리오 | 역할 1·2·4·6 | 초안→관리자 승인→활성화, 현장 보고→현재 상태 재계산→변경안→관리자/기사 승인→기사 경로 반영. 재고 불일치/진입 불가/트럭 지연의 예상 결과와 traceId |
 
 작업 중 PR #88이 main e125e6e에 병합되어 MCP·관제·공통 구역 목록의 N02 이전을 반영했다.
-역할 2의 평가 가짜 데이터는 해당 담당자가 상태를 확인한다. [PR #93](https://github.com/skala-ai-mini-project-1/skala_seoul_bike/pull/93)은
+역할 2의 평가 가짜 데이터는 해당 담당자가 상태를 확인한다. [PR #93](https://github.com/team-onetruck/skala_seoul_bike/pull/93)은
 실시간 collector·배포 환경을 제공하며 작업 중 main b31fcec에 병합돼 함께 반영했다.
 키가 없으면 collector는 healthy여도 수집하지 않는 설계다. 서버 담당이 production secret `SEOUL_API_KEY`를 등록하고
 배포한 뒤 실제 live.station_status의 관측 갱신을 확인해야 한다. 값은 채팅/PR에 남기지 않는다.
@@ -87,4 +87,4 @@ main에 병합된 역할 4의 PR #107 순차 배포에 OSRM 선택·production �
   역할 4와 계약을 정하는 별도 확장 항목이다. OSRM 행렬 연결만으로 도로선을 제공한다고 표시하지 않는다.
 
 독립 구현과 배포 연결은 hyunmoo → main PR로 제출한다. 실제 운영 완료는 위 입력과 통합 실행 결과에 달려 있다.
-미완료 항목은 [이슈 #106](https://github.com/skala-ai-mini-project-1/skala_seoul_bike/issues/106)에서 계속 추적하며 PR 병합으로 닫지 않는다.
+미완료 항목은 [이슈 #106](https://github.com/team-onetruck/skala_seoul_bike/issues/106)에서 계속 추적하며 PR 병합으로 닫지 않는다.

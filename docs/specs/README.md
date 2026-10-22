@@ -14,7 +14,7 @@
 ## 보는 법
 
 - **배포 서버 Swagger:** https://baki-macbookpro.tail3286a4.ts.net/swagger (공개 API, 내부 API를 위쪽 선택 상자로 전환)
-- **서버에 접속이 안 될 때:** [Swagger Editor](https://editor-next.swagger.io/?url=https://raw.githubusercontent.com/skala-ai-mini-project-1/skala_seoul_bike/main/docs/specs/openapi.yaml) · [AsyncAPI Studio](https://studio.asyncapi.com/?url=https://raw.githubusercontent.com/skala-ai-mini-project-1/skala_seoul_bike/main/docs/specs/asyncapi.yaml)
+- **서버에 접속이 안 될 때:** [Swagger Editor](https://editor-next.swagger.io/?url=https://raw.githubusercontent.com/team-onetruck/skala_seoul_bike/main/docs/specs/openapi.yaml) · [AsyncAPI Studio](https://studio.asyncapi.com/?url=https://raw.githubusercontent.com/team-onetruck/skala_seoul_bike/main/docs/specs/asyncapi.yaml)
 - **로컬 검증:**
   ```bash
   npx @redocly/cli lint docs/specs/openapi.yaml docs/specs/internal-api.yaml

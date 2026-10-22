@@ -35,7 +35,9 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.repository == 'skala-ai-mini-project-1/skala_seoul_bike' && github.ref == 'refs/heads/main'
+    # 이 저장소(team-onetruck/skala_seoul_bike)에서만 배포한다 (fork 제외). 이름이 아니라 저장소 ID로 본다:
+    # 조직 이전·이름 변경(HuitaePark → skala-ai-mini-project-1 → team-onetruck)에도 ID는 그대로라 배포가 건너뛰어지지 않는다.
+    if: github.repository_id == '1425174675' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, macOS, ARM64, seoul-bike]
     environment: production
     timeout-minutes: 30

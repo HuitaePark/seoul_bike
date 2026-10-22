@@ -11,7 +11,7 @@ language: ko
 sources:
 - role: primary
   type: github
-  repo: skala-ai-mini-project-1/skala_seoul_bike
+  repo: team-onetruck/skala_seoul_bike
   commit: '9380965'
   paths:
   - docs/PRD.md
