@@ -37,9 +37,16 @@ const riskLabel: Record<Schemas['RiskKind'], string> = { EMPTY: '빈 대여소 �
 const roleLabel: Record<Schemas['StationRole'], string> = { FIXED_PICKUP: '고정 회수', FIXED_DROPOFF: '고정 배치', VARIABLE: '변동' }
 const planStatusLabel: Record<Schemas['Plan']['status'], string> = { DRAFT: '초안', PROPOSED: '승인 대기', ACTIVE: '활성', REJECTED: '거절됨', CLOSED: '종료' }
 
-// 오늘(서울 날짜) 근무조. 시간대는 지금 하고 있거나 다음에 올 것으로 시작하고 레일에서 바꾼다.
+// 근무조 = 구역 + 날짜 + 시간대. 처음에는 오늘(서울 날짜)과 지금 하고 있거나 다음에 올 시간대이고, 레일에서 바꾼다.
+// 자정이 지나면 오늘 근무조에는 아직 계획이 없을 수 있어 지난 근무조(어제 저녁 등)도 날짜로 골라 본다.
+const today = todayInSeoul()
+const date = ref(today)
+// 날짜 칸을 지우면(빈 값) 근무조 ID가 깨지므로 오늘로 되돌린다
+watch(date, (d) => {
+  if (!d) date.value = today
+})
 const slot = ref<ShiftSlot>(slotAt())
-const shiftId = computed(() => makeShiftId(regionId.value, todayInSeoul(), slot.value))
+const shiftId = computed(() => makeShiftId(regionId.value, date.value, slot.value))
 const board = useBoard(regionId, shiftId)
 const { stations, plan, safety, trucks, stationsState, planState, stationsError, planError } = board
 const routes = computed(() => plan.value?.routes ?? [])
@@ -231,12 +238,19 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
     <!-- 왼쪽 레일: 근무조 · 바로 가기 · 요약 -->
     <aside class="rail">
       <section class="rail-card shift">
-        <p class="eyebrow">오늘 근무조</p>
+        <p class="eyebrow">
+          {{ date === today ? '오늘 근무조' : '근무조' }}
+          <button v-if="date !== today" type="button" class="to-today" @click="date = today">오늘로</button>
+        </p>
         <label class="slot region-pick">
           <span class="sr-only">구역</span>
           <select v-model="regionId" class="region">
             <option v-for="r in REGIONS" :key="r.id" :value="r.id">{{ r.name }} ({{ r.id }})</option>
           </select>
+        </label>
+        <label class="slot">
+          <span class="sr-only">날짜</span>
+          <input v-model="date" type="date" required />
         </label>
         <label class="slot">
           <span class="sr-only">시간대</span>
@@ -611,7 +625,8 @@ async function decide(body: ApprovalDecision, card: LiveCard) {
 .shift { background: var(--sky); border-color: #d3e7f3; }
 .region-pick select.region { padding: 2px 4px; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); border-color: transparent; background-color: transparent; }
 .region-pick select.region:hover, .region-pick select.region:focus { border-color: var(--line); }
-.slot select { width: 100%; padding: 5px 8px; font-size: 13px; color: var(--ink-2); }
+.slot select, .slot input[type='date'] { width: 100%; padding: 5px 8px; font-size: 13px; color: var(--ink-2); }
+.to-today { margin-left: auto; padding: 1px 8px; font-size: 11px; font-weight: 700; color: var(--brand-strong); background: #fff; border: 1px solid var(--line); border-radius: 999px; }
 .shift-badges { margin: 6px 0 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .shift-badges .badge { margin: 0; }
 .data-state { margin: 0 0 6px; font-size: 11px; color: var(--ink-3); line-height: 1.5; }

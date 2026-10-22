@@ -296,6 +296,34 @@ for (const width of [900, 390]) {
   })
 }
 
+test('근무조 날짜를 고르면 그 날짜의 근무조 계획을 읽고, 오늘로 돌아올 수 있다', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const plans: string[] = []
+  page.on('request', (r) => {
+    const m = /\/api\/shifts\/([^/]+)\/plan$/.exec(new URL(r.url()).pathname)
+    if (m) plans.push(decodeURIComponent(m[1]!))
+  })
+  await openDashboard(page)
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const date = page.getByLabel('날짜')
+  await expect(date).toHaveValue(today)
+  await expect(page.locator('.shift .eyebrow')).toContainText('오늘 근무조')
+
+  // 자정이 지나 오늘 계획이 없을 때 어제 저녁 근무조를 골라 본다
+  await date.fill('2026-10-21')
+  await page.getByLabel('시간대').selectOption('EVE')
+  await expect.poll(() => plans.at(-1)).toBe('N02:2026-10-21:EVE')
+  await expect(page.locator('.shift .eyebrow')).not.toContainText('오늘 근무조')
+
+  // 날짜 칸을 비우면 근무조 ID가 깨지지 않게 오늘로 돌아간다
+  await date.fill('')
+  await expect(date).toHaveValue(today)
+  await date.fill('2026-10-21')
+  await page.getByRole('button', { name: '오늘로' }).click()
+  await expect(date).toHaveValue(today)
+  await expect.poll(() => plans.at(-1)).toBe(`N02:${today}:EVE`)
+})
+
 test('TR-04 기사는 TR-04 시연 경로를 본다', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('seoul-bike.auth', JSON.stringify({
     token: 'fixture-token', expiresAt: Date.now() + 3_600_000,
