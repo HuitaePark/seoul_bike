@@ -21,6 +21,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/guest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 로그인 없이 들어오기 (손님 계정, 관리자 권한)
+         * @description 아이디·비밀번호 없이 손님 계정(`u-guest`, 역할 **MANAGER**)의 액세스 토큰을 준다. 계획 승인·계정 관리까지 관리자 권한 전부다.
+         *     손님 계정은 처음 부를 때 만들고, 비밀번호는 무작위라 `/api/auth/login`으로는 들어올 수 없다.
+         *     끄는 법: 서버 설정 `GUEST_LOGIN_ENABLED=false`(GUEST_LOGIN_DISABLED), 또는 계정 관리에서 손님 계정을 비활성화(ACCOUNT_DISABLED, 이미 준 토큰도 바로 막힌다).
+         */
+        post: operations["loginAsGuest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/signup": {
         parameters: {
             query?: never;
@@ -897,6 +919,44 @@ export interface operations {
              *     없는 아이디도 똑같이 센다.
              */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    loginAsGuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 손님으로 들어옴 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description 로그인 없이 들어오기가 꺼짐(GUEST_LOGIN_DISABLED) 또는 손님 계정이 비활성(ACCOUNT_DISABLED) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description 아이디 guest를 다른 계정이 먼저 써서 손님 계정을 만들 수 없음 (GUEST_UNAVAILABLE) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

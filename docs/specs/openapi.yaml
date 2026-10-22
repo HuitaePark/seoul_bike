@@ -88,6 +88,33 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /api/auth/guest:
+    post:
+      operationId: loginAsGuest
+      tags: [auth]
+      summary: 로그인 없이 들어오기 (손님 계정, 관리자 권한)
+      description: |
+        아이디·비밀번호 없이 손님 계정(`u-guest`, 역할 **MANAGER**)의 액세스 토큰을 준다. 계획 승인·계정 관리까지 관리자 권한 전부다.
+        손님 계정은 처음 부를 때 만들고, 비밀번호는 무작위라 `/api/auth/login`으로는 들어올 수 없다.
+        끄는 법: 서버 설정 `GUEST_LOGIN_ENABLED=false`(GUEST_LOGIN_DISABLED), 또는 계정 관리에서 손님 계정을 비활성화(ACCOUNT_DISABLED, 이미 준 토큰도 바로 막힌다).
+      security: []
+      responses:
+        '200':
+          description: 손님으로 들어옴
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '403':
+          description: "로그인 없이 들어오기가 꺼짐(GUEST_LOGIN_DISABLED) 또는 손님 계정이 비활성(ACCOUNT_DISABLED)"
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: "아이디 guest를 다른 계정이 먼저 써서 손님 계정을 만들 수 없음 (GUEST_UNAVAILABLE)"
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /api/auth/signup:
     post:
       operationId: signup

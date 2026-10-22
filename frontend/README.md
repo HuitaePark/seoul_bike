@@ -42,6 +42,8 @@ MapLibre·OpenFreeMap을 연결했다. 점선은 방문 순서이고 실제 도�
 
 ## 시연 계정
 
-`manager`(관제), `driver1`·`driver2`(기사, 시연 구역 N02의 TR-03·TR-04), `executive`(책임자). 비밀번호는 서버 `.env`의 `SEED_USER_PASSWORD`이며 팀에 따로 공유한다.
+`manager`(관제), `driver1`·`driver2`(기사, 시연 구역 N02의 TR-03·TR-04), `executive`(책임자). 비밀번호는 서버 `.env`의 `SEED_USER_PASSWORD`이며 팀에 따로 공유한다. 운영 서버의 `manager`만 비밀번호를 `manager`로 바꿔 두었다(2026-10-22, DB에서 직접. 시드는 이미 있는 계정을 덮지 않는다).
+
+**로그인 없이 들어오기:** 로그인 화면의 "로그인 없이 둘러보기" 또는 공유용 주소 `/guest`. 손님 계정(`u-guest`, 관리자 권한 전부: 계획 승인, 계정 관리 포함)으로 들어간다 (`POST /api/auth/guest`). 끄려면 서버 `GUEST_LOGIN_ENABLED=false`로 다시 띄우거나 계정 관리에서 손님 계정을 비활성화한다.
 
 진짜 agent가 붙기 전까지는 backend의 **가짜 에이전트**가 답한다. 모든 답에 `[가짜 에이전트]`가 붙는다.

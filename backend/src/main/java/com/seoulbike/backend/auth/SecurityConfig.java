@@ -84,7 +84,7 @@ class SecurityConfig {
 			.authorizeHttpRequests(auth -> auth
 				// SSE는 비동기 디스패치로 응답을 이어 쓴다. 첫 요청에서 이미 인증했으므로 다시 막지 않는다.
 				.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
-				.requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/signup").permitAll()
+				.requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/signup", "/api/auth/guest").permitAll()
 				.requestMatchers("/api/admin/**").hasRole(Role.MANAGER.name())
 				.requestMatchers(HttpMethod.POST, "/api/reports").hasRole(Role.DRIVER.name())
 				.requestMatchers(HttpMethod.GET, "/api/drivers/me/route").hasRole(Role.DRIVER.name())

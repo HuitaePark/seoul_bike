@@ -12,10 +12,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param loginMaxFailures   같은 아이디로 이만큼 틀리면 {@code loginFailureWindow}가 끝날 때까지 로그인을 막는다
  * @param loginFailureWindow 첫 실패부터 세는 창
  * @param maxPendingSignups  승인 대기 가입 신청이 이만큼 쌓이면 새 신청을 받지 않는다
+ * @param guestEnabled       로그인 없이 들어오기(POST /api/auth/guest, 관리자 권한 손님 계정)를 연다
  */
 @ConfigurationProperties("app.auth")
 record AuthProperties(String jwtSecret, Duration tokenTtl, String seedPassword, int loginMaxFailures,
-		Duration loginFailureWindow, int maxPendingSignups) {
+		Duration loginFailureWindow, int maxPendingSignups, boolean guestEnabled) {
 
 	AuthProperties {
 		if (jwtSecret == null || jwtSecret.getBytes(StandardCharsets.UTF_8).length < 32) {
